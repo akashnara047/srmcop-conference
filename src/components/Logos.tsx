@@ -111,67 +111,125 @@ export const IPALogo: React.FC<{
 };
 
 // Recognition 1: NIRF Ranking
-export const NIRFLogo: React.FC<{ className?: string }> = ({ className = 'h-10' }) => {
+export const NIRFLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
   return (
-    <div className={`flex items-center gap-3 shrink-0 ${className}`}>
-      <svg viewBox="0 0 140 60" className="h-7 sm:h-8 w-auto shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
-        {/* NIRF stylized wordmark with open book ribbon */}
-        <text x="2" y="38" fontSize="34" fontWeight="900" fill="#082746" letterSpacing="-1">
-          nirf
-        </text>
-        {/* Stylized open pages ribbon in Indian tricolor orange & green */}
-        <path d="M4 48C20 44 45 44 65 49C85 44 110 44 130 48" stroke="#EA580C" strokeWidth="4" strokeLinecap="round" />
-        <path d="M6 53C22 49 45 49 65 54C85 49 108 49 128 53" stroke="#16A34A" strokeWidth="3" strokeLinecap="round" />
-      </svg>
+    <div className={`flex items-center gap-2.5 sm:gap-3 shrink-0 ${className}`}>
+      <img
+        src={IMAGES.nirfLogo}
+        alt="NIRF - National Institutional Ranking Framework"
+        className="h-8 sm:h-9 md:h-10 w-auto max-w-[65px] sm:max-w-[75px] object-contain shrink-0"
+        loading="lazy"
+      />
       <div className="flex flex-col text-left leading-tight">
-        <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium">NIRF Ranking</span>
-        <span className="text-sm sm:text-base font-extrabold text-[#082746] tracking-tight">10<sup>th</sup> (2025)</span>
-        <span className="text-[10px] sm:text-[11px] text-slate-600 font-semibold">Pharmacy</span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
+          NIRF Ranking
+        </span>
+        <span className="text-xs sm:text-sm lg:text-[14.5px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight">
+          10<sup>th</sup> <span className="text-[11px] font-semibold text-slate-600">(2025)</span>
+        </span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-600 font-medium font-['Inter',sans-serif]">
+          Pharmacy
+        </span>
       </div>
     </div>
   );
 };
 
 // Recognition 2: NAAC A++ Accreditation
-export const NAACLogo: React.FC<{ className?: string }> = ({ className = 'h-10' }) => {
+export const NAACLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
   return (
-    <div className={`flex items-center gap-3 shrink-0 ${className}`}>
-      {/* NAAC Golden Wreath Ribbon */}
-      <svg viewBox="0 0 80 80" className="h-8 sm:h-9 w-auto aspect-square shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="40" cy="38" r="28" fill="#FEF3C7" stroke="#D97706" strokeWidth="2.5" />
-        <path d="M20 54L14 74L30 68L40 74L50 68L66 74L60 54" fill="#DC2626" />
-        {/* Wreath leaves */}
-        <path d="M22 36C22 26 30 18 40 18C50 18 58 26 58 36C58 46 50 54 40 54" stroke="#B45309" strokeWidth="2" strokeDasharray="3 3" />
-        <text x="40" y="36" textAnchor="middle" fontSize="13" fontWeight="900" fill="#B91C1C">A++</text>
-        <text x="40" y="47" textAnchor="middle" fontSize="8" fontWeight="bold" fill="#78350F">NAAC</text>
-      </svg>
+    <div className={`flex items-center gap-2.5 sm:gap-3 shrink-0 ${className}`}>
+      <img
+        src={IMAGES.naacLogo}
+        alt="NAAC A++ Accredited - Highest Grade"
+        className="h-7 sm:h-8 md:h-9 w-auto max-w-[75px] sm:max-w-[85px] object-contain shrink-0"
+        loading="lazy"
+      />
       <div className="flex flex-col text-left leading-tight">
-        <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium">NAAC</span>
-        <span className="text-sm sm:text-base font-extrabold text-[#082746] tracking-tight">A++ Accreditation</span>
-        <span className="text-[10px] sm:text-[11px] text-slate-600 font-medium">(Highest Grade)</span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
+          NAAC Accreditation
+        </span>
+        <span className="text-xs sm:text-sm lg:text-[14.5px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight">
+          Grade A++
+        </span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-600 font-medium font-['Inter',sans-serif]">
+          Highest Grade
+        </span>
       </div>
     </div>
   );
 };
 
 // Recognition 3: NBA Accreditation
-export const NBALogo: React.FC<{ className?: string }> = ({ className = 'h-10' }) => {
+export const NBALogo: React.FC<{ className?: string }> = ({ className = '' }) => {
   return (
-    <div className={`flex items-center gap-3 shrink-0 ${className}`}>
-      {/* NBA Stylized Cyan Ribbon Logo */}
-      <svg viewBox="0 0 100 60" className="h-7 sm:h-8 w-auto shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="4" y="8" width="92" height="44" rx="4" fill="#0891B2" />
-        <text x="50" y="38" textAnchor="middle" fontSize="26" fontWeight="900" fill="#FFFFFF" letterSpacing="1.5">
-          NBA
-        </text>
-        <text x="50" y="48" textAnchor="middle" fontSize="5" fontWeight="bold" fill="#E0F2FE" letterSpacing="0.2">
-          NATL BOARD OF ACCREDITATION
-        </text>
-      </svg>
+    <div className={`flex items-center gap-2.5 sm:gap-3 shrink-0 ${className}`}>
+      <img
+        src={IMAGES.nbaLogo}
+        alt="NBA - National Board of Accreditation"
+        className="h-8 sm:h-9 md:h-10 w-auto max-w-[42px] sm:max-w-[48px] object-contain shrink-0"
+        loading="lazy"
+      />
       <div className="flex flex-col text-left leading-tight">
-        <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium">NBA Accreditation</span>
-        <span className="text-sm sm:text-base font-extrabold text-[#082746] tracking-tight">B.Pharmacy</span>
-        <span className="text-[10px] sm:text-[11px] text-slate-600 font-medium">(UG Programme)</span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
+          NBA Accreditation
+        </span>
+        <span className="text-xs sm:text-sm lg:text-[14.5px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight">
+          2024–2027
+        </span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-600 font-medium font-['Inter',sans-serif]">
+          B.Pharmacy Programme
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// Recognition 4: QS World University Rankings
+export const QSWorldRankingLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+  return (
+    <div className={`flex items-center gap-2.5 sm:gap-3 shrink-0 ${className}`}>
+      <img
+        src={IMAGES.qsWorldRankingLogo}
+        alt="QS World University Rankings by Subject 2026"
+        className="h-8 sm:h-9 md:h-10 w-auto max-w-[50px] sm:max-w-[58px] object-contain shrink-0 rounded-xs shadow-2xs"
+        loading="lazy"
+      />
+      <div className="flex flex-col text-left leading-tight">
+        <span className="text-[10px] sm:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
+          QS World Rankings
+        </span>
+        <span className="text-xs sm:text-sm lg:text-[14.5px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight">
+          201–250 <span className="text-[11px] font-semibold text-slate-600">(2026)</span>
+        </span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-600 font-medium font-['Inter',sans-serif]">
+          Pharmacy & Pharmacology
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// Recognition 5: QS I-GAUGE
+export const QSIGaugeLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+  return (
+    <div className={`flex items-center gap-2.5 sm:gap-3 shrink-0 ${className}`}>
+      <img
+        src={IMAGES.qsIGaugeLogo}
+        alt="QS I-GAUGE Platinum Rating"
+        className="h-8 sm:h-9 md:h-10 w-auto max-w-[50px] sm:max-w-[58px] object-contain shrink-0 rounded-xs shadow-2xs"
+        loading="lazy"
+      />
+      <div className="flex flex-col text-left leading-tight">
+        <span className="text-[10px] sm:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
+          QS I-GAUGE
+        </span>
+        <span className="text-xs sm:text-sm lg:text-[14.5px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight">
+          PLATINUM +
+        </span>
+        <span className="text-[10px] sm:text-[10.5px] text-slate-600 font-medium font-['Inter',sans-serif]">
+          Pharmacy Subject Rating
+        </span>
       </div>
     </div>
   );

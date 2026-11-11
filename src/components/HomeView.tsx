@@ -6,11 +6,12 @@ import {
   Award, ChevronRight, Sparkles, Building2, Cpu, Dna, Activity, Brain, Users,
   Mic, Presentation, Handshake, Star, ArrowUp, ExternalLink, Shield, Clock,
   Trophy, Lightbulb, Target, X, Mail, FlaskConical, TrendingUp, Info,
-  Layers, Pill, Microscope, GraduationCap, UserPlus, Download, BookOpen, ClipboardList
+  Layers, Pill, Microscope, GraduationCap, UserPlus, Download, BookOpen, ClipboardList,
+  UserCheck, ClipboardCheck, Bell
 } from 'lucide-react';
 import {
   SRMISTLogo, SRMPharmacyLogo, INTILogo, IPALogo,
-  NIRFLogo, NAACLogo, NBALogo
+  NIRFLogo, NAACLogo, NBALogo, QSWorldRankingLogo, QSIGaugeLogo
 } from './Logos';
 import { LabFlaskArtwork } from './LabFlaskArtwork';
 import { AboutCapsuleIllustration } from './AboutCapsuleIllustration';
@@ -75,7 +76,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Top: Institutional Masthead (SRMIST logo, SRM College of Pharmacy, IN COLLABORATION WITH, INTI & IPA, Crest)
           - Center: Prominent floating dark navy-to-blue/teal conference hero panel with AI capsule graphic,
             conference title, tagline, dates & venue glass card, and glowing molecular network
-          - Bottom: Horizontal white accreditation strip (NIRF 10th, NAAC A++, NBA)
+          - Bottom: Horizontal white accreditation strip (NIRF 10th, NAAC A++, NBA, QS World Rankings, QS I-GAUGE)
          ========================================================================= */}
       <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-5 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#E6F4F8]">
         {/* Full-Width Authentic SRMIST Campus Aerial Background Photograph */}
@@ -254,24 +255,35 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           </div>
 
           {/* ---------------------------------------------------------------------
-              BOTTOM AREA: INSTITUTIONAL ACHIEVEMENTS STRIP (NIRF, NAAC, NBA)
+              BOTTOM AREA: INSTITUTIONAL RECOGNITIONS & ACCREDITATIONS STRIP
+              (NIRF, NAAC, NBA, QS World Rankings, QS I-GAUGE)
              --------------------------------------------------------------------- */}
-          <div className="max-w-5xl mx-auto w-full pb-1">
-            <div className="bg-white/95 backdrop-blur-md border border-white/90 rounded-2xl shadow-xl p-3 sm:p-3.5">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-200/80">
+          <div className="max-w-6xl mx-auto w-full pb-1 px-1 sm:px-0">
+            <div className="bg-white/95 backdrop-blur-md border border-white/90 rounded-2xl sm:rounded-3xl shadow-xl p-2.5 sm:p-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3.5 lg:gap-0 divide-y sm:divide-y-0 lg:divide-y-0 lg:divide-x divide-slate-200/80">
                 {/* Column 1: NIRF Ranking */}
-                <div className="flex items-center justify-center px-4 py-1">
+                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
                   <NIRFLogo />
                 </div>
 
-                {/* Column 2: NAAC */}
-                <div className="flex items-center justify-center px-4 py-1">
+                {/* Column 2: NAAC Accreditation */}
+                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
                   <NAACLogo />
                 </div>
 
                 {/* Column 3: NBA Accreditation */}
-                <div className="flex items-center justify-center px-4 py-1">
+                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
                   <NBALogo />
+                </div>
+
+                {/* Column 4: QS World University Rankings */}
+                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
+                  <QSWorldRankingLogo />
+                </div>
+
+                {/* Column 5: QS I-GAUGE */}
+                <div className="flex items-center justify-center px-2 sm:px-3 py-1 sm:col-span-2 lg:col-span-1">
+                  <QSIGaugeLogo />
                 </div>
               </div>
             </div>
@@ -554,7 +566,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             3. Future Impact (Growth chart, soft peach)
           - Curved lavender transition at bottom with "CONFERENCE CONTENT" label
          ========================================================================= */}
-      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-white flex flex-col justify-between border-b border-[#E2E7F0] relative overflow-hidden">
+      <section id="about-the-conference" className="snap-section relative w-full bg-white border-b border-[#E2E7F0] overflow-hidden">
         {/* 1. PANORAMIC SRMIST CAMPUS AERIAL PHOTOGRAPH AT TOP EDGE */}
         <div className="relative w-full h-36 sm:h-48 md:h-56 lg:h-64 overflow-hidden shrink-0">
           <img
@@ -591,117 +603,118 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        {/* 2. MAIN SECTION CONTENT & INTRODUCTION */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex-1 flex flex-col justify-center py-4 sm:py-6 relative z-10 space-y-4 sm:space-y-6">
-          {/* Centered Section Label with Flanking Rules */}
-          <div className="flex items-center justify-center gap-3 sm:gap-4">
-            <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-gradient-to-r from-transparent via-[#7554D9]/40 to-[#7554D9]/80" />
+        {/* 2. MAIN SECTION CONTENT WITH THEMED BACKGROUND ARTWORK */}
+        <div className="relative w-full py-8 sm:py-12 lg:py-16 overflow-hidden">
+          {/* Contained Background Layer: Futuristic AI Science Conference Banner */}
+          <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+            <img
+              src={IMAGES.aboutSectionBg}
+              alt=""
+              className="w-full h-full object-cover object-center"
+            />
+            {/* Soft translucent wash ensuring optimal contrast and readability */}
+            <div className="absolute inset-0 bg-white/40 backdrop-blur-[0.5px]" />
+          </div>
 
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
-              <Info className="w-3.5 h-3.5 text-white" />
-              <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase">
-                ABOUT THE CONFERENCE
-              </span>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full relative z-10 space-y-4 sm:space-y-6">
+            {/* Centered Section Label with Flanking Rules */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-gradient-to-r from-transparent via-[#7554D9]/40 to-[#7554D9]/80" />
+
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+                <Info className="w-3.5 h-3.5 text-white" />
+                <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase font-['Plus_Jakarta_Sans',sans-serif]">
+                  ABOUT THE CONFERENCE
+                </span>
+              </div>
+
+              <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-gradient-to-l from-transparent via-[#22C5D9]/40 to-[#22C5D9]/80" />
             </div>
 
-            <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-gradient-to-l from-transparent via-[#22C5D9]/40 to-[#22C5D9]/80" />
-          </div>
-
-          {/* Main Heading */}
-          <div className="text-center space-y-2">
-            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.18]">
-              AI-Powered Innovations in<br />
-              <span className="text-[#7554D9] relative inline-block">
-                Drug Discovery
-                <svg
-                  className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
-                  viewBox="0 0 100 8"
-                  preserveAspectRatio="none"
-                >
-                  <path
-                    d="M0,5 Q50,0 100,5"
-                    stroke="currentColor"
-                    strokeWidth="3.5"
-                    fill="none"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </span>{' '}
-              and Development
-            </h2>
-          </div>
-
-          {/* Conference Introduction with Flanking Decorative Visual Elements */}
-          <div className="relative max-w-5xl mx-auto w-full flex items-center justify-center px-2">
-            {/* Left: Decorative 3D AI Capsule with Orbital Rings */}
-            <div className="hidden lg:flex absolute -left-8 xl:-left-20 top-1/2 -translate-y-1/2 z-0">
-              <AboutCapsuleIllustration className="w-36 lg:w-44 xl:w-52 h-auto" />
+            {/* Main Heading */}
+            <div className="text-center space-y-2 max-w-4xl mx-auto">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight leading-[1.18]">
+                AI-Powered Innovations in<br />
+                <span className="text-[#7554D9] relative inline-block">
+                  Drug Discovery
+                  <svg
+                    className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                    viewBox="0 0 100 8"
+                    preserveAspectRatio="none"
+                  >
+                    <path
+                      d="M0,5 Q50,0 100,5"
+                      stroke="currentColor"
+                      strokeWidth="3.5"
+                      fill="none"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </span>{' '}
+                and Development
+              </h2>
             </div>
 
             {/* Centered Introduction Paragraph */}
-            <p className="text-sm sm:text-base lg:text-[16.5px] text-[#45536B] leading-relaxed text-center max-w-3xl font-normal relative z-10 px-2 sm:px-4">
-              An international academic and scientific platform bringing together{' '}
-              <strong className="font-bold text-[#082746]">
-                researchers, academicians, pharmaceutical scientists, clinicians and industry experts
-              </strong>{' '}
-              to explore emerging innovations in drug discovery and development. The conference will focus on the integration of artificial intelligence, advanced pharmaceutical technologies and interdisciplinary research to address contemporary challenges in healthcare and therapeutic development.
-            </p>
-
-            {/* Right: Decorative 3D Molecular Structure with Spheres */}
-            <div className="hidden lg:flex absolute -right-8 xl:-right-20 top-1/2 -translate-y-1/2 z-0">
-              <AboutMoleculeIllustration className="w-36 lg:w-44 xl:w-52 h-auto" />
-            </div>
-          </div>
-
-          {/* 3. THREE CONFERENCE PILLARS (EQUAL WIDTH PANELS) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5 max-w-6xl mx-auto w-full pt-1">
-            {/* Panel 1 – Scientific Vision */}
-            <div className="bg-[#FAF9FE] border border-[#E9E4F8] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-2xs hover:shadow-md transition-shadow">
-              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#EDE9FA] flex items-center justify-center shrink-0">
-                <FlaskConical className="w-6 h-6 sm:w-7 sm:h-7 text-[#7554D9]" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-base sm:text-lg lg:text-[19px] font-bold text-[#082746] font-heading">
-                  Scientific Vision
-                </h3>
-                <p className="text-xs sm:text-[14px] text-[#45536B] leading-snug">
-                  Advance AI-driven research and emerging technologies in drug discovery and development.
-                </p>
-              </div>
+            <div className="max-w-3xl mx-auto w-full text-center px-2">
+              <p className="text-sm sm:text-base lg:text-[16px] text-[#45536B] leading-relaxed font-['Inter',sans-serif]">
+                An international academic and scientific platform bringing together{' '}
+                <strong className="font-bold text-[#082746]">
+                  researchers, academicians, pharmaceutical scientists, clinicians and industry experts
+                </strong>{' '}
+                to explore emerging innovations in drug discovery and development. The conference will focus on the integration of artificial intelligence, advanced pharmaceutical technologies and interdisciplinary research to address contemporary challenges in healthcare and therapeutic development.
+              </p>
             </div>
 
-            {/* Panel 2 – Interdisciplinary Collaboration */}
-            <div className="bg-[#F0FAFC] border border-[#CDEEF5] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-2xs hover:shadow-md transition-shadow">
-              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#DDF4F8] flex items-center justify-center shrink-0">
-                <Users className="w-6 h-6 sm:w-7 sm:h-7 text-[#087E8B]" />
+            {/* 3. THREE CONFERENCE PILLARS (EQUAL WIDTH PANELS IN A SINGLE HORIZONTAL ROW ON DESKTOP) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5 max-w-5xl mx-auto w-full pt-2">
+              {/* Panel 1 – Scientific Vision */}
+              <div className="bg-[#FAF9FE]/95 backdrop-blur-sm border border-[#E9E4F8] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#EDE9FA] flex items-center justify-center shrink-0">
+                  <FlaskConical className="w-6 h-6 sm:w-7 sm:h-7 text-[#7554D9]" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base sm:text-lg lg:text-[18px] font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Scientific Vision
+                  </h3>
+                  <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug font-['Inter',sans-serif]">
+                    Advance AI-driven research and emerging technologies in drug discovery and development.
+                  </p>
+                </div>
               </div>
-              <div className="space-y-1">
-                <h3 className="text-base sm:text-lg lg:text-[19px] font-bold text-[#082746] font-heading">
-                  Interdisciplinary Collaboration
-                </h3>
-                <p className="text-xs sm:text-[14px] text-[#45536B] leading-snug">
-                  Bring together academia, industry and clinical experts to encourage knowledge exchange and collaborative research.
-                </p>
-              </div>
-            </div>
 
-            {/* Panel 3 – Future Impact */}
-            <div className="bg-[#FFF9F3] border border-[#FFE7D3] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-2xs hover:shadow-md transition-shadow">
-              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#FFEAD7] flex items-center justify-center shrink-0">
-                <TrendingUp className="w-6 h-6 sm:w-7 sm:h-7 text-[#EA580C]" />
+              {/* Panel 2 – Interdisciplinary Collaboration */}
+              <div className="bg-[#F0FAFC]/95 backdrop-blur-sm border border-[#CDEEF5] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#DDF4F8] flex items-center justify-center shrink-0">
+                  <Users className="w-6 h-6 sm:w-7 sm:h-7 text-[#087E8B]" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base sm:text-lg lg:text-[18px] font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Interdisciplinary Collaboration
+                  </h3>
+                  <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug font-['Inter',sans-serif]">
+                    Bring together academia, industry and clinical experts to encourage knowledge exchange and collaborative research.
+                  </p>
+                </div>
               </div>
-              <div className="space-y-1">
-                <h3 className="text-base sm:text-lg lg:text-[19px] font-bold text-[#082746] font-heading">
-                  Future Impact
-                </h3>
-                <p className="text-xs sm:text-[14px] text-[#45536B] leading-snug">
-                  Accelerate innovation towards safer, more effective and improved therapeutic solutions.
-                </p>
+
+              {/* Panel 3 – Future Impact */}
+              <div className="bg-[#FFF9F3]/95 backdrop-blur-sm border border-[#FFE7D3] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#FFEAD7] flex items-center justify-center shrink-0">
+                  <TrendingUp className="w-6 h-6 sm:w-7 sm:h-7 text-[#EA580C]" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base sm:text-lg lg:text-[18px] font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Future Impact
+                  </h3>
+                  <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug font-['Inter',sans-serif]">
+                    Accelerate innovation towards safer, more effective and improved therapeutic solutions.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
         </div>
-
       </section>
 
       {/* =========================================================================
@@ -2063,6 +2076,467 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
       </section>
 
       {/* =========================================================================
+          SECTION 6.5: IMPORTANT DATES & DEADLINES (TIMELINE & CONFERENCE DATES)
+          Exact reproduction of Conference_Dates___Deadlines_Timeline_51f03d81.png:
+          - Centered gradient badge: "IMPORTANT DATES & DEADLINES" with Calendar icon & flanking rules
+          - Main heading: "Important Dates & Deadlines"
+          - Subtitle: "Plan your participation and stay updated with key timelines for the conference."
+          - Four deadline cards in a single horizontal row on desktop:
+            1. Abstract Submission Deadline (31 December 2026) - Blue accent, FileText icon
+            2. Registration Deadline (16 January 2027) - Lavender/Violet accent, UserCheck icon
+            3. Full Paper Submission (01 February 2027) - Cyan accent, ClipboardCheck icon
+            4. Acceptance Notification (02 February 2027) - Soft peach accent, Bell icon
+          - Prominent horizontal conference dates banner: "CONFERENCE DATES | 15–16 February 2027"
+          - Five-step chronological timeline strip with connecting gradient line & circular nodes
+          - Left 3D decorative calendar & clock illustration, subtle molecular & scientific motifs
+         ========================================================================= */}
+      <section
+        id="important-dates"
+        className="snap-section relative w-full bg-gradient-to-b from-[#FAF8FF] via-white to-[#F0F9FD] py-10 sm:py-14 lg:py-16 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden"
+      >
+        {/* Soft flowing wave background ribbons */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-50,60 C320,130 680,25 1060,90 C1280,130 1390,45 1500,75 L1500,0 L-50,0 Z"
+              fill="url(#topWaveDates)"
+              opacity="0.45"
+            />
+            <path
+              d="M-50,840 C340,780 710,875 1100,795 C1290,755 1410,825 1500,800 L1500,900 L-50,900 Z"
+              fill="url(#bottomWaveDates)"
+              opacity="0.45"
+            />
+            <defs>
+              <linearGradient id="topWaveDates" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#7554D9" stopOpacity="0.35" />
+              </linearGradient>
+              <linearGradient id="bottomWaveDates" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#7554D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#22C5D9" stopOpacity="0.35" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        {/* --- DECORATIVE SCIENTIFIC ELEMENTS (MATCHING REFERENCE MOCKUP) --- */}
+        {/* 3D Calendar & Analog Clock Illustration on Left Edge */}
+        <div className="absolute -left-6 sm:left-2 lg:left-6 top-1/2 -translate-y-1/2 pointer-events-none opacity-85 hidden xl:block z-0 select-none">
+          <svg width="190" height="210" viewBox="0 0 190 210" fill="none">
+            <defs>
+              <linearGradient id="calCoverGrad" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#7554D9" />
+                <stop offset="100%" stopColor="#4F46E5" />
+              </linearGradient>
+              <linearGradient id="calPageGrad" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="100%" stopColor="#F8FAFC" />
+              </linearGradient>
+              <linearGradient id="clockRimGrad" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#8B50E8" />
+                <stop offset="100%" stopColor="#6D28D9" />
+              </linearGradient>
+              <filter id="calShadowEffect" x="-20%" y="-20%" width="140%" height="150%">
+                <feDropShadow dx="0" dy="12" stdDeviation="12" floodColor="#7554D9" floodOpacity="0.22" />
+              </filter>
+            </defs>
+            <ellipse cx="90" cy="190" rx="80" ry="14" fill="#082746" fillOpacity="0.1" filter="blur(8px)" />
+            <g filter="url(#calShadowEffect)">
+              <path d="M25 45 L135 25 L145 155 L35 175 Z" fill="#6D28D9" opacity="0.35" />
+              <rect x="25" y="40" width="115" height="125" rx="18" fill="url(#calPageGrad)" stroke="#E2E8F0" strokeWidth="2" />
+              <path d="M25 58 C25 48.06 33.06 40 43 40 L122 40 C131.94 40 140 48.06 140 58 L140 70 L25 70 Z" fill="url(#calCoverGrad)" />
+              <rect x="42" y="32" width="6" height="16" rx="3" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="1" />
+              <rect x="68" y="32" width="6" height="16" rx="3" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="1" />
+              <rect x="94" y="32" width="6" height="16" rx="3" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="1" />
+              <rect x="118" y="32" width="6" height="16" rx="3" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="1" />
+              <rect x="40" y="85" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="62" y="85" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="84" y="85" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="106" y="85" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="40" y="107" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="62" y="107" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="84" y="107" width="14" height="14" rx="4" fill="#A855F7" />
+              <rect x="106" y="107" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="40" y="129" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="62" y="129" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="84" y="129" width="14" height="14" rx="4" fill="#EDE9FA" />
+              <rect x="106" y="129" width="14" height="14" rx="4" fill="#EDE9FA" />
+            </g>
+            <g transform="translate(125, 145)" filter="url(#calShadowEffect)">
+              <circle cx="0" cy="0" r="30" fill="url(#clockRimGrad)" />
+              <circle cx="0" cy="0" r="23" fill="#FFFFFF" />
+              <circle cx="0" cy="0" r="2.5" fill="#6D28D9" />
+              <line x1="0" y1="0" x2="-8" y2="-10" stroke="#7554D9" strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="0" y1="0" x2="10" y2="-8" stroke="#22C5D9" strokeWidth="2" strokeLinecap="round" />
+              <circle cx="0" cy="-18" r="1.5" fill="#94A3B8" />
+              <circle cx="18" cy="0" r="1.5" fill="#94A3B8" />
+              <circle cx="0" cy="18" r="1.5" fill="#94A3B8" />
+              <circle cx="-18" cy="0" r="1.5" fill="#94A3B8" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Top-Right: Floating Molecular Structure */}
+        <div className="absolute top-10 right-4 sm:right-8 lg:right-12 pointer-events-none opacity-70 hidden md:block z-0">
+          <svg width="120" height="120" viewBox="0 0 120 120" fill="none">
+            <defs>
+              <radialGradient id="datesMolBall1" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="35%" stopColor="#C084FC" />
+                <stop offset="100%" stopColor="#7554D9" />
+              </radialGradient>
+              <radialGradient id="datesMolBall2" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="35%" stopColor="#67E8F9" />
+                <stop offset="100%" stopColor="#0891B2" />
+              </radialGradient>
+            </defs>
+            <circle cx="25" cy="50" r="8" fill="url(#datesMolBall1)" />
+            <circle cx="65" cy="30" r="12" fill="url(#datesMolBall2)" />
+            <circle cx="95" cy="55" r="7" fill="url(#datesMolBall1)" />
+            <circle cx="55" cy="85" r="9.5" fill="url(#datesMolBall1)" />
+            <line x1="25" y1="50" x2="65" y2="30" stroke="#C084FC" strokeWidth="2" strokeOpacity="0.6" />
+            <line x1="65" y1="30" x2="95" y2="55" stroke="#C084FC" strokeWidth="2" strokeOpacity="0.6" />
+            <line x1="65" y1="30" x2="55" y2="85" stroke="#67E8F9" strokeWidth="2" strokeOpacity="0.6" />
+          </svg>
+        </div>
+
+        {/* Bottom-Right: Glowing Laboratory Glassware & DNA Helix */}
+        <div className="absolute -bottom-4 right-4 sm:right-8 lg:right-14 pointer-events-none opacity-80 hidden lg:block z-0">
+          <svg width="150" height="110" viewBox="0 0 150 110" fill="none">
+            <defs>
+              <linearGradient id="flaskLiquidDates" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22C5D9" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </linearGradient>
+              <linearGradient id="flaskPurpleDates" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#C084FC" />
+                <stop offset="100%" stopColor="#7554D9" />
+              </linearGradient>
+            </defs>
+            {/* Erlenmeyer Flask 1 */}
+            <g transform="translate(40, 20)">
+              <path d="M16 8 L16 28 L2 65 C0 70 4 75 10 75 L38 75 C44 75 48 70 46 65 L32 28 L32 8 Z" fill="white" fillOpacity="0.6" stroke="#BAE6FD" strokeWidth="1.5" />
+              <path d="M7 55 L41 55 C43 62 41 72 36 72 L12 72 C7 72 5 62 7 55 Z" fill="url(#flaskLiquidDates)" fillOpacity="0.75" />
+            </g>
+            {/* Round Boiling Flask 2 */}
+            <g transform="translate(85, 10)">
+              <path d="M18 6 L18 30 C12 36 8 46 8 56 C8 70 20 82 34 82 C48 82 60 70 60 56 C60 46 56 36 50 30 L50 6 Z" fill="white" fillOpacity="0.6" stroke="#E9D5FF" strokeWidth="1.5" />
+              <path d="M10 58 C10 68 20 79 34 79 C48 79 58 68 58 58 C58 52 48 50 34 50 C20 50 10 52 10 58 Z" fill="url(#flaskPurpleDates)" fillOpacity="0.75" />
+            </g>
+          </svg>
+        </div>
+
+        {/* ===================================================================
+            MAIN FOREGROUND CONTENT CONTAINER
+           =================================================================== */}
+        <div className="max-w-7xl mx-auto w-full relative z-10 space-y-6 sm:space-y-8 lg:space-y-10">
+          {/* 1. SECTION HEADING & BADGE */}
+          <div className="text-center space-y-3 max-w-3xl mx-auto">
+            {/* Small gradient badge with flanking horizontal lines */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#7554D9]/40" />
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+                <Calendar className="w-3.5 h-3.5 text-white" />
+                <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase font-['Plus_Jakarta_Sans',sans-serif]">
+                  IMPORTANT DATES & DEADLINES
+                </span>
+              </div>
+              <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#22C5D9]/50" />
+            </div>
+
+            {/* Main heading */}
+            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight leading-[1.18]">
+              Important Dates &{' '}
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] bg-clip-text text-transparent">
+                  Deadlines
+                </span>
+                <svg
+                  className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                  viewBox="0 0 100 8"
+                  preserveAspectRatio="none"
+                >
+                  <path
+                    d="M0,5 Q50,0 100,5"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </h2>
+
+            {/* Subtitle */}
+            <p className="text-sm sm:text-base lg:text-[16.5px] text-[#45536B] leading-relaxed max-w-2xl mx-auto font-['Inter',sans-serif]">
+              Plan your participation and stay updated with key timelines for the conference.
+            </p>
+          </div>
+
+          {/* 2. DEADLINE CARDS (4 EQUAL-WIDTH CARDS IN A SINGLE HORIZONTAL ROW ON DESKTOP) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 lg:gap-6">
+            {/* Card 1 – Abstract Submission Deadline (Blue accent) */}
+            <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-[#BAE6FD] hover:border-[#0284C7]/60 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex items-start gap-4 group">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#E0F2FE] text-[#0284C7] flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                <FileText className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs sm:text-[13px] font-bold text-[#45536B] leading-tight font-['Inter',sans-serif]">
+                  Abstract Submission Deadline
+                </div>
+                <div className="text-lg sm:text-xl lg:text-[22px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight mt-1 leading-snug">
+                  31 December 2026
+                </div>
+                <div className="text-xs sm:text-[13px] text-[#52617A] leading-snug mt-1.5 font-['Inter',sans-serif]">
+                  Last date for abstract submission.
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2 – Registration Deadline (Lavender / Violet accent) */}
+            <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-[#E9D5FF] hover:border-[#7554D9]/60 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex items-start gap-4 group">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#F3E8FF] text-[#7554D9] flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                <UserCheck className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs sm:text-[13px] font-bold text-[#45536B] leading-tight font-['Inter',sans-serif]">
+                  Registration Deadline
+                </div>
+                <div className="text-lg sm:text-xl lg:text-[22px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight mt-1 leading-snug">
+                  16 January 2027
+                </div>
+                <div className="text-xs sm:text-[13px] text-[#52617A] leading-snug mt-1.5 font-['Inter',sans-serif]">
+                  Last date for conference registration.
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3 – Full Paper Submission (Cyan accent) */}
+            <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-[#CFFAFE] hover:border-[#0891B2]/60 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex items-start gap-4 group">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#CCFBF1] text-[#087E8B] flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                <ClipboardCheck className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs sm:text-[13px] font-bold text-[#45536B] leading-tight font-['Inter',sans-serif]">
+                  Full Paper Submission
+                </div>
+                <div className="text-lg sm:text-xl lg:text-[22px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight mt-1 leading-snug">
+                  01 February 2027
+                </div>
+                <div className="text-xs sm:text-[13px] text-[#52617A] leading-snug mt-1.5 font-['Inter',sans-serif]">
+                  Last date for full paper submission.
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4 – Acceptance Notification (Soft peach accent) */}
+            <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-[#FED7AA] hover:border-[#EA580C]/60 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex items-start gap-4 group">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#FFEDD5] text-[#EA580C] flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                <Bell className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs sm:text-[13px] font-bold text-[#45536B] leading-tight font-['Inter',sans-serif]">
+                  Acceptance Notification
+                </div>
+                <div className="text-lg sm:text-xl lg:text-[22px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight mt-1 leading-snug">
+                  02 February 2027
+                </div>
+                <div className="text-xs sm:text-[13px] text-[#52617A] leading-snug mt-1.5 font-['Inter',sans-serif]">
+                  Acceptance notification.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. CONFERENCE DATES HIGHLIGHT BANNER */}
+          <div className="flex justify-center pt-1">
+            <div className="bg-white/95 backdrop-blur-md border border-[#D8DFEB] rounded-full p-2 sm:p-2.5 shadow-xl inline-flex flex-col sm:flex-row items-center gap-2 sm:gap-4 max-w-full">
+              {/* Left: CONFERENCE DATES gradient pill */}
+              <div className="px-5 sm:px-6 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white flex items-center gap-2.5 shadow-sm">
+                <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                <span className="text-xs sm:text-[13px] font-black tracking-widest uppercase font-['Plus_Jakarta_Sans',sans-serif]">
+                  CONFERENCE DATES
+                </span>
+              </div>
+
+              {/* Subtle vertical divider on desktop */}
+              <div className="h-6 w-px bg-slate-300 hidden sm:block" />
+
+              {/* Right: 15–16 February 2027 */}
+              <div className="px-4 sm:px-6 py-1.5 sm:py-2 flex items-center gap-2.5">
+                <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#22C5D9]" />
+                <span className="text-base sm:text-xl lg:text-2xl font-black font-['Plus_Jakarta_Sans',sans-serif] text-[#082746] tracking-tight">
+                  15–16 February 2027
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. TIMELINE STRIP (HORIZONTAL ON DESKTOP, COMPACT SEQUENCE ON MOBILE) */}
+          <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl border border-white/90 p-5 sm:p-7 lg:p-9 shadow-xl max-w-5xl mx-auto w-full">
+            {/* Desktop & Tablet Horizontal Timeline */}
+            <div className="hidden sm:block relative">
+              {/* Continuous connecting horizontal gradient line */}
+              <div className="absolute top-6 left-12 right-12 h-[3.5px] bg-gradient-to-r from-[#0284C7] via-[#7554D9] to-[#22C5D9] rounded-full z-0 opacity-80" />
+
+              {/* 5 Milestone Nodes */}
+              <div className="relative z-10 grid grid-cols-5 gap-2 text-center">
+                {/* Step 1: Abstract Submission */}
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-[#E0F2FE] border-2 border-[#38BDF8] text-[#0284C7] flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                    <FileText className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="text-xs lg:text-[13.5px] font-extrabold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] mt-3 leading-tight min-h-[32px] flex items-center justify-center">
+                    Abstract Submission
+                  </div>
+                  <div className="mt-2 inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#E0F2FE] text-[#0284C7] border border-[#BAE6FD] shadow-2xs font-['Inter',sans-serif]">
+                    By 31 December 2026
+                  </div>
+                </div>
+
+                {/* Step 2: Registration */}
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-[#F3E8FF] border-2 border-[#A855F7] text-[#7554D9] flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                    <UserCheck className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="text-xs lg:text-[13.5px] font-extrabold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] mt-3 leading-tight min-h-[32px] flex items-center justify-center">
+                    Registration
+                  </div>
+                  <div className="mt-2 inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#F3E8FF] text-[#7554D9] border border-[#E9D5FF] shadow-2xs font-['Inter',sans-serif]">
+                    By 16 January 2027
+                  </div>
+                </div>
+
+                {/* Step 3: Full Paper Submission */}
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-[#CCFBF1] border-2 border-[#22C5D9] text-[#087E8B] flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                    <ClipboardCheck className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="text-xs lg:text-[13.5px] font-extrabold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] mt-3 leading-tight min-h-[32px] flex items-center justify-center">
+                    Full Paper Submission
+                  </div>
+                  <div className="mt-2 inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#ECFEFF] text-[#087E8B] border border-[#CFFAFE] shadow-2xs font-['Inter',sans-serif]">
+                    By 01 February 2027
+                  </div>
+                </div>
+
+                {/* Step 4: Acceptance Notification */}
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-[#FFEDD5] border-2 border-[#FB923C] text-[#EA580C] flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                    <Bell className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="text-xs lg:text-[13.5px] font-extrabold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] mt-3 leading-tight min-h-[32px] flex items-center justify-center">
+                    Acceptance Notification
+                  </div>
+                  <div className="mt-2 inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#FFF7ED] text-[#EA580C] border border-[#FED7AA] shadow-2xs font-['Inter',sans-serif]">
+                    By 02 February 2027
+                  </div>
+                </div>
+
+                {/* Step 5: Conference */}
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] border-2 border-white text-white flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                    <Calendar className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-xs lg:text-[13.5px] font-extrabold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] mt-3 leading-tight min-h-[32px] flex items-center justify-center">
+                    Conference
+                  </div>
+                  <div className="mt-2 inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-xs font-['Inter',sans-serif]">
+                    15–16 February 2027
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Mobile Vertical Timeline */}
+            <div className="sm:hidden relative pl-8 space-y-6">
+              {/* Connecting vertical gradient line */}
+              <div className="absolute top-4 bottom-4 left-3.5 w-[3px] bg-gradient-to-b from-[#0284C7] via-[#7554D9] to-[#22C5D9] rounded-full z-0 opacity-80" />
+
+              {/* Step 1 Mobile */}
+              <div className="relative z-10 flex items-start gap-3">
+                <div className="absolute -left-8 w-8 h-8 rounded-full bg-[#E0F2FE] border-2 border-[#38BDF8] text-[#0284C7] flex items-center justify-center shrink-0 shadow-xs">
+                  <FileText className="w-4 h-4 stroke-[2.2]" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Abstract Submission
+                  </div>
+                  <div className="mt-1 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#E0F2FE] text-[#0284C7] border border-[#BAE6FD]">
+                    By 31 December 2026
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2 Mobile */}
+              <div className="relative z-10 flex items-start gap-3">
+                <div className="absolute -left-8 w-8 h-8 rounded-full bg-[#F3E8FF] border-2 border-[#A855F7] text-[#7554D9] flex items-center justify-center shrink-0 shadow-xs">
+                  <UserCheck className="w-4 h-4 stroke-[2.2]" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Registration
+                  </div>
+                  <div className="mt-1 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#F3E8FF] text-[#7554D9] border border-[#E9D5FF]">
+                    By 16 January 2027
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3 Mobile */}
+              <div className="relative z-10 flex items-start gap-3">
+                <div className="absolute -left-8 w-8 h-8 rounded-full bg-[#CCFBF1] border-2 border-[#22C5D9] text-[#087E8B] flex items-center justify-center shrink-0 shadow-xs">
+                  <ClipboardCheck className="w-4 h-4 stroke-[2.2]" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Full Paper Submission
+                  </div>
+                  <div className="mt-1 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#ECFEFF] text-[#087E8B] border border-[#CFFAFE]">
+                    By 01 February 2027
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4 Mobile */}
+              <div className="relative z-10 flex items-start gap-3">
+                <div className="absolute -left-8 w-8 h-8 rounded-full bg-[#FFEDD5] border-2 border-[#FB923C] text-[#EA580C] flex items-center justify-center shrink-0 shadow-xs">
+                  <Bell className="w-4 h-4 stroke-[2.2]" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Acceptance Notification
+                  </div>
+                  <div className="mt-1 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#FFF7ED] text-[#EA580C] border border-[#FED7AA]">
+                    By 02 February 2027
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 5 Mobile */}
+              <div className="relative z-10 flex items-start gap-3">
+                <div className="absolute -left-8 w-8 h-8 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] border-2 border-white text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Calendar className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-[#082746] font-['Plus_Jakarta_Sans',sans-serif]">
+                    Conference
+                  </div>
+                  <div className="mt-1 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white">
+                    15–16 February 2027
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
           SECTION 7: CONFERENCE VENUE & HOST CAMPUS (ASYMMETRIC EDITORIAL LAYOUT)
           Exact reproduction of SRMIST_Conference_Venue_and_Campus_Guide_a8333e53.png (Image 2):
           - Atmospheric light background with flowing curved wave ribbons
@@ -2150,33 +2624,31 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           {/* 2. THREE EQUAL-HEIGHT CARDS: CONFERENCE VENUE, ACADEMIC HOST & CAMPUS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-6 items-stretch">
             {/* CARD 1: MAIN CONFERENCE VENUE */}
-            <div className="bg-gradient-to-br from-[#4A154B] via-[#5B21B6] to-[#1E3A8A] text-white p-6 sm:p-7 rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all relative overflow-hidden flex flex-col justify-between group min-h-[300px]">
-              {/* Glowing cyan corner flourish */}
-              <div className="absolute -bottom-8 -right-8 w-36 h-36 bg-[#22C5D9]/25 rounded-full blur-2xl pointer-events-none" />
-              <svg className="absolute bottom-0 right-0 w-36 h-20 pointer-events-none opacity-40" viewBox="0 0 160 80" fill="none">
-                <path d="M0,80 C60,40 100,70 160,20 L160,80 Z" fill="#22C5D9" />
-              </svg>
-
-              <div className="relative z-10 space-y-4">
-                <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shrink-0 shadow-inner">
-                  <Users className="w-6 h-6 sm:w-7 sm:h-7" />
-                </div>
-                <div className="space-y-1.5">
-                  <span className="inline-block px-2.5 py-0.5 rounded-full bg-white/20 text-[10px] font-bold tracking-wider uppercase text-purple-100">
-                    MAIN CONFERENCE VENUE
-                  </span>
-                  <h3 className="text-xl sm:text-2xl font-black text-white font-heading leading-tight">
-                    Dr. T. P. Ganesan Auditorium
-                  </h3>
-                  <p className="text-xs sm:text-[14px] text-purple-200/90 leading-snug">
-                    Inauguration, plenary talks and valedictory session.
-                  </p>
-                </div>
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[300px]">
+              <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
+                <img
+                  src={IMAGES.srmAuditoriumPhoto}
+                  alt="Dr. T. P. Ganesan Auditorium - SRMIST Kattankulathur"
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                />
               </div>
-
-              <div className="relative z-10 pt-4 border-t border-white/15 flex items-center gap-2 text-xs sm:text-[13px] text-purple-200">
-                <MapPin className="w-4 h-4 text-[#22C5D9] shrink-0" />
-                <span>SRMIST Kattankulathur Campus</span>
+              <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-[#EDE9FE] text-[#7C3AED] flex items-center justify-center shrink-0 border border-purple-100 shadow-2xs">
+                    <Users className="w-6 h-6 text-[#7C3AED]" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold tracking-wider text-[#7C3AED] uppercase block">
+                      MAIN CONFERENCE VENUE
+                    </span>
+                    <h3 className="text-lg sm:text-[19px] font-black text-[#082746] font-heading leading-tight">
+                      Dr. T. P. Ganesan Auditorium
+                    </h3>
+                  </div>
+                </div>
+                <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug">
+                  Inauguration, plenary talks and valedictory session.
+                </p>
               </div>
             </div>
 

@@ -8,7 +8,8 @@ export const IMAGES = {
   srmistCampusLake: '/assets/aistudio/SRM_Campus_and_Reflective_Lake_Panorama_a8d3f888.png',
 
   // Dr. T. P. Ganesan Auditorium (Interior & Exterior Sunset)
-  srmAuditoriumInterior: '/assets/aistudio/srm_auditorium_interior.png',
+  srmAuditoriumPhoto: '/assets/aistudio/Symmetrical_Blue_and_Red_Auditorium_Seating_2b78fd7d.png',
+  srmAuditoriumInterior: '/assets/aistudio/Symmetrical_Blue_and_Red_Auditorium_Seating_2b78fd7d.png',
   srmAuditoriumExterior: '/assets/aistudio/srm_auditorium_exterior.png',
   srmAuditoriumComposite: '/assets/aistudio/Dr._T._P._Ganesan_Auditorium_at_Sunset_a414ebde.png',
 
@@ -36,4 +37,14 @@ export const IMAGES = {
   eposterPresentation: '/assets/aistudio/Pharmaceutical_Research_E-Poster_Workspace_8c2cf984.png',
   oralPresentation: '/assets/aistudio/oral_presentation_image.png',
   posterPresentation: '/assets/aistudio/Purple_E-Poster__Nanocarrier_Drug_Delivery_1f2534a1.png',
+
+  // Section 3: About the Conference Background Artwork
+  aboutSectionBg: '/assets/aistudio/Futuristic_AI_Science_Conference_Banner_723bfcec.png',
+
+  // Official Accreditations & Rankings Logos
+  nirfLogo: '/assets/aistudio/NIRF_logo_7a7c6967.jpg',
+  naacLogo: '/assets/aistudio/naac_a___Logo-removebg-preview_f1269f70.png',
+  nbaLogo: '/assets/aistudio/NBA_Logo-removebg-preview_4dd1b919.png',
+  qsWorldRankingLogo: '/assets/aistudio/QS_World_University_Logo_33f940e2.png',
+  qsIGaugeLogo: '/assets/aistudio/QS-I-GAUGE_a3b6563f.png',
 };

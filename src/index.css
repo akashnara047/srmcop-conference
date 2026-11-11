@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-heading: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --color-midnight-navy: #102B50;
+    --color-deep-navy: #082746;
+    --color-deep-teal: #087E8B;
+    --color-electric-cyan: #22C5D9;
+    --color-violet: #7554D9;
+    --color-purple: #8B50E8;
+    --color-soft-lavender: #EDE9FA;
+    --color-ice-blue: #E6F4F8;
+    --color-white: #FFFFFF;
+    --color-body: #45536B;
+    --color-border: #E2E7F0;
+  }
+
+  html, body {
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    color: #102B50;
+    background-color: #F8FAFD;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-heading {
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
+  }
+
+  p, span, label, input, textarea, select, button, a {
+    font-family: var(--font-body);
+  }
+
+  .font-mono-numbers, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Section-by-Section Native Scroll Snapping Architecture */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Enabled strictly on presentation pages (Home, About, Tracks, Speakers, Programme, Venue, Committees) */
+html.snap-page {
+  scroll-snap-type: y mandatory;
+  scroll-padding-top: 4.5rem; /* 72px desktop header offset */
+}
+
+@media (max-width: 640px) {
+  html.snap-page {
+    scroll-padding-top: 4rem; /* 64px mobile header offset */
+  }
+}
+
+@media (max-width: 1024px) {
+  html.snap-page {
+    /* Touch & Tablet: Proximity snapping prevents artificial trapping & preserves swipe momentum */
+    scroll-snap-type: y proximity;
+  }
+}
+
+.snap-section {
+  scroll-snap-align: start;
+  scroll-snap-stop: normal;
+  scroll-margin-top: 4.5rem;
+}
+
+@media (max-width: 640px) {
+  .snap-section {
+    scroll-margin-top: 4rem;
+  }
+}
+
+/* Subtle Scientific Dot Matrix Pattern */
+.bg-scientific-grid {
+  background-image: radial-gradient(rgba(117, 84, 217, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.bg-scientific-dots-dark {
+  background-image: radial-gradient(rgba(34, 197, 217, 0.15) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Subtle ambient glows matching palette */
+.glow-violet {
+  box-shadow: 0 0 40px -10px rgba(117, 84, 217, 0.25);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 40px -10px rgba(34, 197, 217, 0.25);
+}
+
+/* Glassmorphism surfaces */
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(117, 84, 217, 0.2);
+}
+
+.glass-panel-dark {
+  background: rgba(8, 39, 70, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(34, 197, 217, 0.25);
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #082746;
+}
+::-webkit-scrollbar-thumb {
+  background: #7554D9;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8B50E8;
+}

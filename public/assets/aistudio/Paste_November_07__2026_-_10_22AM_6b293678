@@ -1,0 +1,1227 @@
+# COMPLETE WEBSITE DEVELOPMENT MASTER PROMPT
+## INTERNATIONAL CONFERENCE 2027
+### AI-POWERED INNOVATIONS IN DRUG DISCOVERY AND DEVELOPMENT
+### DESIGN REFERENCE: OPTION 7 – RESEARCH SUMMIT
+### PLATFORM: GOOGLE AI STUDIO
+
+---
+
+# 1. PROJECT OBJECTIVE – BUILD A COMPLETELY NEW WEBSITE
+
+Create a completely new, premium international conference website for:
+
+**AI-Powered Innovations in Drug Discovery and Development**
+
+Organised by SRM College of Pharmacy, SRM Institute of Science and Technology, Kattankulathur, Tamil Nadu, India, in collaboration with INTI International University, Malaysia.
+
+This is a new website development project.
+
+Do not use the previous Option 2 website as a reference.
+
+Do not redesign or reproduce the previous website.
+
+Do not reuse previous layouts, visual components, page structures or styling.
+
+Build the website according to the new visual direction described in this prompt.
+
+The design reference is:
+
+**OPTION 7 – RESEARCH SUMMIT: SPLIT LAYOUT, EDITORIAL COMPOSITION AND VERTICAL PROGRAMME.**
+
+The final website must look like a professionally art-directed international scientific congress website.
+
+It must have a distinctive visual identity, sophisticated page compositions, high-quality institutional photographs, clear navigation and an excellent browsing experience.
+
+Do not generate a generic conference template.
+
+---
+
+# 2. CONFERENCE INFORMATION
+
+Use the following confirmed information.
+
+**Conference title**
+
+AI-Powered Innovations in Drug Discovery and Development
+
+**Tagline**
+
+Transforming Discovery. Accelerating Innovation. Advancing Healthcare.
+
+**Dates**
+
+15–16 February 2027.
+
+**Organised by**
+
+SRM College of Pharmacy  
+SRM Institute of Science and Technology  
+Kattankulathur, Tamil Nadu, India.
+
+**In collaboration with**
+
+INTI International University, Malaysia.
+
+**Conference details**
+
+- Two conference days.
+- Three conference halls.
+- Three invited speakers.
+- Five scientific tracks.
+- More than 100 abstracts expected.
+- Hybrid oral presentations.
+- Offline poster presentations.
+- Industry–Academia Conclave.
+- Separate scientific quiz.
+
+Do not invent unconfirmed details, speakers, timings, sponsors, committee members or awards.
+
+Use editable placeholders wherever information is pending.
+
+---
+
+# 3. DESIGN REFERENCE – OPTION 7 RESEARCH SUMMIT
+
+Follow the visual concept of Option 7.
+
+The design must have a different composition from a conventional university conference website.
+
+The defining visual features are:
+
+1. Asymmetrical split hero.
+2. Large architectural photography.
+3. Strong editorial typography.
+4. Angled and diagonal scientific image panels.
+5. Distinctive vertical programme timeline.
+6. Side-by-side speaker and presentation-format sections.
+7. Large panoramic campus photography.
+8. Horizontal statistical composition.
+9. Generous whitespace.
+10. Strong visual transitions between sections.
+
+Use different presentation styles for different content types.
+
+Do not repeat the same card layout throughout the website.
+
+For example:
+- Conference information should use editorial layouts.
+- Scientific tracks should use angled image panels.
+- Programme should use a vertical timeline.
+- Speakers should use a horizontal editorial profile composition.
+- Venue should use an architectural image gallery.
+- Statistics should use a continuous horizontal strip.
+- Committees should use structured typographic lists.
+
+Each page should have its own visual character while maintaining a consistent design system.
+
+---
+
+# 4. VISUAL DESIGN SYSTEM
+
+### Colour palette
+
+Use a sophisticated academic and biotechnology-inspired colour palette.
+
+- Primary navy: #142344
+- Deep navy: #0C1730
+- Violet: #6545C5
+- Secondary violet: #8466DF
+- Cyan: #19A9C5
+- White: #FFFFFF
+- Secondary background: #F4F6FA
+- Light blue: #EAF3FA
+- Body text: #4B5568
+- Border: #E4E8F0
+
+White should be the dominant background.
+
+Use navy for headings and prominent sections.
+
+Use violet selectively for important buttons and visual accents.
+
+Use cyan as a secondary accent.
+
+Avoid excessive gradients, glowing objects, neon effects and unnecessary glassmorphism.
+
+### Typography
+
+Headings: Sora or Space Grotesk.
+
+Body: Inter.
+
+Use oversized editorial headings, carefully controlled line lengths and a strong hierarchy.
+
+Do not make every heading the same size.
+
+### Visual elements
+
+Use:
+- Angular image frames.
+- Large architectural photographs.
+- Diagonal image masks.
+- Thin section dividers.
+- Numbered section identifiers.
+- Large typographic labels.
+- Small scientific iconography.
+- Structured whitespace.
+- Asymmetric layouts.
+
+Do not make every section a collection of rounded cards.
+
+---
+
+# 5. IMPORTANT SCROLLING EXPERIENCE – FULL SECTION-BY-SECTION SCROLLING
+
+This is a critical requirement of the website.
+
+I do not want conventional continuous scrolling where one mouse-wheel movement leaves the visitor halfway through a section.
+
+I want a controlled, polished, section-by-section scrolling experience.
+
+Implement **full-page vertical scroll snapping** throughout the public website.
+
+### Expected user experience
+
+For example, on the homepage:
+
+- Initial screen: Complete hero section.
+- First scroll: Complete conference identity and information section.
+- Second scroll: Complete About section.
+- Third scroll: Complete Scientific Tracks section.
+- Fourth scroll: Complete Speakers section.
+- Fifth scroll: Complete Programme section.
+- Sixth scroll: Complete campus feature section.
+- Continue section by section until the footer.
+
+Each scroll should take the visitor to a deliberate section boundary.
+
+The visitor should not land halfway through a section.
+
+### Technical implementation
+
+Use CSS scroll snapping.
+
+Implement an appropriate structure using:
+
+- `scroll-snap-type: y mandatory`
+- `scroll-snap-align: start`
+- `scroll-snap-stop: always`
+- `min-height: 100svh` for appropriately sized sections.
+- A consistent section wrapper and scroll container.
+- Smooth scrolling where appropriate.
+
+Use `scroll-padding-top` or equivalent handling to account for the sticky navigation header.
+
+Avoid unnecessary JavaScript wheel-event interception.
+
+Do not implement aggressive scroll hijacking that interferes with browser accessibility or normal user controls.
+
+### Section sizing rules
+
+Each major homepage section should be designed as a visually complete viewport experience.
+
+Prefer approximately 90–100svh for standard presentation sections.
+
+However, do not force long content into a single viewport by shrinking fonts or clipping information.
+
+If a section has too much content, divide it into multiple intentional snap panels.
+
+For example:
+
+- Scientific Tracks – Part 1.
+- Scientific Tracks – Part 2.
+
+Or:
+
+- Programme – Day 1.
+- Programme – Day 2.
+
+These must look like deliberate sections, not accidental overflow.
+
+Do not allow content to extend invisibly below the screen.
+
+Do not hide buttons, text, images or important information outside the visible section.
+
+### Internal pages
+
+Apply the same section-by-section scrolling principle to:
+
+- About page.
+- Scientific Tracks page.
+- Speakers page.
+- Programme page.
+- Venue page.
+- Committees page.
+- Contact page.
+
+Each page must have clear, complete visual sections.
+
+### Long forms
+
+Registration and abstract submission forms must remain easy to use.
+
+Break them into clearly defined steps or panels.
+
+Do not force the user to scroll through a very long form without knowing their progress.
+
+Provide visible step indicators and Previous/Continue controls.
+
+### Mobile behaviour
+
+On mobile:
+- Retain the section-based experience where practical.
+- Use appropriate viewport sizing.
+- Avoid content clipping.
+- Ensure touch scrolling feels natural.
+- Use `scroll-snap-type: y proximity` if mandatory snapping becomes uncomfortable on small screens or for long content.
+- Ensure keyboard navigation and accessibility are preserved.
+
+### Final scrolling test
+
+Test the actual behaviour using a mouse wheel, trackpad, touch and keyboard.
+
+A typical desktop scroll gesture should advance the visitor to the next intended snap section rather than stopping halfway through it.
+
+Do not consider the website complete until this behaviour has been tested on every public page.
+
+---
+
+# 6. HEADER AND NAVIGATION
+
+Create a premium institutional header.
+
+### Left side
+
+Display:
+- SRM Institute of Science and Technology logo.
+- SRM College of Pharmacy logo.
+
+### Centre
+
+Navigation:
+
+Home | About | Tracks | Speakers | Programme | Abstracts | Registration | Committees | Venue | Contact
+
+### Right side
+
+Prominent Register Now button.
+
+Use a clean white header with a subtle bottom border.
+
+Keep the navigation compact but readable.
+
+Make the header sticky.
+
+When scrolling, it may become slightly more compact while maintaining its visual identity.
+
+Do not use the previous Option 2 transparent navigation.
+
+For mobile, provide a clean collapsible navigation menu.
+
+Do not include the admin login in the public navigation.
+
+---
+
+# 7. HOMEPAGE – OPTION 7 EDITORIAL COMPOSITION
+
+The homepage should be visually distinctive and carefully art-directed.
+
+## Section 1 – Split hero
+
+Create an asymmetric split hero.
+
+Left: approximately 52% width.
+
+Right: approximately 48% width.
+
+### Left content
+
+Small label:
+
+INTERNATIONAL CONFERENCE | 2027
+
+Main heading:
+
+AI-Powered Innovations in Drug Discovery and Development
+
+Tagline:
+
+Transforming Discovery. Accelerating Innovation. Advancing Healthcare.
+
+Date:
+
+15–16 February 2027.
+
+Venue:
+
+SRM College of Pharmacy, SRMIST, Kattankulathur, Tamil Nadu, India.
+
+Collaboration:
+
+INTI International University, Malaysia.
+
+Buttons:
+
+REGISTER NOW
+
+SUBMIT ABSTRACT
+
+### Right image
+
+Use the actual/recreated SRM College of Pharmacy building photograph supplied with the project.
+
+Create a large architectural image composition with a distinctive angular or diagonal crop.
+
+The building must be clearly identifiable.
+
+Do not use generic laboratory or scientist imagery in this position.
+
+Do not obscure the college signage.
+
+## Section 2 – Conference identity strip
+
+Use a horizontal information strip rather than four cards.
+
+Display:
+
+- 15–16 February 2027.
+- Kattankulathur, India.
+- International collaboration.
+- Hybrid scientific conference.
+
+Use thin dividers and editorial typography.
+
+## Section 3 – About the conference
+
+Heading:
+
+Redefining the Future of Drug Discovery.
+
+Use an asymmetric image-and-text composition.
+
+Use the supplied College of Pharmacy entrance photograph.
+
+Include:
+- Conference background.
+- Scientific rationale.
+- Objectives.
+- Scope.
+- Expected outcomes.
+
+## Section 4 – Scientific tracks
+
+Heading:
+
+Five Dimensions of Pharmaceutical Innovation.
+
+Use five large angled, image-led panels.
+
+Each panel must have:
+- Track number.
+- Track title.
+- Scientific image.
+- Short description.
+- Explore Track link.
+
+Do not use ordinary repeated rectangular cards.
+
+## Section 5 – Speakers and presentation formats
+
+Create a side-by-side composition.
+
+Left: exactly three invited speakers.
+
+Right: presentation formats.
+
+Speakers:
+- Dr. Geetha Subramaniam.
+- Prof. Claudiu T. Supuran.
+- Maitri Sanghavi.
+
+Use neutral placeholder profile visuals, not fabricated portraits.
+
+LinkedIn profiles:
+
+https://www.linkedin.com/in/geetha-subramaniam-650b2b41/
+
+https://www.linkedin.com/in/claudiu-supuran-b0b60643/
+
+https://www.linkedin.com/in/maitri-sanghavi-b572ba66/
+
+Do not invent affiliations, designations or biographies.
+
+Presentation formats:
+
+- Hybrid oral presentations.
+- Offline poster presentations.
+- Separate scientific quiz.
+
+## Section 6 – Scientific programme
+
+Heading:
+
+Two Days. One Scientific Vision.
+
+Use the distinctive vertical timeline described in Section 12.
+
+## Section 7 – Industry–Academia Conclave
+
+Heading:
+
+Connecting Discovery with Application.
+
+Highlight the Day 1 afternoon Industry–Academia Conclave in the Main Hall.
+
+## Section 8 – SRMIST campus feature
+
+Use the supplied SRMIST aerial campus photograph.
+
+Create a large full-width panoramic visual.
+
+Use a subtle dark gradient for the text overlay.
+
+Heading:
+
+Hosted at SRM Institute of Science and Technology.
+
+Include a continuous statistics strip:
+
+- 02 Conference Days.
+- 03 Conference Halls.
+- 03 Invited Speakers.
+- 05 Scientific Tracks.
+- 100+ Expected Abstracts.
+
+Do not put every statistic inside a separate card.
+
+## Section 9 – Abstract invitation
+
+Heading:
+
+Your Research Belongs on the Global Stage.
+
+Display abstract requirements and a prominent Submit Abstract button.
+
+## Section 10 – Registration
+
+Display the two confirmed registration categories and fees.
+
+## Section 11 – Institutional collaboration
+
+Display SRMIST, SRM College of Pharmacy and INTI International University.
+
+## Section 12 – Footer
+
+Include institutional logos, quick links, dates and official contact details.
+
+---
+
+# 8. SCIENTIFIC TRACKS
+
+Create five distinct scientific tracks.
+
+### Track 01 – AI in Drug Discovery and Design
+
+- Artificial intelligence and machine learning.
+- Molecular docking and molecular dynamics.
+- Virtual screening.
+- Target identification.
+- Predictive modelling.
+
+### Track 02 – Drug Development and Delivery
+
+- Novel drug delivery systems.
+- Nanotechnology.
+- Pharmaceutical formulation.
+- Biopharmaceutical development.
+- Advanced drug delivery technologies.
+
+### Track 03 – Translational and Clinical Research
+
+- Preclinical development.
+- Clinical research.
+- Pharmacology.
+- Toxicology.
+- Precision medicine.
+
+### Track 04 – Neurotherapeutics and Mental Health
+
+- Neuropharmacology.
+- Psychiatric drug discovery.
+- Neurodegenerative disorders.
+- Neuroscience.
+- AI-driven neurotherapeutics.
+
+### Track 05 – Emerging Therapeutics and Technologies
+
+- Biologics.
+- Gene therapy.
+- Regenerative medicine.
+- Advanced biotechnology.
+- Emerging therapeutic platforms.
+
+Use relevant scientific imagery.
+
+Every track should have a distinct composition.
+
+---
+
+# 9. SPEAKERS PAGE
+
+Display exactly three speakers.
+
+1. Dr. Geetha Subramaniam.
+2. Prof. Claudiu T. Supuran.
+3. Maitri Sanghavi.
+
+Use neutral scientific placeholder imagery or profile silhouettes.
+
+Do not generate AI portraits of these individuals.
+
+Do not use unrelated stock photographs as if they represent the named speakers.
+
+Make all profile details editable.
+
+Link each speaker's name to the supplied LinkedIn profile.
+
+Use a premium editorial presentation rather than three identical large cards.
+
+---
+
+# 10. PRESENTATION FORMATS
+
+Present these in a separate section.
+
+**Oral presentations**
+
+Hybrid – online and offline.
+
+**Poster presentations**
+
+Offline.
+
+Poster exhibition outside the conference hall.
+
+**Scientific quiz**
+
+Separate conference activity.
+
+Use large typographic labels and subtle icons.
+
+---
+
+# 11. SCIENTIFIC PROGRAMME PAGE
+
+Create a prominent vertical timeline.
+
+### Day 1 – 15 February 2027
+
+- Inauguration – Main Hall.
+- Invited lectures and plenary sessions.
+- Parallel scientific sessions – Halls A, B and C.
+- Industry–Academia Conclave – Main Hall, afternoon.
+- Hybrid oral presentations.
+
+### Day 2 – 16 February 2027
+
+- Invited lectures.
+- Parallel scientific sessions.
+- Hybrid oral presentations.
+- Offline poster presentations.
+- Scientific quiz.
+- Valedictory function – Main Hall.
+
+Do not invent exact session timings.
+
+Do not invent speaker assignments or hall allocations beyond the confirmed details.
+
+Use editable placeholders for pending timings.
+
+The timeline should be the main design element.
+
+---
+
+# 12. VENUE – SRM COLLEGE OF PHARMACY AND SRMIST
+
+This section must make extensive use of the supplied institutional photographs.
+
+Create a dedicated Venue page with an architectural editorial layout.
+
+### College of Pharmacy
+
+Use:
+- Supplied College of Pharmacy entrance photograph.
+- Supplied College of Pharmacy full-building photograph.
+- Recreated enhanced College of Pharmacy photograph.
+
+### SRMIST campus
+
+Use:
+- Supplied aerial campus panorama.
+- Recreated aerial campus panorama.
+- Campus lake photograph.
+- Recreated campus lake image.
+- SRM Tech Park photograph.
+
+### Auditorium – Dr. T. P. Ganesan Auditorium
+
+Two additional photographs have been supplied specifically for the auditorium.
+
+Use both photographs to represent:
+
+**Dr. T. P. Ganesan Auditorium, SRMIST.**
+
+First photograph:
+- Interior view of the auditorium.
+- Use as the primary auditorium image.
+
+Second photograph:
+- Exterior architectural view of the auditorium during sunset.
+- Use as the secondary auditorium image.
+
+Present the auditorium as a dedicated venue feature.
+
+Heading:
+
+Dr. T. P. Ganesan Auditorium.
+
+Use an elegant architectural image layout with:
+- Large auditorium interior photograph.
+- Secondary exterior photograph.
+- Auditorium name.
+- Venue description.
+- Location information.
+
+Do not use these auditorium images to represent another building.
+
+Do not invent seating capacity, facilities or event arrangements.
+
+### Campus information
+
+Include:
+- Venue location.
+- Map.
+- Airport connectivity.
+- Railway connectivity.
+- Accommodation information.
+- Local transport information.
+
+Do not invent travel distances or travel times.
+
+---
+
+# 13. ABOUT PAGE
+
+Create a separate About page.
+
+Include:
+
+- Conference overview.
+- Background and rationale.
+- Scientific importance.
+- Conference objectives.
+- Scope.
+- Research themes.
+- Expected outcomes.
+- Target audience.
+- Organising institution.
+- International collaboration.
+
+Use editorial image-and-text layouts.
+
+Avoid repeated cards.
+
+---
+
+# 14. ABSTRACT SUBMISSION PAGE
+
+Create a dedicated abstract submission portal.
+
+### Submission requirements
+
+- Maximum 300 words.
+- 3–5 keywords.
+- PDF or DOCX.
+- Maximum file size 2 MB.
+- Structured abstract.
+
+Abstract structure:
+
+1. Background.
+2. Objective.
+3. Methodology.
+4. Results.
+5. Conclusion.
+
+### Multi-step form
+
+Step 1: Presenting author information.
+
+Step 2: Co-author information.
+
+Step 3: Abstract title and content.
+
+Step 4: Scientific track selection.
+
+Step 5: Keywords.
+
+Step 6: Oral or poster preference.
+
+Step 7: File upload and preview.
+
+Step 8: Final submission.
+
+Generate a unique Abstract ID.
+
+Save the submission in Firestore.
+
+Store documents securely.
+
+Send an acknowledgement email.
+
+Provide reference-based abstract status tracking.
+
+Abstract submission deadlines must remain editable until officially confirmed.
+
+---
+
+# 15. REGISTRATION PAGE
+
+Create a dedicated registration portal.
+
+### Confirmed categories and fees
+
+Students – UG / PG / PhD: ₹2,500.
+
+Faculty / Academicians: ₹2,500.
+
+Do not introduce additional categories or prices.
+
+### Participant information
+
+Collect:
+- Full name.
+- Email.
+- Mobile number.
+- Institution.
+- City.
+- Country.
+- Registration category.
+- Course or designation.
+- Abstract ID, if applicable.
+- Presentation preference.
+
+### Payment information
+
+Collect:
+- Payment method.
+- Transaction/UTR reference.
+- Payment date.
+- Amount.
+- Payment receipt, where applicable.
+
+Payment method must be configurable.
+
+Do not invent UPI IDs, bank details or payment gateway credentials.
+
+### Registration status
+
+Initial status:
+
+Awaiting Approval.
+
+### Payment status
+
+Initial status:
+
+Pending Verification.
+
+Payment statuses:
+- Pending Verification.
+- Under Verification.
+- Verified.
+- Rejected.
+
+Registration statuses:
+- Awaiting Approval.
+- Approved.
+- Rejected.
+
+Submission must not automatically approve a participant.
+
+Every payment must be individually verified by an authorised administrator.
+
+After successful verification and approval:
+- Update payment status.
+- Update registration status.
+- Record admin identity.
+- Record timestamp.
+- Record remarks.
+- Send confirmation email.
+
+Provide correction and resubmission after rejection.
+
+---
+
+# 16. PRIVATE ADMINISTRATION PORTAL
+
+Create a private administration portal.
+
+Route:
+
+/admin/login
+
+Do not display this route in the public navigation.
+
+Use Firebase Authentication and role-based authorisation.
+
+### Dashboard scope
+
+The dashboard must focus only on registration and payment administration.
+
+Display:
+- Total registrations.
+- Pending payments.
+- Under-verification payments.
+- Verified payments.
+- Rejected payments.
+- Approved participants.
+- Awaiting approval.
+- Verified collection amount.
+
+### Registration table
+
+Include:
+- Registration ID.
+- Participant name.
+- Email.
+- Phone.
+- Institution.
+- Category.
+- Fee.
+- Transaction reference.
+- Payment date.
+- Payment status.
+- Registration status.
+
+### Individual registration details
+
+Display the complete participant details, payment information and receipt.
+
+Actions:
+- Verify Payment.
+- Approve Registration.
+- Reject Payment.
+- Reject Registration.
+
+Require remarks where appropriate.
+
+Record admin identity and timestamp.
+
+Include search, filters and Excel export.
+
+Do not include abstract review, reviewer allocation, programme management, speaker management or committee management in this dashboard.
+
+---
+
+# 17. COMMITTEES PAGE
+
+Create editable sections for:
+
+- Chief Patrons.
+- Patrons.
+- Conference Chairpersons.
+- Organising Committee.
+- Scientific Advisory Committee.
+- International Advisory Committee.
+- Organising Secretaries.
+- Scientific Programme Committee.
+
+Do not invent committee members.
+
+Use placeholders until confirmed names are provided.
+
+Present the committee information in a clean typographic layout.
+
+---
+
+# 18. CONTACT PAGE
+
+Display:
+
+dean.pharmacy.ktr@srmist.edu.in
+
+narayanj@srmist.edu.in
+
+Include:
+- Institutional address.
+- Contact enquiry form.
+- Conference location.
+- Institutional logos.
+
+Do not invent telephone numbers or social media accounts.
+
+---
+
+# 19. IMAGE AND LOGO ASSET MANAGEMENT
+
+Use the uploaded photographs and logos.
+
+Identify assets by their visual content and assign them to the appropriate sections.
+
+Do not replace the supplied SRM photographs with generic stock photographs.
+
+Do not generate fictional SRM buildings.
+
+### Required asset mapping
+
+**SRM College of Pharmacy**
+
+Use the supplied and recreated building photographs in:
+- Homepage hero.
+- About page.
+- Venue page.
+
+**SRMIST aerial campus**
+
+Use the supplied and recreated aerial photographs in:
+- Homepage full-width campus banner.
+- About SRMIST section.
+- Venue page.
+
+**SRM Tech Park**
+
+Use the supplied and recreated Tech Park photograph in:
+- Campus facilities.
+- Venue gallery.
+
+**SRMIST campus lake**
+
+Use the supplied and recreated lake photographs in:
+- About SRMIST section.
+- Venue gallery.
+
+**Dr. T. P. Ganesan Auditorium**
+
+Use both supplied auditorium photographs:
+- Auditorium interior.
+- Auditorium exterior at sunset.
+
+Use them exclusively in the auditorium and venue presentation.
+
+**Institutional logos**
+
+Use the supplied:
+- SRM Institute of Science and Technology logo.
+- SRM College of Pharmacy logo.
+
+Use them in the header, footer and institutional collaboration section.
+
+Preserve the original logo colours and proportions.
+
+Do not stretch, crop, redraw or recolour them.
+
+### Image handling
+
+- Use appropriate image dimensions.
+- Use object-fit: cover for photographs only when cropping is suitable.
+- Use object-fit: contain for logos.
+- Preserve important architectural details.
+- Avoid excessive zoom.
+- Avoid pixelation.
+- Use responsive image sizing.
+- Add descriptive alt text.
+- Lazy-load images below the fold.
+
+Keep the original assets organised in the project.
+
+---
+
+# 20. TECHNICAL ARCHITECTURE
+
+Use:
+
+- React.
+- Vite.
+- TypeScript.
+- Tailwind CSS.
+- Lucide icons.
+- Framer Motion.
+- Firebase Authentication.
+- Cloud Firestore.
+- Firebase Storage.
+- Cloud Functions.
+- Secure email integration.
+
+Create modular, maintainable code.
+
+Separate:
+- Public conference website.
+- Registration portal.
+- Abstract submission portal.
+- Private administration portal.
+
+Suggested Firestore collections:
+
+- users
+- registrations
+- paymentRecords
+- abstractSubmissions
+- emailLogs
+- adminAuditLogs
+
+Use secure backend operations for privileged actions.
+
+Do not rely on frontend-only access restrictions.
+
+Public users must not be able to access other participants' records.
+
+Only authorised administrators may verify payments or approve registrations.
+
+Do not expose secrets or privileged credentials in frontend code.
+
+Do not simulate successful backend operations using fake success alerts.
+
+---
+
+# 21. RESPONSIVE DESIGN, ACCESSIBILITY AND FINAL QUALITY CHECK
+
+Create carefully designed desktop, tablet and mobile experiences.
+
+Do not simply shrink the desktop layout.
+
+Check:
+- Hero layout.
+- Header and navigation.
+- Section snapping.
+- Image crops.
+- Scientific track panels.
+- Timeline.
+- Speakers.
+- Registration forms.
+- Abstract submission.
+- Auditorium gallery.
+- Campus banner.
+- Footer.
+
+Maintain accessible contrast, readable typography, keyboard navigation and form labels.
+
+### Final acceptance criteria
+
+The completed website must:
+
+1. Be a completely new website.
+2. Follow Option 7 Research Summit.
+3. Have a distinctive split hero.
+4. Use actual SRM College of Pharmacy photographs.
+5. Use the SRMIST campus photographs.
+6. Include both Dr. T. P. Ganesan Auditorium photographs.
+7. Display the supplied institutional logos correctly.
+8. Use angled scientific track panels.
+9. Have a distinctive vertical programme timeline.
+10. Present speakers and presentation formats side by side.
+11. Include a full-width SRMIST campus feature.
+12. Have separate, properly designed internal pages.
+13. Include functional abstract submission.
+14. Include functional participant registration.
+15. Require individual payment verification.
+16. Include a secure private administration portal.
+17. Implement section-by-section scrolling throughout the public website.
+18. Avoid accidental half-section scrolling.
+19. Work correctly on desktop, tablet and mobile.
+20. Look like a premium international scientific congress website.
+
+---
+
+# 22. DEVELOPMENT EXECUTION INSTRUCTIONS
+
+Develop the website systematically.
+
+### Phase 1 – Design foundation
+
+Establish:
+- Typography.
+- Colour system.
+- Header.
+- Footer.
+- Section layout system.
+- Scroll snapping behaviour.
+- Image asset mapping.
+
+### Phase 2 – Homepage
+
+Complete the entire homepage.
+
+Pay particular attention to:
+- Split hero.
+- Conference identity strip.
+- About section.
+- Scientific tracks.
+- Speakers.
+- Programme timeline.
+- Campus banner.
+- Registration invitation.
+
+### Phase 3 – Internal pages
+
+Develop:
+- About.
+- Tracks.
+- Speakers.
+- Programme.
+- Abstracts.
+- Registration.
+- Committees.
+- Venue.
+- Contact.
+
+Each page must have its own visual composition.
+
+### Phase 4 – Functional systems
+
+Implement:
+- Firebase.
+- Registration.
+- Abstract submission.
+- Payment information.
+- Secure file uploads.
+- Email acknowledgement.
+- Admin authentication.
+- Admin dashboard.
+
+### Phase 5 – Testing
+
+Test:
+- All navigation.
+- All links.
+- All forms.
+- All backend operations.
+- All responsive layouts.
+- All image assets.
+- Scroll snapping on every page.
+- Full section visibility.
+- Keyboard and touch navigation.
+
+Do not stop after generating a static homepage.
+
+Complete the functional website.
+
+---
+
+# FINAL DESIGN DIRECTIVE
+
+Create a new international conference website that follows the Option 7 Research Summit concept.
+
+The visual experience must be editorial, architectural, asymmetric and research-focused.
+
+The homepage must immediately establish the international conference identity and SRM College of Pharmacy as the host institution.
+
+The website must use the actual supplied institutional photographs, campus images, auditorium photographs and official logos.
+
+The most important interaction requirement is full-page section-based scrolling.
+
+Each scroll should move the visitor to the next deliberately designed section. Visitors must never feel that they are reading half a section and need another scroll to discover the remaining half.
+
+Do not compromise the design to fit content. If necessary, create additional intentional snap sections.
+
+Build a distinctive, polished, responsive and fully functional international scientific conference website.

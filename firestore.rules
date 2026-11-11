@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'akashnara047@gmail.com' ||
+        request.auth.token.email == 'dean.pharmacy.ktr@srmist.edu.in' ||
+        request.auth.token.email == 'org.secy.cp@srmist.edu.in' ||
+        request.auth.token.email == 'narayanj@srmist.edu.in' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // System Counters for Atomic Sequential ID Allocation
+    match /systemCounters/{counterId} {
+      allow read: if true;
+      allow write: if isAdmin() || counterId == 'abstractCounter';
+    }
+
+    // Abstract Submissions
+    // Public can create abstracts and look up their own abstract by ID for tracking
+    match /abstractSubmissions/{abstractId} {
+      allow create: if isValidId(abstractId) &&
+        request.resource.data.keys().hasAll(['id', 'registrationId', 'title', 'trackId', 'presentationPreference', 'presentingAuthor', 'status', 'createdAt']) &&
+        request.resource.data.title is string && request.resource.data.title.size() <= 500 &&
+        request.resource.data.registrationId is string && request.resource.data.registrationId.size() <= 50;
+
+      allow get: if isValidId(abstractId);
+      allow list: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // Registrations
+    // Public can create with initial 'Pending Verification' and 'Awaiting Approval'
+    // Public can get their own registration by ID (or query by email/ID for tracking)
+    // Admins can list, update verification, assign registrationId, and delete
+    match /registrations/{registrationId} {
+      allow create: if isValidId(registrationId) &&
+        request.resource.data.keys().hasAll(['id', 'fullName', 'email', 'mobile', 'institution', 'category', 'transactionReference', 'paymentStatus', 'registrationStatus', 'createdAt']) &&
+        request.resource.data.fullName is string && request.resource.data.fullName.size() <= 200 &&
+        request.resource.data.email is string && request.resource.data.email.size() <= 150 &&
+        request.resource.data.paymentStatus in ['Pending Verification', 'Under Verification'] &&
+        request.resource.data.registrationStatus == 'Awaiting Approval';
+
+      allow get: if isValidId(registrationId);
+      allow list: if isAdmin();
+      allow update: if isAdmin() || (
+        // Allow abstract submission transaction to update linkedAbstractId and abstractSubmitted
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedAbstractId', 'abstractSubmitted', 'abstractSubmissionDate', 'updatedAt'])
+      ) || (
+        // Allow participant to resubmit transaction ref if status was Rejected
+        resource.data.paymentStatus == 'Rejected' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['transactionReference', 'paymentReceiptName', 'paymentReceiptData', 'paymentStatus', 'updatedAt']) &&
+        request.resource.data.paymentStatus == 'Pending Verification'
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Contact Enquiries
+    match /contactEnquiries/{enquiryId} {
+      allow create: if isValidId(enquiryId) &&
+        request.resource.data.keys().hasAll(['id', 'name', 'email', 'subject', 'message', 'createdAt']);
+      allow get, list, update, delete: if isAdmin();
+    }
+
+    // Admin Audit Logs
+    match /adminAuditLogs/{logId} {
+      allow create: if isAdmin();
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

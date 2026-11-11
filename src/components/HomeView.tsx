@@ -1,0 +1,3177 @@
+import React, { useState, useEffect } from 'react';
+import { IMAGES } from '../lib/images';
+import { CONFERENCE_INFO, SCIENTIFIC_TRACKS, INVITED_SPEAKERS, PRESENTATION_FORMATS } from '../data/conferenceData';
+import {
+  Calendar, MapPin, Globe, ArrowRight, FileText, CheckCircle2, Check, User, Monitor,
+  Award, ChevronRight, Sparkles, Building2, Cpu, Dna, Activity, Brain, Users,
+  Mic, Presentation, Handshake, Star, ArrowUp, ExternalLink, Shield, Clock,
+  Trophy, Lightbulb, Target, X, Mail, FlaskConical, TrendingUp, Info,
+  Layers, Pill, Microscope, GraduationCap, UserPlus, Download, BookOpen, ClipboardList
+} from 'lucide-react';
+import {
+  SRMISTLogo, SRMPharmacyLogo, INTILogo, IPALogo,
+  NIRFLogo, NAACLogo, NBALogo
+} from './Logos';
+import { LabFlaskArtwork } from './LabFlaskArtwork';
+import { AboutCapsuleIllustration } from './AboutCapsuleIllustration';
+import { AboutMoleculeIllustration } from './AboutMoleculeIllustration';
+import { TrackIllustration } from './TrackIllustrations';
+import { ConferenceCountdown } from './ConferenceCountdown';
+import {
+  PRESENTATION_CARDS_DATA,
+  PRESENTATION_DOCUMENTS,
+  SUBMISSION_STEPS,
+  type PresentationDocument
+} from '../config/presentationDownloads';
+
+interface HomeViewProps {
+  onNavigate: (tab: string, trackId?: string) => void;
+}
+
+export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
+  const [pharmaQuestModalOpen, setPharmaQuestModalOpen] = useState(false);
+  const [activeDownloadDoc, setActiveDownloadDoc] = useState<PresentationDocument | null>(null);
+
+  // Lock background scrolling and handle Escape key for modals
+  useEffect(() => {
+    if (pharmaQuestModalOpen || activeDownloadDoc) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          setPharmaQuestModalOpen(false);
+          setActiveDownloadDoc(null);
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = originalOverflow;
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [pharmaQuestModalOpen, activeDownloadDoc]);
+
+  const handleDocumentDownload = (docId: string) => {
+    const doc = PRESENTATION_DOCUMENTS[docId];
+    if (!doc) return;
+    if (doc.status === 'available' && doc.url) {
+      const link = document.createElement('a');
+      link.href = doc.url;
+      link.download = doc.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      setActiveDownloadDoc(doc);
+    }
+  };
+
+  return (
+    <div className="w-full">
+      {/* =========================================================================
+          SECTION 1: UNIFIED INSTITUTIONAL IDENTITY & CONFERENCE HERO
+          Exact reproduction of AI-Driven_Pharmacy_Conference_2027_52e2345a.png:
+          - Full-width SRMIST campus aerial photograph background with balanced translucent overlay
+          - Top: Institutional Masthead (SRMIST logo, SRM College of Pharmacy, IN COLLABORATION WITH, INTI & IPA, Crest)
+          - Center: Prominent floating dark navy-to-blue/teal conference hero panel with AI capsule graphic,
+            conference title, tagline, dates & venue glass card, and glowing molecular network
+          - Bottom: Horizontal white accreditation strip (NIRF 10th, NAAC A++, NBA)
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-5 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#E6F4F8]">
+        {/* Full-Width Authentic SRMIST Campus Aerial Background Photograph */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          <img
+            src={IMAGES.srmistCampusAerial}
+            alt="SRMIST Campus Landscape and Reflective Lake Panorama"
+            className="w-full h-full object-cover object-[center_32%] filter saturate-105"
+            loading="eager"
+          />
+        </div>
+
+        {/* Carefully Balanced Translucent White & Ice-Blue Overlay */}
+        <div className="absolute inset-0 z-0 bg-gradient-to-b from-white/80 via-white/68 to-white/78 backdrop-blur-[0.5px] pointer-events-none" />
+
+        {/* Subtle Violet & Cyan Curved Decorative Accents near Edges */}
+        <div className="absolute -top-24 -left-24 w-80 h-80 bg-[#22C5D9]/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-[#7554D9]/18 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden opacity-35">
+          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-60,120 C280,220 540,60 900,160 C1200,240 1380,120 1500,160"
+              stroke="#22C5D9"
+              strokeWidth="2.5"
+            />
+            <path
+              d="M-60,780 C320,700 640,840 1000,740 C1260,670 1420,780 1500,750"
+              stroke="#7554D9"
+              strokeWidth="2.5"
+              strokeDasharray="6 6"
+            />
+          </svg>
+        </div>
+
+        {/* FOREGROUND CONTENT: Sits cleanly over campus aerial backdrop */}
+        <div className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-between space-y-4 sm:space-y-5">
+          {/* ---------------------------------------------------------------------
+              TOP AREA: INSTITUTIONAL IDENTITY & COLLABORATION PARTNERS
+             --------------------------------------------------------------------- */}
+          <div className="flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4 pt-1">
+            {/* Left: Authentic SRMIST Logo */}
+            <div className="w-full md:w-1/4 flex justify-center md:justify-start">
+              <div className="p-2 sm:p-2.5 bg-white/95 backdrop-blur-md rounded-2xl border border-white/90 shadow-md hover:shadow-lg transition-all">
+                <img
+                  src={IMAGES.srmistLogo}
+                  alt="SRM Institute of Science and Technology"
+                  className="h-11 sm:h-13 md:h-15 w-auto object-contain"
+                  loading="eager"
+                />
+              </div>
+            </div>
+
+            {/* Center: Institutional Typography & Collaborators */}
+            <div className="w-full md:w-2/4 text-center">
+              <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-[2.5rem] font-black text-[#082746] font-heading tracking-tight uppercase leading-none">
+                SRM COLLEGE OF PHARMACY
+              </h1>
+              <h2 className="text-xs sm:text-sm md:text-base font-extrabold text-[#082746] font-heading tracking-normal uppercase mt-1">
+                SRM INSTITUTE OF SCIENCE AND TECHNOLOGY
+              </h2>
+
+              {/* Location with Purple Accent Lines */}
+              <div className="flex items-center justify-center gap-3 pt-1">
+                <div className="h-0.5 w-10 sm:w-16 bg-gradient-to-r from-transparent to-[#7554D9]" />
+                <span className="text-[11px] sm:text-xs md:text-sm font-semibold text-[#082746] tracking-wide">
+                  Kattankulathur, Tamil Nadu, India
+                </span>
+                <div className="h-0.5 w-10 sm:w-16 bg-gradient-to-l from-transparent to-[#7554D9]" />
+              </div>
+
+              {/* IN COLLABORATION WITH */}
+              <div className="pt-2 flex flex-col items-center">
+                <div className="inline-block px-3.5 py-0.5 bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white text-[9px] sm:text-[10px] font-bold tracking-widest uppercase rounded-full shadow-xs mb-1.5">
+                  IN COLLABORATION WITH
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white/95 backdrop-blur-md px-4 sm:px-6 py-1.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                  <INTILogo className="h-6 sm:h-7" />
+                  <div className="h-5 w-px bg-slate-300 hidden sm:block" />
+                  <IPALogo imgClassName="h-7 sm:h-8 md:h-9 w-auto max-w-[170px] sm:max-w-[210px]" />
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Authentic SRM College of Pharmacy Crest */}
+            <div className="w-full md:w-1/4 flex justify-center md:justify-end">
+              <div className="p-2 sm:p-2.5 bg-white/95 backdrop-blur-md rounded-full border border-white/90 shadow-md hover:scale-105 transition-transform">
+                <img
+                  src={IMAGES.srmPharmacyLogo}
+                  alt="SRM College of Pharmacy Official Crest"
+                  className="h-13 w-13 sm:h-15 sm:w-15 md:h-18 md:w-18 object-contain"
+                  loading="eager"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* ---------------------------------------------------------------------
+              CENTRAL PROMINENT PANEL: DARK NAVY-TO-TEAL CONFERENCE HERO PANEL
+             --------------------------------------------------------------------- */}
+          <div className="max-w-6xl mx-auto w-full my-1 sm:my-2">
+            <div
+              className="relative rounded-[26px] sm:rounded-[34px] text-white p-5 sm:p-7 md:p-9 lg:py-10 shadow-2xl border border-[#22C5D9]/35 overflow-hidden bg-cover bg-center bg-no-repeat min-h-[360px] sm:min-h-[390px] flex items-center justify-center"
+              style={{ backgroundImage: `url(${IMAGES.neonHeroLabscape})` }}
+            >
+              {/* Subtle Ambient Vignette / Central Readability Overlay */}
+              <div className="absolute inset-0 bg-[#051126]/30 sm:bg-transparent sm:bg-gradient-to-r sm:from-[#051126]/20 sm:via-[#051126]/40 sm:to-[#051126]/20 pointer-events-none" />
+
+              {/* Centered Conference Hero Information */}
+              <div className="relative z-10 max-w-3xl mx-auto text-center space-y-3 sm:space-y-3.5 w-full">
+                {/* Label Badge */}
+                <div className="inline-flex items-center gap-2 px-3.5 py-1 bg-white/10 border border-[#22C5D9]/40 rounded-full shadow-xs backdrop-blur-md">
+                  <Globe className="w-3.5 h-3.5 text-[#22C5D9]" />
+                  <span className="text-[10px] sm:text-[11px] font-bold tracking-widest text-[#22C5D9] uppercase">
+                    INTERNATIONAL CONFERENCE – 2027
+                  </span>
+                </div>
+
+                {/* Main Title: AI-Powered Innovations in Drug Discovery and Development */}
+                <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-[46px] xl:text-[48px] font-black text-white font-heading leading-[1.14] tracking-tight drop-shadow-md">
+                  AI-Powered <span className="text-[#22C5D9]">Innovations</span> in
+                  <span className="block mt-1">Drug Discovery and Development</span>
+                </h2>
+
+                {/* Tagline */}
+                <p className="text-sm sm:text-base md:text-[16.5px] font-medium text-cyan-100/95 tracking-wide max-w-2xl mx-auto drop-shadow-xs">
+                  Transforming Discovery. Accelerating Innovation. Advancing Healthcare.
+                </p>
+
+                {/* Conference Dates & Venue Glass Banner */}
+                <div className="max-w-2xl mx-auto w-full pt-1">
+                  <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-3 sm:p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left shadow-lg">
+                    {/* Dates */}
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-[#22C5D9]/25 text-[#22C5D9] rounded-xl shrink-0">
+                        <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] sm:text-[11px] uppercase font-bold text-cyan-200 tracking-wider">
+                          CONFERENCE DATES
+                        </div>
+                        <div className="text-sm sm:text-base font-extrabold text-white">
+                          15–16 February 2027
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="h-8 w-px bg-white/20 hidden sm:block" />
+
+                    {/* Venue */}
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-[#22C5D9]/25 text-[#22C5D9] rounded-xl shrink-0">
+                        <MapPin className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] sm:text-[11px] uppercase font-bold text-cyan-200 tracking-wider">
+                          CONFERENCE VENUE
+                        </div>
+                        <div className="text-sm sm:text-base font-extrabold text-white">
+                          SRM College of Pharmacy, Kattankulathur
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ---------------------------------------------------------------------
+              LIVE CONFERENCE COUNTDOWN SECTION
+              Placed immediately below the hero box and above the accreditation strip
+             --------------------------------------------------------------------- */}
+          <div className="max-w-5xl mx-auto w-full my-1 sm:my-2 px-1 sm:px-0">
+            <ConferenceCountdown />
+          </div>
+
+          {/* ---------------------------------------------------------------------
+              BOTTOM AREA: INSTITUTIONAL ACHIEVEMENTS STRIP (NIRF, NAAC, NBA)
+             --------------------------------------------------------------------- */}
+          <div className="max-w-5xl mx-auto w-full pb-1">
+            <div className="bg-white/95 backdrop-blur-md border border-white/90 rounded-2xl shadow-xl p-3 sm:p-3.5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-200/80">
+                {/* Column 1: NIRF Ranking */}
+                <div className="flex items-center justify-center px-4 py-1">
+                  <NIRFLogo />
+                </div>
+
+                {/* Column 2: NAAC */}
+                <div className="flex items-center justify-center px-4 py-1">
+                  <NAACLogo />
+                </div>
+
+                {/* Column 3: NBA Accreditation */}
+                <div className="flex items-center justify-center px-4 py-1">
+                  <NBALogo />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION 2: EXPERT INSIGHTS & DIVERSE PLATFORMS
+          (INVITED SPEAKERS & SCIENTIFIC PROGRAMME HIGHLIGHTS)
+          Exact reproduction of Expert Insights and Diverse Platforms.png:
+          - Top label: INVITED SPEAKERS & SCIENTIFIC PROGRAMME HIGHLIGHTS
+          - Main heading: "Expert Insights and Diverse Platforms"
+            with gradient text and curved cyan underline flourish
+          - Supporting copy: "Learn from global experts and showcase your research through multiple presentation formats at a hybrid international conference."
+          - Asymmetrical Two-Column Layout (58% Left / 42% Right on Desktop, equal height):
+            * Left Panel – Invited Speakers:
+              Deep purple gradient card with realistic conference stage microphone,
+              "Invited Speakers" header, 3 Invited Speakers stat panel (Plenary Faculty & Hybrid Conference Mode),
+              and 3 white circular checkmark highlights.
+            * Right Panel – Scientific Programme Highlights:
+              Three horizontal highlight cards: Oral Presentations (cyan),
+              Poster Presentations (peach/amber), and Plenary & Parallel Sessions (lavender).
+          - Decorative atmosphere:
+            * Top-right: Halftone dotted 3D globe with atmospheric cyan glow
+            * Lower-left: 3D molecular structure
+            * Lower-right: Dual 3D pharmaceutical capsules on wave
+            * Flowing wave ribbons across top and bottom
+          - Bottom CTA: "View Speakers & Programme →"
+         ========================================================================= */}
+      <section
+        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: `url(${IMAGES.expertInsightsBg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      >
+
+        {/* Foreground Content */}
+        <div className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-center space-y-5 sm:space-y-6 lg:space-y-7">
+          {/* 1. SECTION HEADING & IDENTITY */}
+          <div className="text-center space-y-2.5 max-w-4xl mx-auto">
+            {/* Flanked Pill Badge: INVITED SPEAKERS & SCIENTIFIC PROGRAMME HIGHLIGHTS */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#7554D9]/40" />
+              <div className="inline-flex items-center gap-2 px-4 sm:px-5 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+                <Mic className="w-3.5 h-3.5 text-white" />
+                <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase">
+                  INVITED SPEAKERS & SCIENTIFIC PROGRAMME HIGHLIGHTS
+                </span>
+              </div>
+              <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#22C5D9]/50" />
+            </div>
+
+            {/* Main Heading: Expert Insights and Diverse Platforms */}
+            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[46px] xl:text-[48px] font-black text-[#082746] font-heading tracking-tight leading-[1.18]">
+              Expert Insights and{' '}
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] bg-clip-text text-transparent">
+                  Diverse Platforms
+                </span>
+                <svg
+                  className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                  viewBox="0 0 100 8"
+                  preserveAspectRatio="none"
+                >
+                  <path
+                    d="M0,5 Q50,0 100,5"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </h2>
+
+            {/* Supporting Text */}
+            <p className="text-sm sm:text-[15.5px] lg:text-base text-[#45536B] leading-relaxed max-w-2xl mx-auto font-normal">
+              Learn from global experts and showcase your research through multiple presentation formats at a hybrid international conference.
+            </p>
+          </div>
+
+          {/* 2. ASYMMETRIC TWO-COLUMN PANELS (58% LEFT / 42% RIGHT ON DESKTOP, EQUAL HEIGHT) */}
+          <div className="flex flex-col lg:flex-row gap-5 lg:gap-6 items-stretch w-full">
+            {/* ===============================================================
+                LEFT PANEL: INVITED SPEAKERS (58% WIDTH ON DESKTOP)
+               =============================================================== */}
+            <div
+              className="w-full lg:w-[58%] relative rounded-[32px] p-6 sm:p-7 md:p-8 text-white shadow-xl border border-white/20 overflow-hidden flex flex-col justify-between min-h-[360px] sm:min-h-[390px] group bg-no-repeat"
+              style={{
+                backgroundImage: `url(${IMAGES.spotlightMicrophone})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'left center',
+              }}
+            >
+              {/* Subtle Gradient Overlays to preserve microphone clarity on left and ensure high text contrast on right */}
+              <div className="absolute inset-0 bg-gradient-to-r from-black/5 via-[#100726]/40 to-[#0A031A]/80 pointer-events-none" />
+              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#0A031A]/50 to-transparent pointer-events-none" />
+
+              {/* Foreground Content Stack */}
+              <div className="relative z-10 flex flex-col justify-between h-full space-y-4 sm:space-y-5">
+                {/* Panel Header */}
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/25 shadow-xs">
+                    <Users className="w-4.5 h-4.5 text-white" />
+                  </div>
+                  <h3 className="text-xl sm:text-2xl lg:text-[26px] font-black text-white font-heading tracking-tight drop-shadow-sm">
+                    Invited Speakers
+                  </h3>
+                </div>
+
+                {/* Speaker Statistics: 10 Invited Speakers, 7 Offline, 3 Online */}
+                <div className="bg-[#12072B]/75 backdrop-blur-md rounded-2xl p-4 sm:p-5 text-white shadow-xl border border-white/20 flex items-center justify-between gap-3 sm:gap-4 max-w-sm sm:max-w-md ml-auto w-full">
+                  {/* Left: Total Speaker Count (10 Invited Speakers) */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#8B50E8] to-[#6366F1] text-white flex items-center justify-center shrink-0 shadow-md border border-white/25">
+                      <Users className="w-6 h-6 stroke-[2.2]" />
+                    </div>
+                    <div>
+                      <div className="text-3xl sm:text-4xl font-black text-white font-heading leading-none tabular-nums drop-shadow-xs">
+                        10
+                      </div>
+                      <div className="text-xs sm:text-[12.5px] font-bold text-white/95 uppercase tracking-wider mt-1">
+                        Invited Speakers
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vertical Divider */}
+                  <div className="h-11 w-px bg-white/25 shrink-0" />
+
+                  {/* Right: Mode Breakdown (7 Offline, 3 Online) */}
+                  <div className="space-y-1.5 text-left shrink-0">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0 shadow-xs" />
+                      <span className="text-base sm:text-lg font-black text-white font-heading tabular-nums">7</span>
+                      <span className="text-xs sm:text-[13.5px] font-bold text-white/95">Offline</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#38BDF8] shrink-0 shadow-xs" />
+                      <span className="text-base sm:text-lg font-black text-white font-heading tabular-nums">3</span>
+                      <span className="text-xs sm:text-[13.5px] font-bold text-white/95">Online</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Three Checkmark Highlights */}
+                <div className="space-y-2.5 pt-1 max-w-sm sm:max-w-md ml-auto w-full">
+                  {[
+                    'Renowned experts from academia and industry',
+                    'Plenary and parallel sessions',
+                    'Insights on emerging trends and future directions in drug discovery and development',
+                  ].map((text, idx) => (
+                    <div key={idx} className="flex items-start gap-2.5">
+                      <div className="w-5 h-5 rounded-full bg-white text-[#7554D9] flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      </div>
+                      <span className="text-sm sm:text-[15px] text-white font-medium leading-snug drop-shadow-xs">
+                        {text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ===============================================================
+                RIGHT PANEL: SCIENTIFIC PROGRAMME HIGHLIGHTS (42% WIDTH ON DESKTOP)
+               =============================================================== */}
+            <div className="w-full lg:w-[42%] relative rounded-[32px] p-6 sm:p-7 md:p-8 bg-white/95 backdrop-blur-md shadow-xl border border-[#E2E8F0] flex flex-col justify-between space-y-4 min-h-[360px] sm:min-h-[390px]">
+              {/* Panel Header */}
+              <div className="flex items-center gap-2.5 pb-0.5">
+                <div className="w-9 h-9 rounded-full bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center shrink-0 shadow-2xs">
+                  <Layers className="w-4.5 h-4.5 stroke-[2.2]" />
+                </div>
+                <h3 className="text-xl sm:text-2xl lg:text-[26px] font-black text-[#082746] font-heading tracking-tight">
+                  Scientific Programme Highlights
+                </h3>
+              </div>
+
+              {/* Three Horizontal Feature Cards */}
+              <div className="space-y-3 flex-1 flex flex-col justify-between">
+                {/* 1. Oral Presentations (Cyan/Light-Blue Background) */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onNavigate('abstracts')}
+                  onKeyDown={(e) => e.key === 'Enter' && onNavigate('abstracts')}
+                  className="bg-gradient-to-r from-[#F0FAFB] to-[#E2F7F9] border border-[#BDEEF5] rounded-2xl p-4 flex items-center gap-4 hover:shadow-md hover:border-[#087E8B] transition-all group cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-white text-[#087E8B] flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                    <Presentation className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-base sm:text-[18.5px] lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#087E8B] transition-colors">
+                      Oral Presentations
+                    </div>
+                    <div className="text-[13.5px] sm:text-[15px] lg:text-[15.5px] text-[#52617A] leading-snug mt-1">
+                      Hybrid (online and offline) sessions to present original research.
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Poster Presentations (Soft Peach/Light-Orange Background) */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onNavigate('abstracts')}
+                  onKeyDown={(e) => e.key === 'Enter' && onNavigate('abstracts')}
+                  className="bg-gradient-to-r from-[#FFF8F1] to-[#FDEEE0] border border-[#FCDABA] rounded-2xl p-4 flex items-center gap-4 hover:shadow-md hover:border-[#EA580C] transition-all group cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-white text-[#EA580C] flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                    <FileText className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-base sm:text-[18.5px] lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#EA580C] transition-colors">
+                      Poster Presentations
+                    </div>
+                    <div className="text-[13.5px] sm:text-[15px] lg:text-[15.5px] text-[#52617A] leading-snug mt-1">
+                      In-person poster forum to showcase research findings and innovations.
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Plenary & Parallel Sessions (Soft Lavender Background) */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onNavigate('programme')}
+                  onKeyDown={(e) => e.key === 'Enter' && onNavigate('programme')}
+                  className="bg-gradient-to-r from-[#FAF8FF] to-[#EDE6FE] border border-[#E2D6FD] rounded-2xl p-4 flex items-center gap-4 hover:shadow-md hover:border-[#7554D9] transition-all group cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-white text-[#7554D9] flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform">
+                    <Users className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-base sm:text-[18.5px] lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#7554D9] transition-colors">
+                      Plenary & Parallel Sessions
+                    </div>
+                    <div className="text-[13.5px] sm:text-[15px] lg:text-[15.5px] text-[#52617A] leading-snug mt-1">
+                      High-impact talks and focused sessions by invited experts.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. CENTERED ACTION BUTTON (PURPLE-TO-CYAN GRADIENT) */}
+          <div className="flex justify-center pt-2 pb-0.5">
+            <button
+              type="button"
+              onClick={() => onNavigate('speakers')}
+              className="px-9 sm:px-11 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] hover:opacity-95 rounded-full shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center gap-2.5 cursor-pointer group"
+            >
+              <span>View Speakers & Programme</span>
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION 3: ABOUT THE CONFERENCE (VISUAL HERO & THREE PILLARS)
+          Exact reproduction of AI-Powered_Drug_Discovery_Conference_fc96ce48.png:
+          - Panoramic SRMIST campus aerial photograph spanning the entire top edge
+          - Flowing, curved white-to-light-lavender transition between campus image & content
+          - Centered "ABOUT THE CONFERENCE" gradient pill with flanking horizontal rules
+          - Main heading: "AI-Powered Innovations in Drug Discovery and Development"
+            with violet accent and subtle cyan underline under "Drug Discovery"
+          - Centered introduction text with bold key participant categories
+          - Left: 3D capsule with AI symbol and orbital rings
+          - Right: 3D molecular structure with blue and violet spheres
+          - Three equal-width conference pillar cards:
+            1. Scientific Vision (Laboratory flask, soft violet)
+            2. Interdisciplinary Collaboration (Researchers group, soft cyan)
+            3. Future Impact (Growth chart, soft peach)
+          - Curved lavender transition at bottom with "CONFERENCE CONTENT" label
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-white flex flex-col justify-between border-b border-[#E2E7F0] relative overflow-hidden">
+        {/* 1. PANORAMIC SRMIST CAMPUS AERIAL PHOTOGRAPH AT TOP EDGE */}
+        <div className="relative w-full h-36 sm:h-48 md:h-56 lg:h-64 overflow-hidden shrink-0">
+          <img
+            src={IMAGES.srmistCampusAerial}
+            alt="SRMIST Campus Landscape and Reflective Lake Panorama"
+            className="w-full h-full object-cover object-[center_36%] filter saturate-105"
+            loading="eager"
+          />
+
+          {/* Translucent sky/atmosphere gradient for depth */}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-white/20 pointer-events-none" />
+
+          {/* Flowing, curved white-to-light-lavender transition wave */}
+          <div className="absolute -bottom-1 left-0 right-0 w-full overflow-hidden leading-none z-10 pointer-events-none">
+            <svg
+              viewBox="0 0 1440 90"
+              className="w-full h-10 sm:h-14 lg:h-18"
+              preserveAspectRatio="none"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              {/* Soft lavender back wave */}
+              <path
+                d="M0,45 C320,80 540,10 880,55 C1160,90 1340,35 1440,50 L1440,90 L0,90 Z"
+                fill="#EDE9FA"
+                fillOpacity="0.85"
+              />
+              {/* White foreground wave */}
+              <path
+                d="M0,58 C280,24 620,78 960,38 C1240,8 1380,48 1440,34 L1440,90 L0,90 Z"
+                fill="#FFFFFF"
+              />
+            </svg>
+          </div>
+        </div>
+
+        {/* 2. MAIN SECTION CONTENT & INTRODUCTION */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex-1 flex flex-col justify-center py-4 sm:py-6 relative z-10 space-y-4 sm:space-y-6">
+          {/* Centered Section Label with Flanking Rules */}
+          <div className="flex items-center justify-center gap-3 sm:gap-4">
+            <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-gradient-to-r from-transparent via-[#7554D9]/40 to-[#7554D9]/80" />
+
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+              <Info className="w-3.5 h-3.5 text-white" />
+              <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase">
+                ABOUT THE CONFERENCE
+              </span>
+            </div>
+
+            <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-gradient-to-l from-transparent via-[#22C5D9]/40 to-[#22C5D9]/80" />
+          </div>
+
+          {/* Main Heading */}
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.18]">
+              AI-Powered Innovations in<br />
+              <span className="text-[#7554D9] relative inline-block">
+                Drug Discovery
+                <svg
+                  className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                  viewBox="0 0 100 8"
+                  preserveAspectRatio="none"
+                >
+                  <path
+                    d="M0,5 Q50,0 100,5"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>{' '}
+              and Development
+            </h2>
+          </div>
+
+          {/* Conference Introduction with Flanking Decorative Visual Elements */}
+          <div className="relative max-w-5xl mx-auto w-full flex items-center justify-center px-2">
+            {/* Left: Decorative 3D AI Capsule with Orbital Rings */}
+            <div className="hidden lg:flex absolute -left-8 xl:-left-20 top-1/2 -translate-y-1/2 z-0">
+              <AboutCapsuleIllustration className="w-36 lg:w-44 xl:w-52 h-auto" />
+            </div>
+
+            {/* Centered Introduction Paragraph */}
+            <p className="text-sm sm:text-base lg:text-[16.5px] text-[#45536B] leading-relaxed text-center max-w-3xl font-normal relative z-10 px-2 sm:px-4">
+              An international academic and scientific platform bringing together{' '}
+              <strong className="font-bold text-[#082746]">
+                researchers, academicians, pharmaceutical scientists, clinicians and industry experts
+              </strong>{' '}
+              to explore emerging innovations in drug discovery and development. The conference will focus on the integration of artificial intelligence, advanced pharmaceutical technologies and interdisciplinary research to address contemporary challenges in healthcare and therapeutic development.
+            </p>
+
+            {/* Right: Decorative 3D Molecular Structure with Spheres */}
+            <div className="hidden lg:flex absolute -right-8 xl:-right-20 top-1/2 -translate-y-1/2 z-0">
+              <AboutMoleculeIllustration className="w-36 lg:w-44 xl:w-52 h-auto" />
+            </div>
+          </div>
+
+          {/* 3. THREE CONFERENCE PILLARS (EQUAL WIDTH PANELS) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-5 max-w-6xl mx-auto w-full pt-1">
+            {/* Panel 1 – Scientific Vision */}
+            <div className="bg-[#FAF9FE] border border-[#E9E4F8] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-2xs hover:shadow-md transition-shadow">
+              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#EDE9FA] flex items-center justify-center shrink-0">
+                <FlaskConical className="w-6 h-6 sm:w-7 sm:h-7 text-[#7554D9]" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base sm:text-lg lg:text-[19px] font-bold text-[#082746] font-heading">
+                  Scientific Vision
+                </h3>
+                <p className="text-xs sm:text-[14px] text-[#45536B] leading-snug">
+                  Advance AI-driven research and emerging technologies in drug discovery and development.
+                </p>
+              </div>
+            </div>
+
+            {/* Panel 2 – Interdisciplinary Collaboration */}
+            <div className="bg-[#F0FAFC] border border-[#CDEEF5] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-2xs hover:shadow-md transition-shadow">
+              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#DDF4F8] flex items-center justify-center shrink-0">
+                <Users className="w-6 h-6 sm:w-7 sm:h-7 text-[#087E8B]" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base sm:text-lg lg:text-[19px] font-bold text-[#082746] font-heading">
+                  Interdisciplinary Collaboration
+                </h3>
+                <p className="text-xs sm:text-[14px] text-[#45536B] leading-snug">
+                  Bring together academia, industry and clinical experts to encourage knowledge exchange and collaborative research.
+                </p>
+              </div>
+            </div>
+
+            {/* Panel 3 – Future Impact */}
+            <div className="bg-[#FFF9F3] border border-[#FFE7D3] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-2xs hover:shadow-md transition-shadow">
+              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#FFEAD7] flex items-center justify-center shrink-0">
+                <TrendingUp className="w-6 h-6 sm:w-7 sm:h-7 text-[#EA580C]" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base sm:text-lg lg:text-[19px] font-bold text-[#082746] font-heading">
+                  Future Impact
+                </h3>
+                <p className="text-xs sm:text-[14px] text-[#45536B] leading-snug">
+                  Accelerate innovation towards safer, more effective and improved therapeutic solutions.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      {/* =========================================================================
+          SECTION 4: SCIENTIFIC TRACKS (UNIFIED SEVEN TRACKS)
+          Exact reproduction of Scientific_Tracks__Key_Conference_Themes.png:
+          - Full-width light background with subtle lavender/cyan atmospheric glow
+          - Centered purple-to-cyan gradient capsule "SCIENTIFIC TRACKS" with Layers icon
+          - Main heading: "Explore the Key Themes of the Conference" with purple-to-cyan gradient on "of the Conference"
+          - Centered description text
+          - Large rounded rectangular landscape cards with individual pastel gradients:
+            * Row 1: 4 cards equally sized (01, 02, 03, 04)
+            * Row 2: 3 cards equally sized, perfectly centered (05, 06, 07)
+          - Prominent two-digit badge at top-left, bold dark navy title, concise description
+          - Prominent large 3D scientific illustrations filling the right side of each card
+          - Decorative floating molecular structure (upper-left), dual capsules on wave (lower-left),
+            large 3D DNA double helix (lower-right), and wave ribbon along bottom
+          - Prominent large centered gradient button: "View Detailed Tracks →"
+          - Bottom transition to Section 5 (Invited Speakers)
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-gradient-to-b from-[#FAF9FE] via-white to-[#F2EDFD] flex flex-col justify-between py-10 sm:py-14 border-b border-[#E2E7F0] relative overflow-hidden">
+        {/* --- DECORATIVE SCIENTIFIC ELEMENTS (MATCHING REFERENCE MOCKUP) --- */}
+        {/* Upper-Left: Floating Molecular Structure */}
+        <div className="absolute top-1/5 left-2 sm:left-4 lg:left-6 pointer-events-none opacity-70 hidden md:block z-0">
+          <svg width="140" height="140" viewBox="0 0 140 140" fill="none">
+            <defs>
+              <radialGradient id="molBallA" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="35%" stopColor="#7DD3FC" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </radialGradient>
+              <radialGradient id="molBallB" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="35%" stopColor="#A5F3FC" />
+                <stop offset="100%" stopColor="#0891B2" />
+              </radialGradient>
+            </defs>
+            <circle cx="25" cy="60" r="9" fill="url(#molBallA)" filter="drop-shadow(0 3px 6px rgba(2,132,199,0.3))" />
+            <circle cx="70" cy="35" r="14" fill="url(#molBallB)" filter="drop-shadow(0 4px 8px rgba(8,145,178,0.3))" />
+            <circle cx="105" cy="65" r="8.5" fill="url(#molBallA)" filter="drop-shadow(0 3px 6px rgba(2,132,199,0.3))" />
+            <circle cx="60" cy="100" r="11" fill="url(#molBallA)" filter="drop-shadow(0 4px 8px rgba(2,132,199,0.3))" />
+            <circle cx="20" cy="110" r="7" fill="url(#molBallB)" />
+            <line x1="25" y1="60" x2="70" y2="35" stroke="#7DD3FC" strokeWidth="2.5" strokeOpacity="0.7" />
+            <line x1="70" y1="35" x2="105" y2="65" stroke="#7DD3FC" strokeWidth="2.5" strokeOpacity="0.7" />
+            <line x1="70" y1="35" x2="60" y2="100" stroke="#7DD3FC" strokeWidth="2.5" strokeOpacity="0.7" />
+            <line x1="25" y1="60" x2="20" y2="110" stroke="#7DD3FC" strokeWidth="2" strokeOpacity="0.6" />
+            <line x1="60" y1="100" x2="20" y2="110" stroke="#7DD3FC" strokeWidth="2" strokeOpacity="0.6" />
+          </svg>
+        </div>
+
+        {/* Lower-Left: Dual 3D Pharmaceutical Capsules on Wave */}
+        <div className="absolute -bottom-4 left-2 sm:left-6 lg:left-8 pointer-events-none opacity-90 hidden md:block z-0">
+          <svg width="170" height="140" viewBox="0 0 170 140" fill="none">
+            <defs>
+              <linearGradient id="capCyan3D" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#67E8F9" />
+                <stop offset="50%" stopColor="#38BDF8" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </linearGradient>
+              <linearGradient id="capPurple3D" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#E9D5FF" />
+                <stop offset="50%" stopColor="#A855F7" />
+                <stop offset="100%" stopColor="#6B21A8" />
+              </linearGradient>
+            </defs>
+            <ellipse cx="85" cy="118" rx="65" ry="12" fill="#7554D9" fillOpacity="0.18" filter="blur(6px)" />
+            {/* Cyan/White Pill */}
+            <g transform="translate(52, 72) rotate(-38)">
+              <rect x="-14" y="-32" width="28" height="64" rx="14" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="1" />
+              <path d="M-14 0 L14 0 L14 -18 C14 -25.7 7.7 -32 0 -32 C-7.7 -32 -14 -25.7 -14 -18 Z" fill="url(#capCyan3D)" />
+              <path d="M-9 -24 C-9 -8 -9 12 -9 24" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+            </g>
+            {/* Purple/White Pill */}
+            <g transform="translate(108, 88) rotate(-22)">
+              <rect x="-14" y="-32" width="28" height="64" rx="14" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="1" />
+              <path d="M-14 0 L14 0 L14 18 C14 25.7 7.7 32 0 32 C-7.7 32 -14 25.7 -14 18 Z" fill="url(#capPurple3D)" />
+              <path d="M-9 -24 C-9 -8 -9 12 -9 24" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Lower-Right: Ascending 3D DNA Double Helix */}
+        <div className="absolute -bottom-8 right-2 sm:right-6 lg:right-8 pointer-events-none opacity-85 hidden md:block z-0">
+          <svg width="180" height="210" viewBox="0 0 180 210" fill="none">
+            <defs>
+              <linearGradient id="dnaStrandCyan" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#38BDF8" />
+                <stop offset="50%" stopColor="#60A5FA" />
+                <stop offset="100%" stopColor="#818CF8" />
+              </linearGradient>
+              <linearGradient id="dnaStrandViolet" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#818CF8" />
+                <stop offset="50%" stopColor="#A855F7" />
+                <stop offset="100%" stopColor="#C084FC" />
+              </linearGradient>
+            </defs>
+            <path d="M50 210 C80 160 120 120 95 70 C70 20 115 -20 145 -50" stroke="url(#dnaStrandCyan)" strokeWidth="7" strokeLinecap="round" strokeOpacity="0.8" />
+            <path d="M130 210 C100 160 60 120 85 70 C110 20 65 -20 35 -50" stroke="url(#dnaStrandViolet)" strokeWidth="7" strokeLinecap="round" strokeOpacity="0.8" />
+            {[30, 60, 90, 120, 150, 180].map((y, i) => (
+              <line key={i} x1={50 + (i % 2 === 0 ? 15 : -15)} y1={y} x2={130 - (i % 2 === 0 ? 15 : -15)} y2={y} stroke="#38BDF8" strokeWidth="3.5" strokeLinecap="round" strokeOpacity="0.75" />
+            ))}
+          </svg>
+        </div>
+
+        {/* Ethereal wave ribbon across bottom */}
+        <div className="absolute bottom-0 left-0 right-0 h-24 pointer-events-none bg-gradient-to-t from-[#EDE9FA]/45 via-[#EDE9FA]/15 to-transparent z-0" />
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-8 relative z-10">
+          {/* 1. SECTION IDENTITY & HEADER */}
+          <div className="text-center space-y-2.5 max-w-3xl mx-auto">
+            {/* Top Capsule with Layered Icon */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-[#7554D9]/40" />
+              <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+                <Layers className="w-3.5 h-3.5 text-white" />
+                <span className="text-[10.5px] sm:text-xs font-black tracking-widest uppercase">
+                  SCIENTIFIC TRACKS
+                </span>
+              </div>
+              <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-[#22C5D9]/50" />
+            </div>
+
+            {/* Main Heading with Purple-to-Cyan Gradient Emphasis */}
+            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.2]">
+              Explore the Key Themes{' '}
+              <span className="bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] bg-clip-text text-transparent relative inline-block">
+                of the Conference
+                <svg
+                  className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                  viewBox="0 0 100 8"
+                  preserveAspectRatio="none"
+                >
+                  <path
+                    d="M0,5 Q50,0 100,5"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </h2>
+
+            {/* Supporting Text */}
+            <p className="text-sm sm:text-base text-[#45536B] leading-relaxed max-w-2xl mx-auto font-normal">
+              The conference will cover seven focused scientific tracks, addressing the integration of AI, emerging technologies and translational research in drug discovery and development.
+            </p>
+          </div>
+
+          {/* 2. SEVEN SCIENTIFIC TRACK CARDS (ROW 1: 4 CARDS, ROW 2: 3 CENTERED CARDS) */}
+          <div className="space-y-5 lg:space-y-6 w-full">
+            {/* ROW 1: CARDS 01, 02, 03, 04 (4 EQUAL COLUMNS ON DESKTOP) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6 max-w-7xl mx-auto w-full">
+              {SCIENTIFIC_TRACKS.slice(0, 4).map((track, idx) => {
+                const styles = [
+                  {
+                    bg: 'bg-gradient-to-br from-[#FAF8FF] via-[#F4F0FE] to-[#EDE5FE]',
+                    border: 'border-[#E2D6FD]',
+                    hoverBorder: 'hover:border-[#7554D9]',
+                    badge: 'bg-[#EDE9FA] text-[#7554D9]',
+                  },
+                  {
+                    bg: 'bg-gradient-to-br from-[#F0FBFC] via-[#E4F8FA] to-[#D5F5F8]',
+                    border: 'border-[#BDEEF5]',
+                    hoverBorder: 'hover:border-[#087E8B]',
+                    badge: 'bg-[#E0F7FA] text-[#087E8B]',
+                  },
+                  {
+                    bg: 'bg-gradient-to-br from-[#FFF9F2] via-[#FEF2E4] to-[#FDE8D3]',
+                    border: 'border-[#FBD7BA]',
+                    hoverBorder: 'hover:border-[#EA580C]',
+                    badge: 'bg-[#FFEAD7] text-[#EA580C]',
+                  },
+                  {
+                    bg: 'bg-gradient-to-br from-[#F2F7FD] via-[#E7F1FC] to-[#D7E9FB]',
+                    border: 'border-[#C3DDF9]',
+                    hoverBorder: 'hover:border-[#0284C7]',
+                    badge: 'bg-[#E0F2FE] text-[#0284C7]',
+                  },
+                ][idx];
+
+                return (
+                  <div
+                    key={track.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onNavigate('tracks', track.id)}
+                    onKeyDown={(e) => e.key === 'Enter' && onNavigate('tracks', track.id)}
+                    className={`w-full ${styles.bg} ${styles.border} ${styles.hoverBorder} rounded-[28px] p-5 sm:p-6 shadow-[0_8px_24px_rgba(117,84,217,0.06)] hover:shadow-[0_16px_36px_rgba(117,84,217,0.18)] transition-all duration-300 flex items-center justify-between gap-2.5 group cursor-pointer hover:-translate-y-1.5 relative overflow-hidden min-h-[165px] sm:min-h-[178px]`}
+                  >
+                    {/* Left Content Column */}
+                    <div className="flex-1 min-w-0 pr-1 space-y-3 z-10">
+                      <div>
+                        <span
+                          className={`inline-flex items-center justify-center px-3.5 py-1 rounded-xl text-xs sm:text-[13px] font-mono font-black ${styles.badge}`}
+                        >
+                          {track.number}
+                        </span>
+                      </div>
+
+                      <h3 className="text-base sm:text-lg lg:text-[19px] font-black text-[#082746] font-heading leading-snug group-hover:text-[#7554D9] transition-colors">
+                        {track.title}
+                      </h3>
+                    </div>
+
+                    {/* Right 3D Scientific Illustration (Large & Prominent) */}
+                    <div className="shrink-0 flex items-center justify-center group-hover:scale-108 transition-transform duration-300 z-10">
+                      <TrackIllustration
+                        type={track.iconType || 'laptop-ai'}
+                        className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 drop-shadow-md"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ROW 2: CARDS 05, 06, 07 (3 CENTERED COLUMNS ON DESKTOP, MATCHING ROW 1 CARD WIDTH) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6 max-w-[954px] mx-auto w-full">
+              {SCIENTIFIC_TRACKS.slice(4, 7).map((track, idx) => {
+                const styles = [
+                  {
+                    bg: 'bg-gradient-to-br from-[#F0FAF4] via-[#E3F7EB] to-[#D1F2DE]',
+                    border: 'border-[#B6EAC7]',
+                    hoverBorder: 'hover:border-[#16A34A]',
+                    badge: 'bg-[#DCFCE7] text-[#16A34A]',
+                  },
+                  {
+                    bg: 'bg-gradient-to-br from-[#F8F4FF] via-[#EFE5FE] to-[#E3D4FE]',
+                    border: 'border-[#D4BCFE]',
+                    hoverBorder: 'hover:border-[#9333EA]',
+                    badge: 'bg-[#F3E8FF] text-[#9333EA]',
+                  },
+                  {
+                    bg: 'bg-gradient-to-br from-[#FFF4F5] via-[#FEE8EA] to-[#FDD8DC]',
+                    border: 'border-[#FBBFC7]',
+                    hoverBorder: 'hover:border-[#E11D48]',
+                    badge: 'bg-[#FFE4E6] text-[#E11D48]',
+                  },
+                ][idx];
+
+                return (
+                  <div
+                    key={track.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onNavigate('tracks', track.id)}
+                    onKeyDown={(e) => e.key === 'Enter' && onNavigate('tracks', track.id)}
+                    className={`w-full ${styles.bg} ${styles.border} ${styles.hoverBorder} rounded-[28px] p-5 sm:p-6 shadow-[0_8px_24px_rgba(117,84,217,0.06)] hover:shadow-[0_16px_36px_rgba(117,84,217,0.18)] transition-all duration-300 flex items-center justify-between gap-2.5 group cursor-pointer hover:-translate-y-1.5 relative overflow-hidden min-h-[165px] sm:min-h-[178px]`}
+                  >
+                    {/* Left Content Column */}
+                    <div className="flex-1 min-w-0 pr-1 space-y-3 z-10">
+                      <div>
+                        <span
+                          className={`inline-flex items-center justify-center px-3.5 py-1 rounded-xl text-xs sm:text-[13px] font-mono font-black ${styles.badge}`}
+                        >
+                          {track.number}
+                        </span>
+                      </div>
+
+                      <h3 className="text-base sm:text-lg lg:text-[19px] font-black text-[#082746] font-heading leading-snug group-hover:text-[#7554D9] transition-colors">
+                        {track.title}
+                      </h3>
+                    </div>
+
+                    {/* Right 3D Scientific Illustration (Large & Prominent) */}
+                    <div className="shrink-0 flex items-center justify-center group-hover:scale-108 transition-transform duration-300 z-10">
+                      <TrackIllustration
+                        type={track.iconType || 'laptop-ai'}
+                        className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 drop-shadow-md"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 3. PROMINENT LARGE CENTRED GRADIENT BUTTON */}
+          <div className="flex justify-center pt-3 pb-1">
+            <button
+              type="button"
+              onClick={() => onNavigate('tracks')}
+              className="px-10 py-4 text-sm sm:text-[15.5px] font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] hover:opacity-95 rounded-full shadow-lg hover:shadow-2xl hover:scale-[1.02] transition-all flex items-center gap-2 cursor-pointer group"
+            >
+              <span>View Detailed Tracks</span>
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1.5" />
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      {/* =========================================================================
+          SECTION 5: WHO SHOULD PARTICIPATE? (A PLATFORM FOR A DIVERSE RESEARCH COMMUNITY)
+          Exact reproduction of Diverse Pharmaceutical Research Community Conference Banner.png:
+          - Eyebrow pill: "OPEN TO THE GLOBAL PHARMACEUTICAL COMMUNITY" flanked by rules
+          - Main heading: "Who Should Participate?" with gradient text and flourish
+          - Supporting copy: "Connect with researchers, academicians, students and industry professionals shaping the future of pharmaceutical research, drug discovery and development."
+          - Five visually distinct audience categories with equal importance:
+            1. Undergraduate Students (B.Pharm and other undergraduate students)
+            2. Postgraduate Students (M.Pharm and other postgraduate students)
+            3. Doctoral Researchers (PhD scholars and research fellows)
+            4. Faculty & Academicians (Professors, faculty members and academic researchers)
+            5. Industry Professionals & Scientists (Pharmaceutical scientists, R&D professionals and healthcare innovators)
+          - Layout: 3 cards in first row, 2 cards centered in second row
+          - Atmospheric artwork:
+            * Top-left: 3D molecular structure
+            * Bottom-left: Dual 3D pharmaceutical capsules on wave
+            * Bottom-right: 3D DNA double helix strand with illuminated rungs
+          - Viewport-fitting snap section without clipping
+          - CTA: "Register to Participate →"
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-gradient-to-b from-[#FAF8FF] via-white to-[#EBF9FD]">
+        {/* Soft flowing cyan and violet curved wave ribbons across top and bottom */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-50,70 C320,150 680,15 1060,100 C1280,145 1390,55 1500,85 L1500,0 L-50,0 Z"
+              fill="url(#topWaveRibbonParticipate5)"
+              opacity="0.5"
+            />
+            <path
+              d="M-50,830 C360,770 710,885 1100,795 C1290,755 1410,835 1500,805 L1500,900 L-50,900 Z"
+              fill="url(#bottomWaveRibbonParticipate5)"
+              opacity="0.5"
+            />
+            <defs>
+              <linearGradient id="topWaveRibbonParticipate5" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.4" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.3" />
+              </linearGradient>
+              <linearGradient id="bottomWaveRibbonParticipate5" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.45" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.35" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        {/* Top-Left 3D Molecular Structure (Matching Reference Screenshot) */}
+        <div className="absolute top-2 left-2 sm:left-4 lg:left-6 pointer-events-none opacity-80 hidden md:block z-0">
+          <svg width="150" height="150" viewBox="0 0 180 180" fill="none">
+            <defs>
+              <radialGradient id="nodeBallCyanPart5" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="35%" stopColor="#7DD3FC" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </radialGradient>
+              <radialGradient id="nodeBallVioletPart5" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="35%" stopColor="#C084FC" />
+                <stop offset="100%" stopColor="#7E22CE" />
+              </radialGradient>
+            </defs>
+            <circle cx="35" cy="80" r="12" fill="url(#nodeBallCyanPart5)" filter="drop-shadow(0 3px 6px rgba(2,132,199,0.3))" />
+            <circle cx="90" cy="50" r="15" fill="url(#nodeBallVioletPart5)" filter="drop-shadow(0 4px 8px rgba(126,34,206,0.35))" />
+            <circle cx="140" cy="85" r="10" fill="url(#nodeBallCyanPart5)" filter="drop-shadow(0 3px 6px rgba(2,132,199,0.3))" />
+            <circle cx="80" cy="130" r="13" fill="url(#nodeBallVioletPart5)" filter="drop-shadow(0 4px 8px rgba(126,34,206,0.3))" />
+            <circle cx="28" cy="140" r="8" fill="url(#nodeBallCyanPart5)" />
+            <line x1="35" y1="80" x2="90" y2="50" stroke="#7DD3FC" strokeWidth="2.5" strokeOpacity="0.75" />
+            <line x1="90" y1="50" x2="140" y2="85" stroke="#C084FC" strokeWidth="2.5" strokeOpacity="0.75" />
+            <line x1="90" y1="50" x2="80" y2="130" stroke="#818CF8" strokeWidth="2.5" strokeOpacity="0.75" />
+            <line x1="35" y1="80" x2="28" y2="140" stroke="#7DD3FC" strokeWidth="2.5" strokeOpacity="0.65" />
+            <line x1="80" y1="130" x2="28" y2="140" stroke="#818CF8" strokeWidth="2.5" strokeOpacity="0.65" />
+          </svg>
+        </div>
+
+        {/* Lower-Left Dual 3D Pharmaceutical Capsules on Wave */}
+        <div className="absolute -bottom-4 left-2 sm:left-4 lg:left-6 pointer-events-none opacity-90 hidden md:block z-0">
+          <svg width="160" height="130" viewBox="0 0 170 140" fill="none">
+            <defs>
+              <linearGradient id="pillCyanWavePart5" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#67E8F9" />
+                <stop offset="50%" stopColor="#38BDF8" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </linearGradient>
+              <linearGradient id="pillPurpleWavePart5" x1="0" y1="0" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#E9D5FF" />
+                <stop offset="50%" stopColor="#A855F7" />
+                <stop offset="100%" stopColor="#6B21A8" />
+              </linearGradient>
+            </defs>
+            <ellipse cx="85" cy="118" rx="65" ry="12" fill="#7554D9" fillOpacity="0.18" filter="blur(6px)" />
+            {/* Cyan/White Pill */}
+            <g transform="translate(52, 72) rotate(-38)">
+              <rect x="-14" y="-32" width="28" height="64" rx="14" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="1" />
+              <path d="M-14 0 L14 0 L14 -18 C14 -25.7 7.7 -32 0 -32 C-7.7 -32 -14 -25.7 -14 -18 Z" fill="url(#pillCyanWavePart5)" />
+              <path d="M-9 -24 C-9 -8 -9 12 -9 24" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+            </g>
+            {/* Purple/White Pill */}
+            <g transform="translate(108, 88) rotate(-22)">
+              <rect x="-14" y="-32" width="28" height="64" rx="14" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="1" />
+              <path d="M-14 0 L14 0 L14 18 C14 25.7 7.7 32 0 32 C-7.7 32 -14 25.7 -14 18 Z" fill="url(#pillPurpleWavePart5)" />
+              <path d="M-9 -24 C-9 -8 -9 12 -9 24" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Lower-Right 3D DNA Double Helix Strand (Matching Reference Screenshot) */}
+        <div className="absolute -bottom-6 -right-4 w-48 sm:w-56 md:w-64 lg:w-72 h-48 sm:h-56 md:h-64 lg:h-72 pointer-events-none opacity-85 hidden md:block z-0">
+          <svg viewBox="0 0 240 240" className="w-full h-full" fill="none">
+            <defs>
+              <linearGradient id="dnaStrand1_5" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#22C5D9" />
+                <stop offset="50%" stopColor="#38BDF8" />
+                <stop offset="100%" stopColor="#818CF8" />
+              </linearGradient>
+              <linearGradient id="dnaStrand2_5" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#8B50E8" />
+                <stop offset="50%" stopColor="#A855F7" />
+                <stop offset="100%" stopColor="#38BDF8" />
+              </linearGradient>
+              <radialGradient id="dnaNodeGlow5" cx="40%" cy="40%" r="60%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="50%" stopColor="#38BDF8" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </radialGradient>
+              <radialGradient id="dnaNodePurple5" cx="40%" cy="40%" r="60%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="50%" stopColor="#C084FC" />
+                <stop offset="100%" stopColor="#7C3AED" />
+              </radialGradient>
+            </defs>
+            {/* Helical Rungs */}
+            {[
+              { x1: 50, y1: 210, x2: 90, y2: 195, c1: '#38BDF8', c2: '#A855F7' },
+              { x1: 75, y1: 180, x2: 115, y2: 165, c1: '#818CF8', c2: '#38BDF8' },
+              { x1: 100, y1: 150, x2: 140, y2: 135, c1: '#A855F7', c2: '#22C5D9' },
+              { x1: 125, y1: 120, x2: 165, y2: 105, c1: '#22C5D9', c2: '#8B50E8' },
+              { x1: 150, y1: 90, x2: 190, y2: 75, c1: '#38BDF8', c2: '#A855F7' },
+              { x1: 175, y1: 60, x2: 215, y2: 45, c1: '#818CF8', c2: '#22C5D9' },
+            ].map((rung, i) => (
+              <g key={i}>
+                <line
+                  x1={rung.x1}
+                  y1={rung.y1}
+                  x2={rung.x2}
+                  y2={rung.y2}
+                  stroke={rung.c1}
+                  strokeWidth="2.5"
+                  strokeOpacity="0.75"
+                />
+                <circle cx={rung.x1} cy={rung.y1} r="4.5" fill="url(#dnaNodeGlow5)" />
+                <circle cx={rung.x2} cy={rung.y2} r="4.5" fill="url(#dnaNodePurple5)" />
+              </g>
+            ))}
+            {/* Strand 1 (Sine Wave) */}
+            <path
+              d="M30,225 C60,205 70,170 100,155 C130,140 140,105 170,90 C200,75 210,40 235,25"
+              stroke="url(#dnaStrand1_5)"
+              strokeWidth="4"
+              strokeLinecap="round"
+              fill="none"
+              opacity="0.9"
+            />
+            {/* Strand 2 (Opposing Sine Wave) */}
+            <path
+              d="M70,230 C90,195 105,175 130,145 C155,115 175,95 200,65 C215,45 225,35 240,15"
+              stroke="url(#dnaStrand2_5)"
+              strokeWidth="4"
+              strokeLinecap="round"
+              fill="none"
+              opacity="0.85"
+            />
+          </svg>
+        </div>
+
+        {/* Main Foreground Content */}
+        <div className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-center space-y-4 sm:space-y-5">
+          {/* 1. SECTION HEADING & IDENTITY */}
+          <div className="text-center space-y-2 max-w-4xl mx-auto">
+            {/* Flanked Pill Badge: OPEN TO THE GLOBAL PHARMACEUTICAL COMMUNITY */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#7554D9]/40" />
+              <div className="inline-flex items-center gap-2 px-4 sm:px-5 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+                <Users className="w-3.5 h-3.5 text-white" />
+                <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase">
+                  OPEN TO THE GLOBAL PHARMACEUTICAL COMMUNITY
+                </span>
+              </div>
+              <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#22C5D9]/50" />
+            </div>
+
+            {/* Main Heading: Who Should Participate? */}
+            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.2]">
+              Who Should{' '}
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] bg-clip-text text-transparent">
+                  Participate?
+                </span>
+                <svg
+                  className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                  viewBox="0 0 100 8"
+                  preserveAspectRatio="none"
+                >
+                  <path
+                    d="M0,5 Q50,0 100,5"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </h2>
+
+            {/* Supporting Text */}
+            <p className="text-sm sm:text-base text-[#45536B] leading-relaxed max-w-3xl mx-auto font-normal">
+              Connect with researchers, academicians, students and industry professionals shaping the future of pharmaceutical research, drug discovery and development.
+            </p>
+          </div>
+
+          {/* 2. FIVE AUDIENCE CARDS (BALANCED 3 IN FIRST ROW, 2 CENTERED IN SECOND ROW) */}
+          <div className="space-y-3.5 sm:space-y-4 w-full">
+            {/* ROW 1: THREE CARDS (Undergraduate Students, Postgraduate Students, Doctoral Researchers) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5 w-full">
+              {/* Card 1: Undergraduate Students */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onNavigate('registration')}
+                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
+                className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#7554D9]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
+              >
+                {/* 3D Graduation Cap on Books Illustration */}
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(117,84,217,0.22)]" fill="none">
+                    <defs>
+                      <linearGradient id="mortarGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#7C3AED" />
+                        <stop offset="50%" stopColor="#5B21B6" />
+                        <stop offset="100%" stopColor="#3B0764" />
+                      </linearGradient>
+                      <linearGradient id="bookCoverBlue5" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#0284C7" />
+                        <stop offset="100%" stopColor="#38BDF8" />
+                      </linearGradient>
+                      <linearGradient id="bookCoverPurple5" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#6D28D9" />
+                        <stop offset="100%" stopColor="#A855F7" />
+                      </linearGradient>
+                      <linearGradient id="goldTassel5" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#FCD34D" />
+                        <stop offset="50%" stopColor="#F59E0B" />
+                        <stop offset="100%" stopColor="#D97706" />
+                      </linearGradient>
+                    </defs>
+                    <ellipse cx="50" cy="88" rx="34" ry="7" fill="#64748B" fillOpacity="0.18" />
+                    <rect x="22" y="72" width="56" height="11" rx="2.5" fill="url(#bookCoverBlue5)" />
+                    <rect x="25" y="74" width="50" height="7" rx="1.5" fill="#FFFFFF" />
+                    <line x1="26" y1="76" x2="74" y2="76" stroke="#E2E8F0" strokeWidth="0.8" />
+                    <rect x="26" y="61" width="48" height="10" rx="2.5" fill="url(#bookCoverPurple5)" />
+                    <rect x="29" y="63" width="42" height="6" rx="1.5" fill="#F8FAFC" />
+                    <path d="M36,46 Q50,56 64,46 L64,53 Q50,63 36,53 Z" fill="#2E1065" />
+                    <path d="M50,22 L86,36 L50,50 L14,36 Z" fill="url(#mortarGrad5)" stroke="#C084FC" strokeWidth="1" />
+                    <path d="M14,36 L50,50 L86,36" stroke="#DDD6FE" strokeWidth="1.2" fill="none" opacity="0.6" />
+                    <circle cx="50" cy="36" r="3.5" fill="url(#goldTassel5)" />
+                    <path d="M50,36 Q68,40 76,50" stroke="#F59E0B" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+                    <circle cx="76" cy="53" r="3" fill="url(#goldTassel5)" />
+                    <path d="M74,54 L72,66 L80,66 L78,54 Z" fill="url(#goldTassel5)" />
+                  </svg>
+                </div>
+                {/* Content */}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#7554D9] transition-colors leading-tight">
+                    Undergraduate Students
+                  </h3>
+                  <div className="text-xs sm:text-[13.5px] font-bold text-[#7554D9] mt-0.5">
+                    B.Pharm and other relevant undergraduate students
+                  </div>
+                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
+                    Explore emerging technologies and present innovative research ideas.
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 2: Postgraduate Students */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onNavigate('registration')}
+                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
+                className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#0284C7]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
+              >
+                {/* 3D Modern Research Microscope & Test Tubes Illustration */}
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(2,132,199,0.22)]" fill="none">
+                    <defs>
+                      <linearGradient id="scopeCyanGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#38BDF8" />
+                        <stop offset="50%" stopColor="#0284C7" />
+                        <stop offset="100%" stopColor="#075985" />
+                      </linearGradient>
+                      <linearGradient id="chromeTube5" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#E2E8F0" />
+                        <stop offset="50%" stopColor="#FFFFFF" />
+                        <stop offset="100%" stopColor="#94A3B8" />
+                      </linearGradient>
+                    </defs>
+                    <ellipse cx="50" cy="88" rx="34" ry="7" fill="#64748B" fillOpacity="0.18" />
+                    <path d="M22,86 C22,78 30,76 44,76 L44,86 Z" fill="url(#scopeCyanGrad5)" />
+                    <rect x="22" y="84" width="36" height="4" rx="2" fill="#0C4A6E" />
+                    <path d="M38,76 C38,50 48,34 60,34" stroke="url(#scopeCyanGrad5)" strokeWidth="7" strokeLinecap="round" fill="none" />
+                    <g transform="translate(56, 32) rotate(-35)">
+                      <rect x="-5" y="-18" width="10" height="22" rx="2" fill="url(#chromeTube5)" stroke="#64748B" strokeWidth="0.6" />
+                      <ellipse cx="0" cy="-18" rx="6" ry="3" fill="#0284C7" />
+                      <circle cx="0" cy="6" r="6" fill="#0369A1" />
+                      <rect x="-3" y="10" width="6" height="12" rx="1.5" fill="url(#chromeTube5)" />
+                    </g>
+                    <rect x="30" y="58" width="22" height="4" rx="1.5" fill="#0F172A" />
+                    <ellipse cx="41" cy="70" rx="4" ry="2" fill="#E2E8F0" />
+                    <rect x="64" y="68" width="24" height="18" rx="2" fill="#EDE9FE" stroke="#C4B5FD" strokeWidth="0.8" />
+                    <rect x="67" y="52" width="5" height="26" rx="2.5" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="0.6" />
+                    <rect x="67.5" y="62" width="4" height="15.5" rx="2" fill="#A855F7" />
+                    <rect x="73.5" y="48" width="5" height="30" rx="2.5" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="0.6" />
+                    <rect x="74" y="56" width="4" height="21.5" rx="2" fill="#EC4899" />
+                    <rect x="80" y="54" width="5" height="24" rx="2.5" fill="#E2E8F0" stroke="#CBD5E1" strokeWidth="0.6" />
+                    <rect x="80.5" y="64" width="4" height="13.5" rx="2" fill="#06B6D4" />
+                  </svg>
+                </div>
+                {/* Content */}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#0284C7] transition-colors leading-tight">
+                    Postgraduate Students
+                  </h3>
+                  <div className="text-xs sm:text-[13.5px] font-bold text-[#0284C7] mt-0.5">
+                    M.Pharm and other relevant postgraduate students
+                  </div>
+                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
+                    Showcase research findings and engage with experts across scientific disciplines.
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 3: Doctoral Researchers */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onNavigate('registration')}
+                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
+                className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#7554D9]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
+              >
+                {/* 3D Erlenmeyer Flask & Molecular Atom Illustration */}
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(117,84,217,0.22)]" fill="none">
+                    <defs>
+                      <linearGradient id="flaskPurpleLiquid5" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#C084FC" />
+                        <stop offset="50%" stopColor="#9333EA" />
+                        <stop offset="100%" stopColor="#6B21A8" />
+                      </linearGradient>
+                      <radialGradient id="atomGlowPart5" cx="35%" cy="35%" r="65%">
+                        <stop offset="0%" stopColor="#FFFFFF" />
+                        <stop offset="40%" stopColor="#38BDF8" />
+                        <stop offset="100%" stopColor="#0284C7" />
+                      </radialGradient>
+                    </defs>
+                    <ellipse cx="46" cy="88" rx="28" ry="6" fill="#64748B" fillOpacity="0.18" />
+                    <path
+                      d="M40,24 L52,24 L52,38 L68,76 C70,81 66,85 60,85 L32,85 C26,85 22,81 24,76 L40,38 Z"
+                      fill="#FFFFFF"
+                      fillOpacity="0.35"
+                      stroke="#818CF8"
+                      strokeWidth="1.8"
+                    />
+                    <path
+                      d="M26,74 L33,58 C37,56 42,60 46,58 C50,56 55,60 59,58 L66,74 C68,79 64,83 58,83 L34,83 C28,83 24,79 26,74 Z"
+                      fill="url(#flaskPurpleLiquid5)"
+                    />
+                    <circle cx="42" cy="68" r="2.2" fill="#FFFFFF" fillOpacity="0.8" />
+                    <circle cx="50" cy="62" r="1.8" fill="#F3E8FF" fillOpacity="0.9" />
+                    <circle cx="36" cy="74" r="1.5" fill="#FFFFFF" fillOpacity="0.7" />
+                    <circle cx="46" cy="48" r="2" fill="#A855F7" fillOpacity="0.6" />
+                    <circle cx="44" cy="32" r="1.5" fill="#38BDF8" fillOpacity="0.7" />
+                    <rect x="38" y="21" width="16" height="4" rx="2" fill="#818CF8" />
+                    <g transform="translate(74, 52)">
+                      <ellipse cx="0" cy="0" rx="14" ry="6" stroke="#38BDF8" strokeWidth="1.2" strokeOpacity="0.8" transform="rotate(30)" />
+                      <ellipse cx="0" cy="0" rx="14" ry="6" stroke="#C084FC" strokeWidth="1.2" strokeOpacity="0.8" transform="rotate(-30)" />
+                      <circle cx="0" cy="0" r="5" fill="url(#atomGlowPart5)" filter="drop-shadow(0 2px 4px rgba(2,132,199,0.4))" />
+                      <circle cx="10" cy="-7" r="2.2" fill="#A855F7" />
+                      <circle cx="-11" cy="5" r="2.2" fill="#38BDF8" />
+                    </g>
+                  </svg>
+                </div>
+                {/* Content */}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#7554D9] transition-colors leading-tight">
+                    Doctoral Researchers
+                  </h3>
+                  <div className="text-xs sm:text-[13.5px] font-bold text-[#7554D9] mt-0.5">
+                    PhD scholars and research fellows
+                  </div>
+                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
+                    Share original research, exchange scientific insights and build research collaborations.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* ROW 2: TWO CARDS CENTERED (Faculty & Academicians, Industry Professionals & Scientists) */}
+            <div className="flex flex-col md:flex-row justify-center gap-3.5 sm:gap-4 lg:gap-5 w-full max-w-4xl mx-auto">
+              {/* Card 4: Faculty & Academicians */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onNavigate('registration')}
+                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
+                className="w-full md:w-[calc(50%-10px)] bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#EA580C]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
+              >
+                {/* 3D Open Manuscript Book & Laurel Illustration */}
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(234,88,12,0.2)]" fill="none">
+                    <defs>
+                      <linearGradient id="bookSpineAmber5" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#EA580C" />
+                        <stop offset="100%" stopColor="#F97316" />
+                      </linearGradient>
+                      <linearGradient id="pageFannedGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#FFFFFF" />
+                        <stop offset="80%" stopColor="#FFF7ED" />
+                        <stop offset="100%" stopColor="#FFEDD5" />
+                      </linearGradient>
+                    </defs>
+                    <ellipse cx="50" cy="85" rx="34" ry="7" fill="#64748B" fillOpacity="0.18" />
+                    <path d="M12,68 Q30,76 50,72 Q70,76 88,68 L86,76 Q68,84 50,80 Q32,84 14,76 Z" fill="url(#bookSpineAmber5)" />
+                    <path d="M14,64 Q32,72 50,68 L50,42 Q32,46 14,38 Z" fill="url(#pageFannedGrad5)" stroke="#FED7AA" strokeWidth="0.8" />
+                    <path d="M86,64 Q68,72 50,68 L50,42 Q68,46 86,38 Z" fill="url(#pageFannedGrad5)" stroke="#FED7AA" strokeWidth="0.8" />
+                    {[46, 52, 58].map((y, i) => (
+                      <g key={i}>
+                        <line x1="20" y1={y} x2="44" y2={y + 4} stroke="#CBD5E1" strokeWidth="1.2" strokeLinecap="round" />
+                        <line x1="56" y1={y + 4} x2="80" y2={y} stroke="#CBD5E1" strokeWidth="1.2" strokeLinecap="round" />
+                      </g>
+                    ))}
+                    <path d="M50,68 C48,74 44,79 46,86 L50,83 L54,86 C52,79 51,74 50,68 Z" fill="#2563EB" />
+                    <path d="M26,30 Q36,22 46,26" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" fill="none" />
+                    <path d="M74,30 Q64,22 54,26" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" fill="none" />
+                    <circle cx="34" cy="24" r="2.5" fill="#FCD34D" />
+                    <circle cx="42" cy="24" r="2.5" fill="#FCD34D" />
+                    <circle cx="58" cy="24" r="2.5" fill="#FCD34D" />
+                    <circle cx="66" cy="24" r="2.5" fill="#FCD34D" />
+                  </svg>
+                </div>
+                {/* Content */}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#EA580C] transition-colors leading-tight">
+                    Faculty & Academicians
+                  </h3>
+                  <div className="text-xs sm:text-[13.5px] font-bold text-[#EA580C] mt-0.5">
+                    Professors, faculty members and academic researchers
+                  </div>
+                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
+                    Discuss scientific advancements, share expertise and establish academic collaborations.
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 5: Industry Professionals & Scientists */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onNavigate('registration')}
+                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
+                className="w-full md:w-[calc(50%-10px)] bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#0284C7]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
+              >
+                {/* 3D Modern Biopharma Facility & 3D Medicine Capsule Illustration */}
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(2,132,199,0.22)]" fill="none">
+                    <defs>
+                      <linearGradient id="facilityCyan5" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#38BDF8" />
+                        <stop offset="50%" stopColor="#0284C7" />
+                        <stop offset="100%" stopColor="#0369A1" />
+                      </linearGradient>
+                      <linearGradient id="pillGradFront5" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#67E8F9" />
+                        <stop offset="50%" stopColor="#38BDF8" />
+                        <stop offset="100%" stopColor="#0284C7" />
+                      </linearGradient>
+                    </defs>
+                    <ellipse cx="50" cy="86" rx="34" ry="7" fill="#64748B" fillOpacity="0.18" />
+                    <rect x="22" y="44" width="36" height="34" rx="3" fill="url(#facilityCyan5)" />
+                    <rect x="48" y="32" width="24" height="46" rx="3" fill="#0C4A6E" />
+                    <rect x="54" y="24" width="10" height="10" rx="1.5" fill="#0284C7" />
+                    {[48, 56, 64].map((y, rIdx) => (
+                      <g key={rIdx}>
+                        <rect x="26" y={y} width="5" height="5" rx="1" fill="#BAE6FD" />
+                        <rect x="34" y={y} width="5" height="5" rx="1" fill="#BAE6FD" />
+                        <rect x="42" y={y} width="5" height="5" rx="1" fill="#BAE6FD" />
+                        <rect x="52" y={y - 8} width="5" height="5" rx="1" fill="#38BDF8" />
+                        <rect x="60" y={y - 8} width="5" height="5" rx="1" fill="#38BDF8" />
+                      </g>
+                    ))}
+                    <g transform="translate(62, 70) rotate(-28)">
+                      <ellipse cx="0" cy="14" rx="12" ry="4" fill="#0F172A" fillOpacity="0.25" />
+                      <rect x="-9" y="-20" width="18" height="40" rx="9" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="0.8" />
+                      <path d="M-9,0 L9,0 L9,-11 C9,-16 5,-20 0,-20 C-5,-20 -9,-16 -9,-11 Z" fill="url(#pillGradFront5)" />
+                      <path d="M-6,-15 C-6,-5 -6,8 -6,14" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" opacity="0.85" />
+                    </g>
+                  </svg>
+                </div>
+                {/* Content */}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#0284C7] transition-colors leading-tight">
+                    Industry Professionals & Scientists
+                  </h3>
+                  <div className="text-xs sm:text-[13.5px] font-bold text-[#0284C7] mt-0.5">
+                    Pharmaceutical scientists, R&D professionals and healthcare innovators
+                  </div>
+                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
+                    Explore emerging technologies and strengthen industry–academia interactions.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. CENTERED REGISTRATION ACTION BUTTON (PURPLE-TO-CYAN GRADIENT) */}
+          <div className="flex justify-center pt-1.5 pb-0.5">
+            <button
+              type="button"
+              onClick={() => onNavigate('registration')}
+              className="px-8 sm:px-10 py-3.5 text-sm sm:text-[15.5px] font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] hover:opacity-95 rounded-full shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center gap-2 cursor-pointer group"
+            >
+              <span>Register to Participate</span>
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION 5.5: RESEARCH PRESENTATION FORMATS
+          Exact reproduction of Showcase_Your_Research_Formats_be69822a.png:
+          - Background: Soft lavender/cyan gradient with subtle atmospheric wave accents,
+            molecular structure (bottom left) and dual pharmaceutical capsules (bottom right)
+          - Header:
+            - Centered pill: "RESEARCH PRESENTATION FORMATS" with FileText icon
+            - Main heading: "Showcase Your Research" with cyan curved underline flourish
+            - Subtitle: "Share your scientific discoveries through our three presentation formats at the international conference."
+          - Three Presentation Cards (horizontal row on desktop):
+            1. E-Poster Presentation (ONLINE badge, laptop image, description, Download Template, Download Guidelines)
+            2. Oral Presentation (OFFLINE badge, podium speaker image, description, Download Template, Download Guidelines)
+            3. Poster Presentation (ONLINE badge, stand poster image, description, Download Template, Download Guidelines)
+          - Abstract Submission Process Strip:
+            - Left: Abstract Submission Process with clipboard icon
+            - Steps 01 to 04: Prepare, Choose, Submit, Track
+          - Centered CTA Button: "Go to Abstract Submission →"
+         ========================================================================= */}
+      <section
+        id="research-presentation-formats"
+        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-gradient-to-b from-[#FAF8FF] via-white to-[#F0F9FF]"
+      >
+        {/* Soft flowing atmospheric waves and scientific accents */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <svg className="w-full h-full opacity-60" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-100 80 C240 20, 520 140, 880 70 C1240 0, 1400 90, 1600 60 L1600 0 L-100 0 Z"
+              fill="url(#pres-top-wave)"
+            />
+            <path
+              d="M-100 820 C280 750, 600 860, 960 790 C1320 720, 1480 840, 1600 810 L1600 900 L-100 900 Z"
+              fill="url(#pres-bottom-wave)"
+            />
+            <defs>
+              <linearGradient id="pres-top-wave" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#C4B5FD" stopOpacity="0.25" />
+                <stop offset="50%" stopColor="#DDD6FE" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="#A5F3FC" stopOpacity="0.2" />
+              </linearGradient>
+              <linearGradient id="pres-bottom-wave" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#C4B5FD" stopOpacity="0.3" />
+                <stop offset="50%" stopColor="#BAE6FD" stopOpacity="0.25" />
+                <stop offset="100%" stopColor="#7DD3FC" stopOpacity="0.35" />
+              </linearGradient>
+            </defs>
+          </svg>
+
+          {/* Bottom-left molecular accent graphic */}
+          <div className="absolute -bottom-4 -left-6 w-36 sm:w-44 h-36 sm:h-44 opacity-75">
+            <AboutMoleculeIllustration className="w-full h-full drop-shadow-sm" />
+          </div>
+
+          {/* Bottom-right dual capsules accent graphic */}
+          <div className="absolute -bottom-3 -right-4 w-32 sm:w-40 h-28 sm:h-36 opacity-85">
+            <AboutCapsuleIllustration className="w-full h-full drop-shadow-md" />
+          </div>
+        </div>
+
+        {/* Foreground Content Container */}
+        <div className="relative z-10 max-w-7xl mx-auto w-full flex flex-col justify-between h-full my-auto">
+          {/* 1. Header Area */}
+          <div className="text-center max-w-3xl mx-auto">
+            {/* Pill Badge with flanking lines */}
+            <div className="flex items-center justify-center gap-3 mb-2.5">
+              <span className="w-8 sm:w-14 h-px bg-gradient-to-r from-transparent to-[#818CF8]" />
+              <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#6366F1] via-[#8B5CF6] to-[#06B6D4] text-white text-[10.5px] sm:text-xs font-bold tracking-wider uppercase shadow-sm">
+                <FileText className="w-3.5 h-3.5 text-white" />
+                <span>RESEARCH PRESENTATION FORMATS</span>
+              </div>
+              <span className="w-8 sm:w-14 h-px bg-gradient-to-l from-transparent to-[#06B6D4]" />
+            </div>
+
+            {/* Main Heading */}
+            <h2 className="font-['Plus_Jakarta_Sans',sans-serif] text-2xl sm:text-3xl lg:text-[40px] font-extrabold text-[#082746] tracking-tight leading-tight">
+              Showcase Your{' '}
+              <span className="relative inline-block bg-gradient-to-r from-[#6366F1] to-[#06B6D4] bg-clip-text text-transparent">
+                Research
+                <svg
+                  className="absolute -bottom-1.5 left-0 w-full overflow-visible"
+                  height="7"
+                  viewBox="0 0 160 7"
+                  fill="none"
+                >
+                  <path
+                    d="M2 5C45 1.5 115 1.5 158 5"
+                    stroke="#22D3EE"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </h2>
+
+            {/* Subtitle */}
+            <p className="mt-2 text-xs sm:text-sm lg:text-[14.5px] text-[#4A5568] leading-relaxed max-w-2xl mx-auto font-['Inter',sans-serif]">
+              Share your scientific discoveries through our three presentation formats at the international conference.
+            </p>
+          </div>
+
+          {/* 2. Three Presentation Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6 mt-6 lg:mt-8">
+            {PRESENTATION_CARDS_DATA.map((card) => {
+              const imageSrc =
+                card.imageKey === 'eposterPresentation'
+                  ? IMAGES.eposterPresentation
+                  : card.imageKey === 'oralPresentation'
+                  ? IMAGES.oralPresentation
+                  : IMAGES.posterPresentation;
+
+              return (
+                <div
+                  key={card.id}
+                  className="bg-white/95 backdrop-blur-sm rounded-2xl sm:rounded-3xl border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-indigo-200 transition-all duration-300 p-4 sm:p-5 flex flex-col justify-between group"
+                >
+                  <div>
+                    {/* Top Image Preview */}
+                    <div className="relative rounded-xl sm:rounded-2xl overflow-hidden aspect-[16/9.5] bg-slate-100 mb-3.5 shadow-xs">
+                      <img
+                        src={imageSrc}
+                        alt={card.imageAlt}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        loading="lazy"
+                      />
+                    </div>
+
+                    {/* Card Title & Status Badge Row */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100/80 flex items-center justify-center shrink-0 text-[#6366F1]">
+                          {card.id === 'eposter' ? (
+                            <Monitor className="w-4 h-4 text-[#6366F1]" />
+                          ) : card.id === 'oral' ? (
+                            <Mic className="w-4 h-4 text-[#6366F1]" />
+                          ) : (
+                            <Presentation className="w-4 h-4 text-[#6366F1]" />
+                          )}
+                        </div>
+                        <h3 className="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-sm sm:text-base text-[#082746] tracking-tight truncate">
+                          {card.title}
+                        </h3>
+                      </div>
+
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold tracking-wider shrink-0 shadow-xs ${card.badgeColorClass}`}
+                      >
+                        {card.statusBadge}
+                      </span>
+                    </div>
+
+                    {/* Description */}
+                    <p className="font-['Inter',sans-serif] text-xs sm:text-[13px] text-[#4A5568] leading-relaxed mt-2.5 min-h-[36px]">
+                      {card.description}
+                    </p>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="space-y-2 mt-4 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleDocumentDownload(card.templateDocId)}
+                      className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
+                    >
+                      <span className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-[#6366F1]" />
+                        <span>Download Template</span>
+                      </span>
+                      <Download className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-y-0.5 transition-transform" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDocumentDownload(card.guidelinesDocId)}
+                      className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
+                    >
+                      <span className="flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-[#6366F1]" />
+                        <span>Download Guidelines</span>
+                      </span>
+                      <Download className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-y-0.5 transition-transform" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 3. Abstract Submission Process Strip */}
+          <div className="mt-6 lg:mt-7 bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl border border-[#E2E8F0] shadow-sm p-4 sm:p-5 lg:p-6 flex flex-col lg:flex-row items-center justify-between gap-5 lg:gap-6">
+            {/* Left Header */}
+            <div className="flex items-center gap-3 shrink-0 self-start lg:self-center">
+              <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#6366F1] shrink-0">
+                <ClipboardList className="w-5 h-5 text-[#6366F1]" />
+              </div>
+              <div>
+                <div className="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-sm sm:text-base text-[#082746] leading-snug">
+                  Abstract<br className="hidden sm:inline" /> Submission Process
+                </div>
+              </div>
+            </div>
+
+            {/* Subtle Divider */}
+            <div className="hidden lg:block w-px h-12 bg-[#E2E8F0] shrink-0" />
+
+            {/* Four Steps Horizontal Flow */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 sm:gap-4 flex-1 w-full">
+              {SUBMISSION_STEPS.map((step, idx) => {
+                const badgeColor =
+                  step.number === '01'
+                    ? 'bg-[#7C3AED]'
+                    : step.number === '02'
+                    ? 'bg-[#06B6D4]'
+                    : step.number === '03'
+                    ? 'bg-[#6366F1]'
+                    : 'bg-[#0D9488]';
+
+                return (
+                  <div key={step.number} className="flex items-center justify-between gap-2">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <span
+                        className={`w-7 h-7 rounded-full ${badgeColor} text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-xs font-['Inter',sans-serif]`}
+                      >
+                        {step.number}
+                      </span>
+                      <div className="min-w-0">
+                        <h4 className="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-xs sm:text-[13px] text-[#082746] leading-tight">
+                          {step.title}
+                        </h4>
+                        <p className="font-['Inter',sans-serif] text-[11px] sm:text-xs text-[#64748B] leading-tight mt-0.5">
+                          {step.description}
+                        </p>
+                      </div>
+                    </div>
+                    {idx < SUBMISSION_STEPS.length - 1 && (
+                      <ChevronRight className="w-4 h-4 text-[#CBD5E1] shrink-0 hidden xl:block ml-1" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 4. Centered Action Button */}
+          <div className="flex justify-center pt-5 sm:pt-6 pb-1">
+            <button
+              type="button"
+              onClick={() => onNavigate('abstracts')}
+              className="px-8 sm:px-10 py-3.5 text-sm sm:text-[15.5px] font-bold text-white bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#06B6D4] hover:opacity-95 rounded-full shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center gap-2 cursor-pointer group"
+            >
+              <span>Go to Abstract Submission</span>
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION 6: FEATURED EVENT — PHARMAQUEST: DRUG DISCOVERY HACKATHON 2027
+          Exact reproduction of PharmaQuest_2027_Hackathon_Hero_a9ba57ab.png (Mockup 1):
+          - Light atmospheric background with top and bottom flowing wave ribbons
+          - Event date badge: "16 February 2027 (Morning)" flanked by rules
+          - Main heading: "PharmaQuest: Drug Discovery Hackathon 2027" with cyan flourish
+          - Tagline: "Think. Collaborate. Solve. Innovate."
+          - Short description: "PharmaQuest is an interactive, multidisciplinary problem-solving competition..."
+          - Three highlight cards: Eligibility, Team Size, Challenge
+          - Left 3D artwork: Capsule lying down with molecular cluster
+          - Right 3D artwork: Erlenmeyer laboratory flask with molecular rings and tablets
+          - Two CTA buttons: "Learn More →" and "Register for Conference & Hackathon →"
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-gradient-to-b from-[#FAF8FF] via-white to-[#EBF9FD] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden">
+        {/* Soft flowing cyan and violet curved wave ribbons across top and bottom */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-50,60 C320,130 680,20 1060,90 C1280,135 1390,45 1500,75 L1500,0 L-50,0 Z"
+              fill="url(#topWaveRibbonPQ)"
+              opacity="0.55"
+            />
+            <path
+              d="M-50,835 C360,780 710,885 1100,805 C1290,765 1410,835 1500,810 L1500,900 L-50,900 Z"
+              fill="url(#bottomWaveRibbonPQ)"
+              opacity="0.5"
+            />
+            <defs>
+              <linearGradient id="topWaveRibbonPQ" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.4" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.7" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.3" />
+              </linearGradient>
+              <linearGradient id="bottomWaveRibbonPQ" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.45" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.7" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.35" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        {/* Left Decorative 3D Artwork: Medicine Capsule & Molecular Cluster */}
+        <div className="absolute left-2 sm:left-6 lg:left-10 top-1/2 -translate-y-1/2 w-44 sm:w-56 lg:w-64 h-auto pointer-events-none opacity-90 hidden lg:block z-0">
+          <svg viewBox="0 0 200 180" className="w-full h-auto drop-shadow-[0_12px_24px_rgba(117,84,217,0.22)]" fill="none">
+            <defs>
+              <linearGradient id="pqCapPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#C084FC" />
+                <stop offset="50%" stopColor="#8B50E8" />
+                <stop offset="100%" stopColor="#581C87" />
+              </linearGradient>
+              <linearGradient id="pqCapCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#67E8F9" />
+                <stop offset="50%" stopColor="#0284C7" />
+                <stop offset="100%" stopColor="#075985" />
+              </linearGradient>
+              <radialGradient id="pqMolBall" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="40%" stopColor="#C084FC" />
+                <stop offset="100%" stopColor="#7E22CE" />
+              </radialGradient>
+              <radialGradient id="pqMolCyan" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="40%" stopColor="#38BDF8" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </radialGradient>
+            </defs>
+            {/* Soft Shadow */}
+            <ellipse cx="90" cy="145" rx="75" ry="14" fill="#64748B" fillOpacity="0.15" />
+            {/* Lying Horizontal 3D Capsule */}
+            <g transform="translate(75, 110) rotate(-32)">
+              <rect x="-18" y="-42" width="36" height="84" rx="18" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="1" />
+              <path d="M-18,0 L18,0 L18,-24 C18,-33.9 9.9,-42 0,-42 C-9.9,-42 -18,-33.9 -18,-24 Z" fill="url(#pqCapPurple)" />
+              <path d="M-12,-32 C-12,-15 -12,12 -12,32" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" opacity="0.8" />
+            </g>
+            {/* Secondary Small Pill */}
+            <g transform="translate(145, 135) rotate(48)">
+              <rect x="-8" y="-18" width="16" height="36" rx="8" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="0.8" />
+              <path d="M-8,0 L8,0 L8,10 C8,14.4 4.4,18 0,18 C-4.4,18 -8,14.4 -8,10 Z" fill="url(#pqCapCyan)" />
+            </g>
+            {/* Molecular Ball-and-Stick Cluster */}
+            <line x1="125" y1="58" x2="160" y2="78" stroke="#C084FC" strokeWidth="3" strokeOpacity="0.8" />
+            <line x1="125" y1="58" x2="105" y2="35" stroke="#7DD3FC" strokeWidth="3" strokeOpacity="0.8" />
+            <line x1="160" y1="78" x2="182" y2="65" stroke="#818CF8" strokeWidth="2.5" strokeOpacity="0.8" />
+            <circle cx="125" cy="58" r="14" fill="url(#pqMolBall)" filter="drop-shadow(0 4px 8px rgba(126,34,206,0.35))" />
+            <circle cx="160" cy="78" r="11" fill="url(#pqMolCyan)" filter="drop-shadow(0 3px 6px rgba(2,132,199,0.35))" />
+            <circle cx="105" cy="35" r="9" fill="url(#pqMolBall)" />
+            <circle cx="182" cy="65" r="7" fill="url(#pqMolCyan)" />
+          </svg>
+        </div>
+
+        {/* Right Decorative 3D Artwork: Erlenmeyer Flask & Pharmaceutical Tablets */}
+        <div className="absolute right-2 sm:right-6 lg:right-10 top-1/2 -translate-y-1/2 w-44 sm:w-56 lg:w-64 h-auto pointer-events-none opacity-90 hidden lg:block z-0">
+          <svg viewBox="0 0 200 180" className="w-full h-auto drop-shadow-[0_12px_24px_rgba(2,132,199,0.22)]" fill="none">
+            <defs>
+              <linearGradient id="pqFlaskPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#C084FC" />
+                <stop offset="50%" stopColor="#8B50E8" />
+                <stop offset="100%" stopColor="#581C87" />
+              </linearGradient>
+              <linearGradient id="pqTabletGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="80%" stopColor="#F1F5F9" />
+                <stop offset="100%" stopColor="#E2E8F0" />
+              </linearGradient>
+            </defs>
+            {/* Soft Shadow */}
+            <ellipse cx="110" cy="148" rx="75" ry="14" fill="#64748B" fillOpacity="0.15" />
+            {/* Glass Flask Body */}
+            <path
+              d="M78,38 L102,38 L102,62 L138,130 C141,137 136,144 128,144 L52,144 C44,144 39,137 42,130 L78,62 Z"
+              fill="#FFFFFF"
+              fillOpacity="0.4"
+              stroke="#818CF8"
+              strokeWidth="2.5"
+            />
+            {/* Glowing Purple Chemical Solution */}
+            <path
+              d="M46,128 L58,102 C64,100 70,105 76,102 C82,99 88,104 94,101 L134,128 C137,134 133,142 125,142 L55,142 C47,142 43,134 46,128 Z"
+              fill="url(#pqFlaskPurple)"
+            />
+            <rect x="74" y="34" width="32" height="6" rx="3" fill="#818CF8" />
+            {/* Rising Effervescent Bubbles */}
+            <circle cx="78" cy="118" r="3" fill="#FFFFFF" fillOpacity="0.8" />
+            <circle cx="95" cy="112" r="2.5" fill="#F3E8FF" fillOpacity="0.9" />
+            <circle cx="86" cy="85" r="3" fill="#A855F7" fillOpacity="0.7" />
+            <circle cx="90" cy="52" r="2.2" fill="#38BDF8" fillOpacity="0.8" />
+            {/* Connected Molecular Ring Behind Flask */}
+            <g transform="translate(145, 55)">
+              <circle cx="0" cy="0" r="6" fill="#38BDF8" />
+              <circle cx="24" cy="-14" r="5" fill="#818CF8" />
+              <circle cx="44" cy="2" r="6" fill="#38BDF8" />
+              <circle cx="20" cy="24" r="5" fill="#818CF8" />
+              <line x1="0" y1="0" x2="24" y2="-14" stroke="#38BDF8" strokeWidth="2" strokeOpacity="0.7" />
+              <line x1="24" y1="-14" x2="44" y2="2" stroke="#818CF8" strokeWidth="2" strokeOpacity="0.7" />
+              <line x1="44" y1="2" x2="20" y2="24" stroke="#38BDF8" strokeWidth="2" strokeOpacity="0.7" />
+              <line x1="20" y1="24" x2="0" y2="0" stroke="#818CF8" strokeWidth="2" strokeOpacity="0.7" />
+            </g>
+            {/* White Round Pharmaceutical Tablets */}
+            <g transform="translate(150, 138) rotate(-18)">
+              <ellipse cx="0" cy="0" rx="16" ry="7" fill="url(#pqTabletGrad)" stroke="#CBD5E1" strokeWidth="1" />
+              <line x1="-12" y1="0" x2="12" y2="0" stroke="#94A3B8" strokeWidth="1" />
+            </g>
+            <g transform="translate(172, 142) rotate(12)">
+              <ellipse cx="0" cy="0" rx="14" ry="6" fill="url(#pqTabletGrad)" stroke="#CBD5E1" strokeWidth="1" />
+              <line x1="-10" y1="0" x2="10" y2="0" stroke="#94A3B8" strokeWidth="1" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Foreground Content Stack */}
+        <div className="max-w-5xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-center space-y-5 sm:space-y-6">
+          {/* 1. Event Date Badge (Flanked Gradient Pill) */}
+          <div className="flex items-center justify-center gap-3 sm:gap-4">
+            <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#7554D9]/40" />
+            <div className="inline-flex items-center gap-2 px-5 sm:px-6 py-2 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+              <Calendar className="w-4 h-4 text-white" />
+              <span className="text-xs sm:text-sm font-black tracking-wide">
+                16 February 2027 (Morning)
+              </span>
+            </div>
+            <div className="w-10 sm:w-16 md:w-24 h-[1.5px] bg-[#22C5D9]/50" />
+          </div>
+
+          {/* 2. Main Heading: PharmaQuest: Drug Discovery Hackathon 2027 */}
+          <div className="text-center space-y-3 max-w-4xl mx-auto">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-[52px] font-black font-heading tracking-tight leading-[1.15] text-[#082746]">
+              PharmaQuest:{' '}
+              <span className="text-[#6D28D9]">Drug Discovery</span>
+              <br />
+              Hackathon{' '}
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-[#0284C7] to-[#06B6D4] bg-clip-text text-transparent">
+                  2027
+                </span>
+                <svg
+                  className="absolute -bottom-1 sm:-bottom-2 left-0 w-full h-2.5 text-[#06B6D4]"
+                  viewBox="0 0 100 8"
+                  preserveAspectRatio="none"
+                >
+                  <path
+                    d="M0,5 Q50,0 100,5"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </h2>
+
+            {/* Tagline */}
+            <p className="text-base sm:text-lg md:text-xl font-bold text-[#7554D9] italic tracking-wide">
+              Think. Collaborate. Solve. Innovate.
+            </p>
+
+            {/* Short Description */}
+            <p className="text-sm sm:text-base text-[#45536B] leading-relaxed max-w-2xl mx-auto">
+              PharmaQuest is an interactive, multidisciplinary problem-solving competition organised as part of the international conference. Students work in teams to solve on-the-spot pharmaceutical research and drug-development challenges.
+            </p>
+          </div>
+
+          {/* 3. Three Highlight Cards (Exact Layout & Visuals of Mockup 1) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 w-full pt-1">
+            {/* Card 1: Eligibility */}
+            <div className="bg-gradient-to-r from-[#FAF8FF] to-[#F3EEFF] border border-[#DDD6FE] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-sm hover:shadow-md hover:border-[#7C3AED]/40 hover:-translate-y-0.5 transition-all">
+              <div className="w-12 h-12 rounded-2xl bg-[#EDE9FE] text-[#7C3AED] flex items-center justify-center shrink-0 shadow-2xs">
+                <GraduationCap className="w-6 h-6 stroke-[2]" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-base sm:text-lg font-extrabold text-[#082746] font-heading">
+                  Eligibility:
+                </div>
+                <div className="text-sm sm:text-[14.5px] text-[#52617A] leading-snug mt-0.5">
+                  UG, PG, PhD and allied life-science students.
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Team Size */}
+            <div className="bg-gradient-to-r from-[#F0FAFB] to-[#E2F7F9] border border-[#BDEEF5] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-sm hover:shadow-md hover:border-[#0D9488]/40 hover:-translate-y-0.5 transition-all">
+              <div className="w-12 h-12 rounded-2xl bg-[#CCFBF1] text-[#0D9488] flex items-center justify-center shrink-0 shadow-2xs">
+                <Users className="w-6 h-6 stroke-[2]" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-base sm:text-lg font-extrabold text-[#082746] font-heading">
+                  Team Size:
+                </div>
+                <div className="text-sm sm:text-[14.5px] text-[#52617A] leading-snug mt-0.5">
+                  4–5 participants.
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Challenge */}
+            <div className="bg-gradient-to-r from-[#FFF8F1] to-[#FDEEE0] border border-[#FCDABA] rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex items-center gap-4 shadow-sm hover:shadow-md hover:border-[#EA580C]/40 hover:-translate-y-0.5 transition-all">
+              <div className="w-12 h-12 rounded-2xl bg-[#FFEDD5] text-[#EA580C] flex items-center justify-center shrink-0 shadow-2xs">
+                <Target className="w-6 h-6 stroke-[2]" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-base sm:text-lg font-extrabold text-[#082746] font-heading">
+                  Challenge:
+                </div>
+                <div className="text-sm sm:text-[14.5px] text-[#52617A] leading-snug mt-0.5">
+                  Multidisciplinary, on-the-spot problem solving.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Two CTA Buttons (Learn More & Register) */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 sm:gap-5 pt-2 pb-1">
+            <button
+              type="button"
+              onClick={() => setPharmaQuestModalOpen(true)}
+              className="w-full sm:w-auto px-8 sm:px-10 py-3.5 rounded-full text-sm sm:text-[15.5px] font-extrabold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Learn More</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('registration')}
+              className="w-full sm:w-auto px-8 sm:px-10 py-3.5 rounded-full text-sm sm:text-[15.5px] font-extrabold text-[#082746] bg-white border border-[#CBD5E1] hover:border-[#7554D9] hover:text-[#7554D9] shadow-sm hover:shadow-md hover:scale-105 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>Register for Conference & Hackathon</span>
+              <ArrowRight className="w-4 h-4 text-[#7554D9]" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION 7: CONFERENCE VENUE & HOST CAMPUS (ASYMMETRIC EDITORIAL LAYOUT)
+          Exact reproduction of SRMIST_Conference_Venue_and_Campus_Guide_a8333e53.png (Image 2):
+          - Atmospheric light background with flowing curved wave ribbons
+          - Centered purple-to-cyan gradient badge: "CONFERENCE VENUE & HOST"
+          - Main heading: "Conference Venue, Academic Host & Campus" with curved cyan flourish
+          - Supporting text
+          - Asymmetric grid:
+            * Large left panel: Dr. T. P. Ganesan Auditorium (interior photo with exterior toggle, deep violet gradient panel, Users icon)
+            * Top-right panel: SRM College of Pharmacy (mortar & pestle icon, cyan accent, building photo)
+            * Bottom-right panel: SRMIST Campus (classical landmark icon, orange accent, aerial lake panorama photo)
+          - Centered pill button: "Explore Full Travel & Venue Guide →"
+          - Faint architectural skyline illustration at bottom right
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-gradient-to-b from-[#FAF8FF] via-white to-[#F0F9FD] relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden">
+        {/* Soft flowing wave background ribbons */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-50,70 C300,140 680,20 1080,85 C1290,125 1410,40 1500,70 L1500,0 L-50,0 Z"
+              fill="url(#topWaveRibbonVenue)"
+              opacity="0.45"
+            />
+            <path
+              d="M-50,830 C340,780 720,880 1100,810 C1290,770 1410,830 1500,805 L1500,900 L-50,900 Z"
+              fill="url(#bottomWaveRibbonVenue)"
+              opacity="0.4"
+            />
+            <defs>
+              <linearGradient id="topWaveRibbonVenue" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
+              </linearGradient>
+              <linearGradient id="bottomWaveRibbonVenue" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-7 relative z-10">
+          {/* 1. SECTION HEADING & IDENTITY */}
+          <div className="text-center space-y-2">
+            {/* Top pill badge flanked by horizontal rules */}
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-8 sm:w-16 h-px bg-gradient-to-r from-transparent to-[#7554D9]/40" />
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] to-[#22C5D9] text-white shadow-xs">
+                <div className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center">
+                  <MapPin className="w-2.5 h-2.5 text-white" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase">
+                  CONFERENCE VENUE & HOST
+                </span>
+              </div>
+              <div className="w-8 sm:w-16 h-px bg-gradient-to-l from-transparent to-[#22C5D9]/40" />
+            </div>
+
+            {/* Main Heading */}
+            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-tight">
+              Conference Venue, Academic Host &{' '}
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-[#7554D9] via-[#6366F1] to-[#22C5D9] bg-clip-text text-transparent">
+                  Campus
+                </span>
+                {/* Curved underline flourish */}
+                <svg
+                  className="absolute -bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                  viewBox="0 0 120 8"
+                  fill="none"
+                  preserveAspectRatio="none"
+                >
+                  <path d="M2,6 C35,1 85,1 118,6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
+              </span>
+            </h2>
+
+            {/* Supporting description */}
+            <p className="text-sm sm:text-base text-[#45536B] max-w-2xl mx-auto leading-relaxed">
+              Experience the conference at SRMIST, Kattankulathur — a vibrant academic campus with world-class infrastructure and a well-equipped conference venue.
+            </p>
+          </div>
+
+          {/* 2. THREE EQUAL-HEIGHT CARDS: CONFERENCE VENUE, ACADEMIC HOST & CAMPUS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-6 items-stretch">
+            {/* CARD 1: MAIN CONFERENCE VENUE */}
+            <div className="bg-gradient-to-br from-[#4A154B] via-[#5B21B6] to-[#1E3A8A] text-white p-6 sm:p-7 rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all relative overflow-hidden flex flex-col justify-between group min-h-[300px]">
+              {/* Glowing cyan corner flourish */}
+              <div className="absolute -bottom-8 -right-8 w-36 h-36 bg-[#22C5D9]/25 rounded-full blur-2xl pointer-events-none" />
+              <svg className="absolute bottom-0 right-0 w-36 h-20 pointer-events-none opacity-40" viewBox="0 0 160 80" fill="none">
+                <path d="M0,80 C60,40 100,70 160,20 L160,80 Z" fill="#22C5D9" />
+              </svg>
+
+              <div className="relative z-10 space-y-4">
+                <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shrink-0 shadow-inner">
+                  <Users className="w-6 h-6 sm:w-7 sm:h-7" />
+                </div>
+                <div className="space-y-1.5">
+                  <span className="inline-block px-2.5 py-0.5 rounded-full bg-white/20 text-[10px] font-bold tracking-wider uppercase text-purple-100">
+                    MAIN CONFERENCE VENUE
+                  </span>
+                  <h3 className="text-xl sm:text-2xl font-black text-white font-heading leading-tight">
+                    Dr. T. P. Ganesan Auditorium
+                  </h3>
+                  <p className="text-xs sm:text-[14px] text-purple-200/90 leading-snug">
+                    Inauguration, plenary talks and valedictory session.
+                  </p>
+                </div>
+              </div>
+
+              <div className="relative z-10 pt-4 border-t border-white/15 flex items-center gap-2 text-xs sm:text-[13px] text-purple-200">
+                <MapPin className="w-4 h-4 text-[#22C5D9] shrink-0" />
+                <span>SRMIST Kattankulathur Campus</span>
+              </div>
+            </div>
+
+            {/* CARD 2: ACADEMIC HOST */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[300px]">
+              <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
+                <img
+                  src={IMAGES.srmPharmacyBuilding}
+                  alt="SRM College of Pharmacy Entrance"
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                />
+              </div>
+              <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-[#E0F7FA] text-[#087E8B] flex items-center justify-center shrink-0 border border-cyan-100 shadow-2xs">
+                    <svg viewBox="0 0 48 48" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10,24 C10,33 16,39 24,39 C32,39 38,33 38,24 L10,24 Z" fill="#E0F7FA" />
+                      <line x1="8" y1="24" x2="40" y2="24" />
+                      <path d="M32,10 L22,23" />
+                      <circle cx="34" cy="9" r="3" fill="currentColor" />
+                      <path d="M18,17 C16,14 13,15 13,18 C15,18 17,17 18,17 Z" fill="currentColor" />
+                      <path d="M22,14 C21,11 18,11 18,14 C20,15 22,14 22,14 Z" fill="currentColor" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold tracking-wider text-[#087E8B] uppercase block">
+                      ACADEMIC HOST
+                    </span>
+                    <h3 className="text-lg sm:text-[19px] font-black text-[#082746] font-heading leading-tight">
+                      SRM College of Pharmacy
+                    </h3>
+                  </div>
+                </div>
+                <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug">
+                  Primary academic host for the conference.
+                </p>
+              </div>
+            </div>
+
+            {/* CARD 3: SRMIST CAMPUS */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[300px]">
+              <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
+                <img
+                  src={IMAGES.srmistCampusAerial}
+                  alt="SRMIST Campus Landscape and Reflective Lake Panorama"
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                />
+              </div>
+              <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-[#FFF7ED] text-[#EA580C] flex items-center justify-center shrink-0 border border-orange-100 shadow-2xs">
+                    <svg viewBox="0 0 48 48" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M6,18 L24,8 L42,18 L6,18 Z" fill="#FFF7ED" />
+                      <line x1="4" y1="40" x2="44" y2="40" />
+                      <line x1="8" y1="36" x2="40" y2="36" />
+                      <line x1="12" y1="18" x2="12" y2="36" />
+                      <line x1="20" y1="18" x2="20" y2="36" />
+                      <line x1="28" y1="18" x2="28" y2="36" />
+                      <line x1="36" y1="18" x2="36" y2="36" />
+                      <circle cx="24" cy="14" r="1.5" fill="currentColor" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold tracking-wider text-[#EA580C] uppercase block">
+                      SRMIST CAMPUS
+                    </span>
+                    <h3 className="text-lg sm:text-[19px] font-black text-[#082746] font-heading leading-tight">
+                      SRM Institute of Science and Technology
+                    </h3>
+                  </div>
+                </div>
+                <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug">
+                  Kattankulathur, Tamil Nadu.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. BOTTOM CTA BUTTON */}
+          <div className="flex items-center justify-center pt-2 relative z-10">
+            <button
+              type="button"
+              onClick={() => onNavigate('venue')}
+              className="px-8 py-3.5 rounded-full font-bold text-sm sm:text-[15.5px] text-white bg-gradient-to-r from-[#7554D9] via-[#6366F1] to-[#22C5D9] hover:opacity-95 transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] flex items-center gap-2.5 cursor-pointer"
+            >
+              <span>Explore Full Travel & Venue Guide</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Faint Architectural Skyline Illustration at Bottom Right */}
+        <div className="absolute right-4 sm:right-8 bottom-3 pointer-events-none opacity-25 hidden md:block z-0">
+          <svg width="200" height="85" viewBox="0 0 200 85" fill="none" stroke="#6366F1" strokeWidth="1.2">
+            <rect x="75" y="14" width="50" height="70" rx="2" fill="none" />
+            <polygon points="72,14 100,2 128,14" fill="none" />
+            <circle cx="100" cy="22" r="4.5" fill="none" />
+            <rect x="84" y="34" width="9" height="11" rx="1" />
+            <rect x="107" y="34" width="9" height="11" rx="1" />
+            <rect x="84" y="52" width="9" height="11" rx="1" />
+            <rect x="107" y="52" width="9" height="11" rx="1" />
+            <rect x="93" y="68" width="14" height="16" rx="1" />
+            <rect x="20" y="30" width="55" height="54" rx="2" />
+            <line x1="20" y1="43" x2="75" y2="43" />
+            <line x1="20" y1="60" x2="75" y2="60" />
+            <rect x="28" y="34" width="7" height="6" />
+            <rect x="42" y="34" width="7" height="6" />
+            <rect x="56" y="34" width="7" height="6" />
+            <rect x="28" y="47" width="7" height="6" />
+            <rect x="42" y="47" width="7" height="6" />
+            <rect x="56" y="47" width="7" height="6" />
+            <rect x="28" y="64" width="7" height="6" />
+            <rect x="42" y="64" width="7" height="6" />
+            <rect x="56" y="64" width="7" height="6" />
+            <rect x="125" y="30" width="55" height="54" rx="2" />
+            <line x1="125" y1="43" x2="180" y2="43" />
+            <line x1="125" y1="60" x2="180" y2="60" />
+            <rect x="133" y="34" width="7" height="6" />
+            <rect x="147" y="34" width="7" height="6" />
+            <rect x="161" y="34" width="7" height="6" />
+            <rect x="133" y="47" width="7" height="6" />
+            <rect x="147" y="47" width="7" height="6" />
+            <rect x="161" y="47" width="7" height="6" />
+            <rect x="133" y="64" width="7" height="6" />
+            <rect x="147" y="64" width="7" height="6" />
+            <rect x="161" y="64" width="7" height="6" />
+            <line x1="10" y1="84" x2="190" y2="84" strokeWidth="1.5" />
+          </svg>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION 8: REGISTRATION AND ABSTRACT SUBMISSION (FINAL APPROVED DESIGN)
+          Exact reproduction of AI-DD2027_Abstracts___Registration_fbf55903.png:
+          - Light atmospheric background with lavender-cyan flowing wave ribbons
+          - Bottom-left 3D Erlenmeyer flask with glowing liquid and tablets
+          - Top-right 3D molecular cluster
+          - Centered pill: "CALL FOR ABSTRACTS & DELEGATE REGISTRATION"
+          - Heading: "Participate in AI-DD2027" with curved purple underline flourish
+          - Supporting description
+          - Two side-by-side white cards:
+            * Left: Delegate Registration (₹2,500 students & faculty, gradient button)
+            * Right: Abstract Submission (7 TRACKS badge, info banner, white button)
+          - Bottom process strip: "How to Participate? [1] Register -> [2] Confirm -> [3] Submit"
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-gradient-to-b from-[#FAF8FF] via-white to-[#F0F9FD] relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden">
+        {/* Soft flowing wave background ribbons */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-50,70 C300,140 680,20 1080,85 C1290,125 1410,40 1500,70 L1500,0 L-50,0 Z"
+              fill="url(#topWaveRibbonAbs)"
+              opacity="0.45"
+            />
+            <path
+              d="M-50,830 C340,780 720,880 1100,810 C1290,770 1410,830 1500,805 L1500,900 L-50,900 Z"
+              fill="url(#bottomWaveRibbonAbs)"
+              opacity="0.4"
+            />
+            <defs>
+              <linearGradient id="topWaveRibbonAbs" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
+              </linearGradient>
+              <linearGradient id="bottomWaveRibbonAbs" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        {/* Bottom-Left 3D Artwork: Chemical Erlenmeyer Flask & Pharmaceutical Pills */}
+        <div className="absolute left-2 sm:left-6 lg:left-8 bottom-3 w-40 sm:w-52 lg:w-56 h-auto pointer-events-none opacity-90 hidden lg:block z-0">
+          <svg viewBox="0 0 200 200" className="w-full h-auto drop-shadow-[0_12px_24px_rgba(117,84,217,0.22)]" fill="none">
+            <defs>
+              <linearGradient id="absFlaskLiq" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#C084FC" />
+                <stop offset="50%" stopColor="#8B50E8" />
+                <stop offset="100%" stopColor="#581C87" />
+              </linearGradient>
+              <linearGradient id="absCapPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#C084FC" />
+                <stop offset="50%" stopColor="#7C3AED" />
+                <stop offset="100%" stopColor="#4C1D95" />
+              </linearGradient>
+              <linearGradient id="absCapCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#67E8F9" />
+                <stop offset="50%" stopColor="#0284C7" />
+                <stop offset="100%" stopColor="#075985" />
+              </linearGradient>
+            </defs>
+            <ellipse cx="75" cy="175" rx="55" ry="12" fill="#64748B" fillOpacity="0.15" />
+            <path d="M60,65 L90,65 L90,95 L125,160 C130,170 122,175 110,175 L40,175 C28,175 20,170 25,160 L60,95 Z" fill="#FFFFFF" fillOpacity="0.55" stroke="#CBD5E1" strokeWidth="2.5" />
+            <path d="M33,145 L117,145 L125,160 C128,166 122,172 112,172 L38,172 C28,172 22,166 25,160 Z" fill="url(#absFlaskLiq)" fillOpacity="0.85" />
+            <circle cx="65" cy="130" r="4" fill="#C084FC" fillOpacity="0.8" />
+            <circle cx="85" cy="120" r="5" fill="#E9D5FF" fillOpacity="0.8" />
+            <circle cx="72" cy="105" r="3" fill="#A855F7" fillOpacity="0.8" />
+            <rect x="56" y="60" width="38" height="6" rx="2" fill="#FFFFFF" stroke="#94A3B8" strokeWidth="2" />
+            <g transform="translate(140, 172) rotate(-15)">
+              <rect x="-10" y="-22" width="20" height="44" rx="10" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="1" />
+              <path d="M-10,0 L10,0 L10,12 C10,17.5 5.5,22 0,22 C-5.5,22 -10,17.5 -10,12 Z" fill="url(#absCapCyan)" />
+            </g>
+            <g transform="translate(170, 175) rotate(35)">
+              <rect x="-8" y="-18" width="16" height="36" rx="8" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="1" />
+              <path d="M-8,0 L8,0 L8,10 C8,14.4 4.4,18 0,18 C-4.4,18 -8,14.4 -8,10 Z" fill="url(#absCapPurple)" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Top-Right 3D Artwork: Molecular Ring Cluster */}
+        <div className="absolute right-4 sm:right-8 lg:right-10 top-8 w-36 sm:w-44 lg:w-52 h-auto pointer-events-none opacity-90 hidden lg:block z-0">
+          <svg viewBox="0 0 160 160" className="w-full h-auto drop-shadow-[0_8px_20px_rgba(34,197,217,0.22)]" fill="none">
+            <defs>
+              <radialGradient id="molBallPurple" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="45%" stopColor="#A855F7" />
+                <stop offset="100%" stopColor="#6D28D9" />
+              </radialGradient>
+              <radialGradient id="molBallCyan" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="45%" stopColor="#38BDF8" />
+                <stop offset="100%" stopColor="#0284C7" />
+              </radialGradient>
+            </defs>
+            <line x1="60" y1="60" x2="110" y2="40" stroke="#93C5FD" strokeWidth="3.5" strokeOpacity="0.8" />
+            <line x1="110" y1="40" x2="135" y2="90" stroke="#C4B5FD" strokeWidth="3.5" strokeOpacity="0.8" />
+            <line x1="135" y1="90" x2="85" y2="110" stroke="#93C5FD" strokeWidth="3.5" strokeOpacity="0.8" />
+            <line x1="85" y1="110" x2="60" y2="60" stroke="#C4B5FD" strokeWidth="3.5" strokeOpacity="0.8" />
+            <line x1="60" y1="60" x2="25" y2="75" stroke="#93C5FD" strokeWidth="3" strokeOpacity="0.8" />
+            <line x1="110" y1="40" x2="115" y2="12" stroke="#C4B5FD" strokeWidth="3" strokeOpacity="0.8" />
+            <line x1="135" y1="90" x2="150" y2="115" stroke="#93C5FD" strokeWidth="3" strokeOpacity="0.8" />
+            <circle cx="60" cy="60" r="14" fill="url(#molBallPurple)" />
+            <circle cx="110" cy="40" r="13" fill="url(#molBallCyan)" />
+            <circle cx="135" cy="90" r="15" fill="url(#molBallPurple)" />
+            <circle cx="85" cy="110" r="13" fill="url(#molBallCyan)" />
+            <circle cx="25" cy="75" r="9" fill="url(#molBallCyan)" />
+            <circle cx="115" cy="12" r="8" fill="url(#molBallPurple)" />
+            <circle cx="150" cy="115" r="9" fill="url(#molBallPurple)" />
+          </svg>
+        </div>
+
+        {/* Foreground Content Stack */}
+        <div className="max-w-5xl mx-auto w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-7 relative z-10">
+          {/* 1. Section Header & Capsule */}
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-8 sm:w-16 h-px bg-gradient-to-r from-transparent to-[#7554D9]/40" />
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] to-[#22C5D9] text-white shadow-xs">
+                <Sparkles className="w-3.5 h-3.5 text-white" />
+                <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase">
+                  CALL FOR ABSTRACTS & DELEGATE REGISTRATION
+                </span>
+              </div>
+              <div className="w-8 sm:w-16 h-px bg-gradient-to-l from-transparent to-[#22C5D9]/40" />
+            </div>
+
+            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-[46px] font-black text-[#082746] font-heading tracking-tight leading-tight">
+              Participate in{' '}
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-[#7554D9] via-[#6366F1] to-[#22C5D9] bg-clip-text text-transparent">
+                  AI-DD2027
+                </span>
+                <svg
+                  className="absolute -bottom-1.5 left-0 w-full h-2.5 text-[#7554D9]"
+                  viewBox="0 0 140 8"
+                  fill="none"
+                  preserveAspectRatio="none"
+                >
+                  <path d="M2,6 C40,1 100,1 138,6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
+              </span>
+            </h2>
+
+            <p className="text-sm sm:text-base text-[#45536B] max-w-2xl mx-auto leading-relaxed">
+              Submit your peer-reviewed abstract to one of seven approved tracks and register as a delegate to engage with leading international researchers in drug discovery.
+            </p>
+          </div>
+
+          {/* 2. Side-by-Side Cards (Exact Layout & Proportions from Approved Mockup) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6 w-full items-stretch">
+            {/* Left Card: Delegate Registration */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-lg hover:shadow-xl transition-all p-5 sm:p-7 flex flex-col justify-between space-y-5">
+              <div className="space-y-4">
+                {/* Header Row */}
+                <div className="flex items-start gap-3.5 sm:gap-4">
+                  <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center shrink-0 border border-purple-100 shadow-2xs">
+                    <svg viewBox="0 0 24 24" className="w-6 h-6 sm:w-7 sm:h-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="17" rx="3" />
+                      <path d="M9 2h6" />
+                      <circle cx="12" cy="10" r="2.5" />
+                      <path d="M7 17c0-2 2-3 5-3s5 1 5 3" />
+                    </svg>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-1 h-4 rounded-full bg-[#7554D9]" />
+                      <h3 className="text-lg sm:text-xl lg:text-[22px] font-black text-[#082746] font-heading">
+                        Delegate Registration
+                      </h3>
+                    </div>
+                    <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-relaxed">
+                      Standard confirmed registration fee applies to all categories.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Bullets */}
+                <div className="space-y-2 pt-1 pl-1">
+                  <div className="flex items-center gap-2.5 text-sm sm:text-[14.5px] text-[#45536B]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#7554D9] shrink-0" />
+                    <span>
+                      Students (UG / PG / PhD / Scholars): <strong className="font-black text-[#082746]">₹2,500</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2.5 text-sm sm:text-[14.5px] text-[#45536B]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#7554D9] shrink-0" />
+                    <span>
+                      Faculty Members & Academicians: <strong className="font-black text-[#082746]">₹2,500</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gradient Pill Button */}
+              <button
+                type="button"
+                onClick={() => onNavigate('registration')}
+                className="w-full py-3.5 px-6 rounded-full font-bold text-sm sm:text-[15.5px] text-white bg-gradient-to-r from-[#7554D9] via-[#6366F1] to-[#22C5D9] hover:opacity-95 transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4 text-white" />
+                <span>Register as Delegate (₹2,500)</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Right Card: Abstract Submission */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-lg hover:shadow-xl transition-all p-5 sm:p-7 flex flex-col justify-between space-y-5">
+              <div className="space-y-4">
+                {/* Header Row */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3.5 sm:gap-4">
+                    <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#E0F7FA] text-[#087E8B] flex items-center justify-center shrink-0 border border-cyan-100 shadow-2xs">
+                      <FileText className="w-6 h-6 sm:w-7 sm:h-7" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1 h-4 rounded-full bg-[#087E8B]" />
+                        <h3 className="text-lg sm:text-xl lg:text-[22px] font-black text-[#082746] font-heading">
+                          Abstract Submission
+                        </h3>
+                      </div>
+                    </div>
+                  </div>
+
+                  <span className="px-3 py-1 rounded-full bg-[#E0F7FA] border border-[#B2EBF2] text-[#087E8B] text-xs font-bold uppercase tracking-wider shrink-0 shadow-2xs">
+                    7 TRACKS
+                  </span>
+                </div>
+
+                {/* Bullets */}
+                <div className="space-y-2 pt-1 pl-1">
+                  <div className="flex items-center gap-2.5 text-sm sm:text-[14.5px] text-[#45536B]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#087E8B] shrink-0" />
+                    <span>Peer review by the Scientific Committee</span>
+                  </div>
+                  <div className="flex items-center gap-2.5 text-sm sm:text-[14.5px] text-[#45536B]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#087E8B] shrink-0" />
+                    <span>Eligible for Oral or Poster presentation</span>
+                  </div>
+                </div>
+
+                {/* Info Callout Box */}
+                <div className="bg-[#E0F7FA]/60 border border-[#B2EBF2] rounded-2xl p-3 flex items-center gap-2.5 text-xs sm:text-[13.5px] text-[#087E8B] font-medium leading-snug">
+                  <div className="w-5 h-5 rounded-full bg-[#087E8B] text-white flex items-center justify-center shrink-0 text-[11px] font-bold">
+                    i
+                  </div>
+                  <span>
+                    Submission is available only to registered delegates with confirmed registration.
+                  </span>
+                </div>
+              </div>
+
+              {/* White Pill Button */}
+              <button
+                type="button"
+                onClick={() => onNavigate('abstracts')}
+                className="w-full py-3.5 px-6 rounded-full font-bold text-sm sm:text-[15.5px] text-[#7554D9] bg-white border border-slate-300 hover:border-purple-300 hover:bg-slate-50 transition-all shadow-xs hover:shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <FileText className="w-4 h-4 text-[#7554D9]" />
+                <span>Submit Abstract</span>
+                <ArrowRight className="w-4 h-4 text-[#7554D9]" />
+              </button>
+            </div>
+          </div>
+
+          {/* 3. Bottom How to Participate Step-by-Step Strip */}
+          <div className="flex items-center justify-center pt-1">
+            <div className="inline-flex flex-wrap items-center justify-center gap-3 sm:gap-4 md:gap-6 bg-white/90 backdrop-blur-md border border-slate-200/90 rounded-2xl sm:rounded-full px-5 py-3 shadow-sm max-w-4xl">
+              <div className="px-3.5 py-1.5 rounded-full bg-[#7554D9] text-white text-xs font-bold shadow-2xs">
+                How to Participate?
+              </div>
+
+              {/* Step 1 */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="w-5 h-5 rounded-full bg-[#7554D9] text-white font-black text-[10px] flex items-center justify-center shrink-0">
+                  1
+                </span>
+                <UserPlus className="w-4 h-4 text-[#7554D9] shrink-0" />
+                <span className="font-bold text-[#082746]">Register as a Delegate</span>
+              </div>
+
+              <ChevronRight className="w-4 h-4 text-purple-300 hidden sm:block shrink-0" />
+
+              {/* Step 2 */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="w-5 h-5 rounded-full bg-[#7554D9] text-white font-black text-[10px] flex items-center justify-center shrink-0">
+                  2
+                </span>
+                <Mail className="w-4 h-4 text-[#7554D9] shrink-0" />
+                <div className="leading-tight">
+                  <span className="font-bold text-[#082746]">Receive Registration Confirmation</span>{' '}
+                  <span className="text-[11px] text-[#45536B]">(with Registration ID)</span>
+                </div>
+              </div>
+
+              <ChevronRight className="w-4 h-4 text-purple-300 hidden sm:block shrink-0" />
+
+              {/* Step 3 */}
+              <div className="flex items-center gap-2 text-xs">
+                <span className="w-5 h-5 rounded-full bg-[#7554D9] text-white font-black text-[10px] flex items-center justify-center shrink-0">
+                  3
+                </span>
+                <FileText className="w-4 h-4 text-[#7554D9] shrink-0" />
+                <span className="font-bold text-[#082746]">Submit Your Abstract</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION 9: INSTITUTIONAL GOVERNANCE & COLLABORATION (FINAL APPROVED DESIGN)
+          Exact reproduction of Institutional_Partners_and_Conference_Leadership_c81d7460.png:
+          - Light atmospheric background with subtle lavender/cyan wave ribbons
+          - Centered header: "INSTITUTIONAL GOVERNANCE & COLLABORATION"
+          - Heading: "Organising Institutions & Collaborating Partners" with purple underline flourish
+          - Supporting description: "Bringing together academic leadership and professional collaboration for AI-DD2027."
+          - 4 Institutional Partner Logo Cards:
+            * 1. SRMIST (Host Institution, highlighted purple border & badge)
+            * 2. SRM College of Pharmacy (Organiser)
+            * 3. INTI International University (Collaborator)
+            * 4. Indian Pharmaceutical Association (Professional Association)
+          - 2 Equal Leadership / Contact Panels:
+            * Panel 1: CONFERENCE CONVENOR — Dean (dean.pharmacy.ktr@srmist.edu.in)
+            * Panel 2: ORGANISING SECRETARY — Organising Secretary (org.secy.cp@srmist.edu.in)
+          - Institutional Address Strip at bottom
+         ========================================================================= */}
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-gradient-to-b from-[#FAF8FF] via-white to-[#F0F9FD] relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden">
+        {/* Soft flowing wave background ribbons */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+            <path
+              d="M-50,70 C300,140 680,20 1080,85 C1290,125 1410,40 1500,70 L1500,0 L-50,0 Z"
+              fill="url(#topWaveRibbonGov)"
+              opacity="0.45"
+            />
+            <path
+              d="M-50,830 C340,780 720,880 1100,810 C1290,770 1410,830 1500,805 L1500,900 L-50,900 Z"
+              fill="url(#bottomWaveRibbonGov)"
+              opacity="0.4"
+            />
+            <defs>
+              <linearGradient id="topWaveRibbonGov" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
+              </linearGradient>
+              <linearGradient id="bottomWaveRibbonGov" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
+                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-7 relative z-10">
+          {/* 1. SECTION HEADING & IDENTITY */}
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-8 sm:w-16 h-px bg-gradient-to-r from-transparent to-[#7554D9]/40" />
+              <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-[#7554D9]">
+                INSTITUTIONAL GOVERNANCE & COLLABORATION
+              </span>
+              <div className="w-8 sm:w-16 h-px bg-gradient-to-l from-transparent to-[#22C5D9]/40" />
+            </div>
+
+            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-tight">
+              Organising Institutions & Collaborating{' '}
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-[#7554D9] via-[#6366F1] to-[#22C5D9] bg-clip-text text-transparent">
+                  Partners
+                </span>
+                {/* Curved underline flourish */}
+                <svg
+                  className="absolute -bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
+                  viewBox="0 0 120 8"
+                  fill="none"
+                  preserveAspectRatio="none"
+                >
+                  <path d="M2,6 C35,1 85,1 118,6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                </svg>
+              </span>
+            </h2>
+
+            <p className="text-sm sm:text-base text-[#45536B] max-w-2xl mx-auto leading-relaxed">
+              Bringing together academic leadership and professional collaboration for AI-DD2027.
+            </p>
+          </div>
+
+          {/* 2. INSTITUTIONAL LOGO SHOWCASE (4 CARDS) */}
+          <div className="flex flex-col sm:grid sm:grid-cols-2 lg:flex lg:flex-row gap-4 sm:gap-5 w-full items-stretch pt-2">
+            {/* Card 1: Host Institution (SRMIST) */}
+            <div className="lg:w-[32%] bg-[#FAF8FF] border-2 border-purple-200 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-all flex flex-col items-center justify-center relative pt-7 sm:pt-8 min-h-[170px] group">
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-[#7554D9] text-white text-[11px] sm:text-xs font-bold uppercase tracking-wider shadow-xs whitespace-nowrap">
+                HOST INSTITUTION
+              </div>
+              <div className="flex items-center justify-center w-full px-2">
+                <img
+                  src={IMAGES.srmistLogo}
+                  alt="SRM Institute of Science and Technology"
+                  className="h-14 sm:h-16 lg:h-18 w-auto max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                  loading="eager"
+                />
+              </div>
+            </div>
+
+            {/* Card 2: SRM College of Pharmacy (Organiser) */}
+            <div className="lg:w-[22%] bg-white border border-slate-200/90 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col items-center justify-between text-center min-h-[170px] group">
+              <div className="w-13 h-13 sm:w-15 sm:h-15 flex items-center justify-center shrink-0 my-auto">
+                <img
+                  src={IMAGES.srmPharmacyLogo}
+                  alt="SRM College of Pharmacy"
+                  className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                  loading="eager"
+                />
+              </div>
+              <div className="mt-2 space-y-2 w-full">
+                <h3 className="text-sm sm:text-[15px] font-bold text-[#082746] leading-tight">
+                  SRM College of Pharmacy
+                </h3>
+                <span className="inline-block px-3.5 py-0.5 rounded-full bg-[#EDE9FA] text-[#7554D9] text-xs font-semibold">
+                  Organiser
+                </span>
+              </div>
+            </div>
+
+            {/* Card 3: INTI International University (Collaborator) */}
+            <div className="lg:w-[22%] bg-white border border-slate-200/90 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col items-center justify-between text-center min-h-[170px] group">
+              <div className="flex items-center justify-center gap-2.5 my-auto">
+                <svg viewBox="0 0 100 100" className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 group-hover:scale-105 transition-transform duration-300" fill="none">
+                  <path d="M50 8L50 92M8 50L92 50M20.3 20.3L79.7 79.7M20.3 79.7L79.7 20.3" stroke="#E11D48" strokeWidth="12" strokeLinecap="round" />
+                  <circle cx="50" cy="50" r="10" fill="#E11D48" />
+                </svg>
+                <div className="text-left leading-tight">
+                  <div className="text-sm sm:text-[15px] font-black text-[#082746] tracking-tight">
+                    INTI
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] font-bold text-slate-700">
+                    International
+                  </div>
+                  <div className="text-[9px] sm:text-[10px] font-medium text-slate-500">
+                    University
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 w-full">
+                <span className="inline-block px-3.5 py-0.5 rounded-full bg-[#E0F7FA] text-[#0284C7] text-xs font-semibold">
+                  Collaborator
+                </span>
+              </div>
+            </div>
+
+            {/* Card 4: Indian Pharmaceutical Association (IPA) */}
+            <div className="lg:w-[24%] bg-white border border-slate-200/90 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col items-center justify-between text-center min-h-[170px] group">
+              <div className="flex items-center justify-center my-auto w-full px-2">
+                <img
+                  src={IMAGES.ipaOfficialLogo}
+                  alt="The Indian Pharmaceutical Association (IPA) - ...CRUSADE FOR THE PROFESSION"
+                  className="h-10 sm:h-12 w-auto max-w-[210px] object-contain group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <div className="mt-2 w-full">
+                <span className="inline-block px-3 py-0.5 rounded-full bg-[#E0F2F1] text-[#087E8B] text-xs font-semibold whitespace-nowrap">
+                  Professional Association
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. TWO LEADERSHIP & CONTACT PANELS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6 w-full">
+            {/* Panel 1: CONFERENCE CONVENOR */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all p-5 sm:p-6 flex items-center gap-4 sm:gap-5">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center shrink-0 border border-purple-100 shadow-2xs">
+                {/* Academic Dean figure icon */}
+                <svg viewBox="0 0 24 24" className="w-7 h-7 sm:w-8 sm:h-8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="7" r="4" />
+                  <path d="M5.5 21v-2a6.5 6.5 0 0 1 13 0v2" />
+                  <path d="M12 11v4" />
+                  <path d="M10.5 15l1.5 2 1.5-2" />
+                </svg>
+              </div>
+              <div className="space-y-1 min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-1 h-3.5 rounded-full bg-[#7554D9]" />
+                  <span className="text-[11px] sm:text-xs font-bold tracking-wider text-[#7554D9] uppercase">
+                    CONFERENCE CONVENOR
+                  </span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-[#082746] font-heading">
+                  Dean
+                </h3>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <Mail className="w-4 h-4 text-[#7554D9] shrink-0" />
+                  <a
+                    href="mailto:dean.pharmacy.ktr@srmist.edu.in"
+                    className="text-sm sm:text-[14.5px] font-semibold text-[#082746] hover:text-[#7554D9] underline underline-offset-2 transition-colors break-all"
+                  >
+                    dean.pharmacy.ktr@srmist.edu.in
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Panel 2: ORGANISING SECRETARY */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all p-5 sm:p-6 flex items-center gap-4 sm:gap-5">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-[#E0F7FA] text-[#087E8B] flex items-center justify-center shrink-0 border border-cyan-100 shadow-2xs">
+                <Mail className="w-7 h-7 sm:w-8 sm:h-8" />
+              </div>
+              <div className="space-y-1 min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-1 h-3.5 rounded-full bg-[#087E8B]" />
+                  <span className="text-[11px] sm:text-xs font-bold tracking-wider text-[#087E8B] uppercase">
+                    ORGANISING SECRETARY
+                  </span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-[#082746] font-heading">
+                  Organising Secretary
+                </h3>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <Mail className="w-4 h-4 text-[#087E8B] shrink-0" />
+                  <a
+                    href="mailto:org.secy.cp@srmist.edu.in"
+                    className="text-sm sm:text-[14.5px] font-semibold text-[#082746] hover:text-[#087E8B] underline underline-offset-2 transition-colors break-all"
+                  >
+                    org.secy.cp@srmist.edu.in
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. COMPACT FULL-WIDTH INSTITUTIONAL ADDRESS PANEL */}
+          <div className="w-full bg-white rounded-2xl border border-slate-200/90 shadow-sm p-4 sm:px-6 flex items-center gap-3 sm:gap-4">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center shrink-0 shadow-2xs">
+              <MapPin className="w-5 h-5 text-[#7554D9]" />
+            </div>
+            <span className="w-1 h-5 rounded-full bg-[#7554D9] shrink-0 hidden sm:block" />
+            <p className="text-sm sm:text-[14.5px] font-medium text-[#082746] leading-relaxed">
+              SRM College of Pharmacy, SRM Institute of Science and Technology, Kattankulathur, Chengalpattu District, Tamil Nadu 603203, India.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          PHARMAQUEST HACKATHON INTERACTIVE DETAILS MODAL (MOCKUP 2 REFERENCE)
+         ========================================================================= */}
+      {pharmaQuestModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/60 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pharmaquest-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPharmaQuestModalOpen(false);
+          }}
+        >
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-5 sm:p-8 shadow-2xl space-y-5 my-auto relative border border-slate-200/90 text-[#45536B] animate-in zoom-in-95 duration-200">
+            {/* Top Header Row */}
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#EDE9FA] flex items-center justify-center text-[#7554D9] shadow-inner shrink-0">
+                  <Lightbulb className="w-6 h-6 sm:w-7 sm:h-7" />
+                </div>
+                <div>
+                  <h3
+                    id="pharmaquest-modal-title"
+                    className="text-xl sm:text-2xl font-black text-[#082746] font-heading tracking-tight"
+                  >
+                    PharmaQuest 2027
+                  </h3>
+                  <p className="text-xs sm:text-sm font-semibold text-[#7554D9]">
+                    Drug Discovery Hackathon
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#E0F7FA] border border-[#B2EBF2] text-[#087E8B] text-xs font-bold shadow-xs">
+                  <Calendar className="w-3.5 h-3.5 text-[#087E8B]" />
+                  <span>16 February 2027 (Morning)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPharmaQuestModalOpen(false)}
+                  className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors flex items-center justify-center cursor-pointer"
+                  aria-label="Close modal"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: 4 Structured Cards */}
+            <div className="space-y-4 max-h-[68vh] overflow-y-auto pr-1">
+              {/* Card 1: Eligibility & Team Formation */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#F9F8FE] border border-[#E9E4F8] space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#EDE9FA] flex items-center justify-center text-[#7554D9] shrink-0">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1 h-5 rounded-full bg-[#7554D9]" />
+                    <h4 className="text-sm sm:text-base font-bold text-[#082746]">
+                      Eligibility & Team Formation
+                    </h4>
+                  </div>
+                </div>
+                <p className="text-xs text-[#45536B] leading-relaxed">
+                  Detailed information on eligible participants, team size (4–5 members), interdisciplinary team composition and registration guidelines for PharmaQuest 2027.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-purple-100/60">
+                    <CheckCircle2 className="w-4 h-4 text-[#7554D9] shrink-0 mt-0.5" />
+                    <span><strong>Eligible Courses:</strong> B.Pharm, Pharm.D, M.Pharm & allied life-science students</span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-purple-100/60">
+                    <CheckCircle2 className="w-4 h-4 text-[#7554D9] shrink-0 mt-0.5" />
+                    <span><strong>Research Scholars:</strong> Ph.D. scholars & early-career researchers</span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-purple-100/60">
+                    <CheckCircle2 className="w-4 h-4 text-[#7554D9] shrink-0 mt-0.5" />
+                    <span><strong>Team Size:</strong> Strictly 4–5 participants per registered team</span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-purple-100/60">
+                    <CheckCircle2 className="w-4 h-4 text-[#7554D9] shrink-0 mt-0.5" />
+                    <span><strong>Interdisciplinary:</strong> Cross-domain teams combining pharma, bio & computational skills encouraged</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2: Challenge Areas */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#F4FCFD] border border-[#D5F3F7] space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#E0F7FA] flex items-center justify-center text-[#087E8B] shrink-0">
+                    <Target className="w-5 h-5" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1 h-5 rounded-full bg-[#087E8B]" />
+                    <h4 className="text-sm sm:text-base font-bold text-[#082746]">
+                      Challenge Areas
+                    </h4>
+                  </div>
+                </div>
+                <p className="text-xs text-[#45536B] leading-relaxed">
+                  Complete list of thematic problem statements and focus areas, including drug discovery, pharmaceuticals & formulation, pharmacology, analysis, QA & regulatory science, toxicology & safety and AI in drug discovery.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {[
+                    'Drug Discovery & Molecular Design',
+                    'Pharmaceutics & Formulation Development',
+                    'Pharmacology & Preclinical Screening',
+                    'Pharmaceutical Analysis & Characterisation',
+                    'Quality Assurance & Regulatory Science',
+                    'Toxicology & Safety Assessment',
+                    'AI in Drug Discovery & Development',
+                  ].map((area, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-[#B2EBF2] text-[#087E8B] shadow-2xs"
+                    >
+                      {area}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card 3: Competition Format */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#F9F8FE] border border-[#E9E4F8] space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#EDE9FA] flex items-center justify-center text-[#7554D9] shrink-0">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1 h-5 rounded-full bg-[#7554D9]" />
+                    <h4 className="text-sm sm:text-base font-bold text-[#082746]">
+                      Competition Format
+                    </h4>
+                  </div>
+                </div>
+                <p className="text-xs text-[#45536B] leading-relaxed">
+                  A step-wise overview of the hackathon, including Challenge Reveal, Analyse & Collaborate, Solve Under Pressure and Present & Defend, with round-wise details, timelines and submission requirements.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 text-xs">
+                  <div className="bg-white/80 p-3 rounded-xl border border-purple-100/60 space-y-1">
+                    <div className="font-bold text-[#082746] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center text-[10px] font-black">
+                        1
+                      </span>
+                      <span>Challenge Reveal</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 pl-6.5">
+                      Authentic, unannounced pharmaceutical research challenges unveiled live on the morning of 16 February 2027.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/80 p-3 rounded-xl border border-purple-100/60 space-y-1">
+                    <div className="font-bold text-[#082746] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center text-[10px] font-black">
+                        2
+                      </span>
+                      <span>Analyse & Collaborate</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 pl-6.5">
+                      Rapid team brainstorming, literature evaluation, molecular hypothesis formulation and collaborative strategy.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/80 p-3 rounded-xl border border-purple-100/60 space-y-1">
+                    <div className="font-bold text-[#082746] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center text-[10px] font-black">
+                        3
+                      </span>
+                      <span>Solve Under Pressure</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 pl-6.5">
+                      Structured problem solving, methodology formulation, and rapid slide deck preparation under strict time constraints.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/80 p-3 rounded-xl border border-purple-100/60 space-y-1">
+                    <div className="font-bold text-[#082746] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-[#EDE9FA] text-[#7554D9] flex items-center justify-center text-[10px] font-black">
+                        4
+                      </span>
+                      <span>Present & Defend</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 pl-6.5">
+                      5-minute presentation followed by a 3-minute defense before a distinguished jury of academic and industrial experts.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4: Evaluation Criteria */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#F4FCFD] border border-[#D5F3F7] space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#E0F7FA] flex items-center justify-center text-[#087E8B] shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1 h-5 rounded-full bg-[#087E8B]" />
+                    <h4 className="text-sm sm:text-base font-bold text-[#082746]">
+                      Evaluation Criteria
+                    </h4>
+                  </div>
+                </div>
+                <p className="text-xs text-[#45536B] leading-relaxed">
+                  Complete evaluation framework, including scientific accuracy, critical thinking, data interpretation, innovation & feasibility, team collaboration and clarity of presentation, with scoring details.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-cyan-100/60">
+                    <Check className="w-4 h-4 text-[#087E8B] shrink-0 mt-0.5" />
+                    <span><strong>Scientific Accuracy:</strong> Correctness of proposed scientific mechanisms & literature ground</span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-cyan-100/60">
+                    <Check className="w-4 h-4 text-[#087E8B] shrink-0 mt-0.5" />
+                    <span><strong>Critical Thinking:</strong> Analytical depth, data interpretation & problem formulation</span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-cyan-100/60">
+                    <Check className="w-4 h-4 text-[#087E8B] shrink-0 mt-0.5" />
+                    <span><strong>Innovation & Feasibility:</strong> Novelty of solution and translational real-world viability</span>
+                  </div>
+                  <div className="flex items-start gap-2 bg-white/80 p-2.5 rounded-xl border border-cyan-100/60">
+                    <Check className="w-4 h-4 text-[#087E8B] shrink-0 mt-0.5" />
+                    <span><strong>Teamwork & Defense:</strong> Cohesive collaboration and articulate responses to the jury</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setPharmaQuestModalOpen(false)}
+                className="px-5 py-2.5 rounded-full border border-slate-300 text-xs font-bold text-[#45536B] hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPharmaQuestModalOpen(false);
+                  onNavigate('registration');
+                }}
+                className="px-6 py-2.5 rounded-full text-xs font-bold text-white bg-gradient-to-r from-[#7554D9] to-[#22C5D9] hover:opacity-95 transition-all flex items-center gap-2 cursor-pointer shadow-md hover:shadow-lg"
+              >
+                <span>Register for Conference & Hackathon</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Presentation Document Download Notice Modal */}
+      {activeDownloadDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-100 p-6 overflow-hidden">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#6366F1] shrink-0">
+                  <FileText className="w-5 h-5 text-[#6366F1]" />
+                </div>
+                <div>
+                  <h3 className="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-base text-[#082746]">
+                    {activeDownloadDoc.name}
+                  </h3>
+                  <span className="inline-block mt-0.5 text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                    {activeDownloadDoc.format} Presentation • {activeDownloadDoc.type === 'template' ? 'Template' : 'Guidelines'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveDownloadDoc(null)}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                aria-label="Close dialog"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-100 text-xs sm:text-[13px] text-[#45536B] leading-relaxed">
+              <p className="font-semibold text-[#082746] mb-1">
+                Official Document Pending Secretariat Release
+              </p>
+              <p>{activeDownloadDoc.pendingNotice}</p>
+              <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-[#64748B]">
+                <span>Document filename:</span>
+                <code className="font-mono font-semibold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {activeDownloadDoc.filename}
+                </code>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setActiveDownloadDoc(null)}
+                className="px-5 py-2 rounded-full text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+              >
+                Got It
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveDownloadDoc(null);
+                  onNavigate('abstracts');
+                }}
+                className="px-5 py-2 rounded-full text-xs font-bold text-white bg-gradient-to-r from-[#6366F1] to-[#06B6D4] hover:opacity-95 transition-all cursor-pointer shadow-sm"
+              >
+                Go to Abstract Portal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+

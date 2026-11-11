@@ -1,0 +1,138 @@
+{
+  "entities": {
+    "AbstractSubmission": {
+      "title": "AbstractSubmission",
+      "description": "Scientific abstract submitted by a participant for conference review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique Abstract ID (e.g. AICONDD-ABS-001)" },
+        "registrationId": { "type": "string", "description": "Linked Verified Registration ID (e.g. AICONDD001)" },
+        "title": { "type": "string", "maxLength": 400, "description": "Title of the scientific abstract" },
+        "trackId": { "type": "string", "description": "Scientific track identifier" },
+        "presentationPreference": { "type": "string", "enum": ["Oral Presentation", "Poster Presentation", "E-Poster Presentation"] },
+        "presentingAuthor": {
+          "type": "object",
+          "description": "Details of the presenting author (name, email, phone, designation, institution)"
+        },
+        "coAuthors": {
+          "type": "array",
+          "description": "List of co-authors"
+        },
+        "abstractContent": {
+          "type": "object",
+          "description": "Structured abstract or abstract text content"
+        },
+        "keywords": {
+          "type": "array",
+          "description": "3 to 5 keywords"
+        },
+        "status": { "type": "string", "enum": ["Submitted", "Under Review", "Accepted", "Rejected"] },
+        "recordType": { "type": "string", "enum": ["live", "test"] },
+        "reviewNotes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "registrationId", "title", "trackId", "presentationPreference", "presentingAuthor", "status", "createdAt"]
+    },
+    "Registration": {
+      "title": "Registration",
+      "description": "Participant conference registration and payment verification record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Internal document ID (e.g. REG-1741...)" },
+        "registrationId": { "type": "string", "description": "Official Verified Registration ID (e.g. AICONDD001), assigned only upon payment verification" },
+        "fullName": { "type": "string", "maxLength": 150 },
+        "email": { "type": "string", "format": "email" },
+        "mobile": { "type": "string", "maxLength": 25 },
+        "institution": { "type": "string", "maxLength": 250 },
+        "city": { "type": "string", "maxLength": 100 },
+        "country": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string" },
+        "courseOrDesignation": { "type": "string", "maxLength": 150 },
+        "modeOfParticipation": { "type": "string" },
+        "presentationPlan": { "type": "string" },
+        "pharmaQuest": { "type": "string" },
+        "dietaryPreference": { "type": "string" },
+        "specialRequirements": { "type": "string" },
+        "paymentMode": { "type": "string" },
+        "transactionReference": { "type": "string", "maxLength": 100 },
+        "amount": { "type": "number" },
+        "paymentReceiptName": { "type": "string" },
+        "paymentReceiptData": { "type": "string" },
+        "paymentStatus": { "type": "string", "enum": ["Pending Verification", "Under Verification", "Verified", "Rejected"] },
+        "registrationStatus": { "type": "string", "enum": ["Awaiting Approval", "Approved", "Rejected"] },
+        "linkedAbstractId": { "type": "string", "description": "Assigned Abstract ID if participant submitted one" },
+        "abstractSubmitted": { "type": "boolean" },
+        "abstractSubmissionDate": { "type": "string", "format": "date-time" },
+        "recordType": { "type": "string", "enum": ["live", "test"] },
+        "adminRemarks": { "type": "string", "maxLength": 500 },
+        "verifiedBy": { "type": "string" },
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fullName", "email", "mobile", "institution", "category", "transactionReference", "paymentStatus", "registrationStatus", "createdAt"]
+    },
+    "SystemCounter": {
+      "title": "SystemCounter",
+      "description": "Atomic sequence counter for Registration and Abstract IDs",
+      "type": "object",
+      "properties": {
+        "lastSequenceNumber": { "type": "number", "description": "Highest allocated sequential integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["lastSequenceNumber"]
+    },
+    "ContactEnquiry": {
+      "title": "ContactEnquiry",
+      "description": "Visitor contact message and conference enquiry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique Enquiry ID (e.g. ENQ-2027-0042)" },
+        "name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "format": "email" },
+        "subject": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["New", "Replied", "Archived"] }
+      },
+      "required": ["id", "name", "email", "subject", "message", "createdAt"]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Audit trail of administrator actions for registration and payment verifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "adminEmail", "action", "targetId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/systemCounters/{counterId}": {
+      "schema": "SystemCounter",
+      "description": "Atomic sequence counters for generating AICONDDxxx and AICONDD-ABS-xxx IDs"
+    },
+    "/abstractSubmissions/{abstractId}": {
+      "schema": "AbstractSubmission",
+      "description": "Submitted abstracts with author and review metadata"
+    },
+    "/registrations/{registrationId}": {
+      "schema": "Registration",
+      "description": "Attendee registrations and verified payment statuses"
+    },
+    "/contactEnquiries/{enquiryId}": {
+      "schema": "ContactEnquiry",
+      "description": "Contact form submissions from prospective attendees"
+    },
+    "/adminAuditLogs/{logId}": {
+      "schema": "AdminAuditLog",
+      "description": "Administrator actions and payment verification logs"
+    }
+  }
+}

@@ -170,48 +170,12 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'formulation-pill':
     case 'liposome-carrier':
       return (
-        <svg viewBox="0 0 160 140" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="lipoBilayer" cx="35%" cy="35%" r="65%">
-              <stop offset="0%" stopColor="#FFFFFF" />
-              <stop offset="20%" stopColor="#E0E7FF" />
-              <stop offset="55%" stopColor="#818CF8" />
-              <stop offset="85%" stopColor="#4F46E5" />
-              <stop offset="100%" stopColor="#312E81" />
-            </radialGradient>
-            <radialGradient id="purpleSphere" cx="35%" cy="35%" r="65%">
-              <stop offset="0%" stopColor="#FFFFFF" />
-              <stop offset="25%" stopColor="#E9D5FF" />
-              <stop offset="60%" stopColor="#A855F7" />
-              <stop offset="90%" stopColor="#7E22CE" />
-              <stop offset="100%" stopColor="#3B0764" />
-            </radialGradient>
-            <radialGradient id="innerBall" cx="30%" cy="30%" r="70%">
-              <stop offset="0%" stopColor="#FFFFFF" />
-              <stop offset="35%" stopColor="#67E8F9" />
-              <stop offset="75%" stopColor="#0891B2" />
-              <stop offset="100%" stopColor="#164E63" />
-            </radialGradient>
-          </defs>
-          {/* Shadow */}
-          <ellipse cx="80" cy="120" rx="50" ry="12" fill="#4F46E5" fillOpacity="0.25" filter="blur(6px)" />
-          {/* Outer Multi-Lamellar Liposome Sphere */}
-          <g filter="drop-shadow(0 10px 20px rgba(79,70,229,0.38))">
-            <circle cx="75" cy="68" r="40" fill="url(#purpleSphere)" />
-            {/* Core Cavity Cutout */}
-            <circle cx="75" cy="68" r="26" fill="#3B0764" opacity="0.9" />
-            {/* Entrapped Drug Nanoparticles */}
-            <circle cx="68" cy="62" r="9" fill="url(#innerBall)" />
-            <circle cx="84" cy="72" r="7.5" fill="url(#innerBall)" />
-            <circle cx="70" cy="78" r="6" fill="url(#innerBall)" />
-            {/* Specular Highlight Arc */}
-            <ellipse cx="60" cy="50" rx="12" ry="6" fill="#FFFFFF" opacity="0.55" transform="rotate(-30 60 50)" />
-          </g>
-          {/* Orbiting Satellite Nanospheres */}
-          <circle cx="128" cy="44" r="8" fill="url(#purpleSphere)" filter="drop-shadow(0 4px 8px rgba(168,85,247,0.3))" />
-          <circle cx="134" cy="66" r="5.5" fill="url(#purpleSphere)" />
-          <circle cx="120" cy="28" r="4.5" fill="url(#innerBall)" />
-        </svg>
+        <img
+          src="/images/tracks/pharmaceutics.png"
+          alt="Pharmaceutical Technology & Pharmaceutics"
+          className={`${className} object-contain`}
+          loading="lazy"
+        />
       );
 
     case 'clinical-hospital':

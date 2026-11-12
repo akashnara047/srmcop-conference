@@ -115,9 +115,15 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   // Modals & Scrutiny
   const [selectedReg, setSelectedReg] = useState<RegistrationRecord | null>(null);
   const [selectedAbs, setSelectedAbs] = useState<AbstractRecord | null>(null);
+  const [previewProofReg, setPreviewProofReg] = useState<RegistrationRecord | null>(null);
   const [actionRemarks, setActionRemarks] = useState('');
   const [processingAction, setProcessingAction] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+
+  // Presentation Format Allocation state
+  const [allottedFormatSelection, setAllottedFormatSelection] = useState<string>('');
+  const [savingAllocation, setSavingAllocation] = useState(false);
+  const [allocationSavedSuccess, setAllocationSavedSuccess] = useState(false);
 
   // Delete Confirmation Modals
   const [regToDelete, setRegToDelete] = useState<RegistrationRecord | null>(null);
@@ -317,6 +323,91 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       alert('Error updating payment status in Firestore.');
     } finally {
       setProcessingAction(false);
+    }
+  };
+
+  // Payment Proof Helpers
+  const isProofValid = (reg: RegistrationRecord | null): boolean => {
+    if (!reg) return false;
+    const data = reg.paymentProofData || reg.paymentProofUrl;
+    if (!data || typeof data !== 'string') return false;
+    if (data.includes('...[secured]')) return false;
+    if (data.length < 200 && !data.startsWith('http')) return false;
+    return true;
+  };
+
+  const handleDownloadProof = (reg: RegistrationRecord) => {
+    const data = reg.paymentProofData || reg.paymentProofUrl;
+    if (!data) return;
+    const isPdf = data.startsWith('data:application/pdf') || (reg.paymentProofName && reg.paymentProofName.toLowerCase().endsWith('.pdf'));
+    const ext = isPdf ? 'pdf' : 'png';
+    const filename = reg.paymentProofName || `payment-proof-${reg.registrationId || reg.id}.${ext}`;
+    const link = document.createElement('a');
+    link.href = data;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleOpenProofNewTab = (reg: RegistrationRecord) => {
+    const data = reg.paymentProofData || reg.paymentProofUrl;
+    if (!data) return;
+    if (data.startsWith('data:')) {
+      try {
+        const parts = data.split(',');
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank');
+      } catch {
+        window.open(data, '_blank');
+      }
+    } else {
+      window.open(data, '_blank');
+    }
+  };
+
+  // Abstract Presentation Format Allocation (persists without modifying author preference or overall status)
+  const handleSavePresentationAllocation = async () => {
+    if (!selectedAbs || !allottedFormatSelection) return;
+    setSavingAllocation(true);
+    try {
+      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
+      const timestamp = new Date().toISOString();
+
+      await updateDoc(doc(db, 'abstractSubmissions', selectedAbs.id), {
+        allottedPresentationFormat: allottedFormatSelection,
+        allottedBy: adminIdentity,
+        allottedAt: timestamp,
+        updatedAt: timestamp,
+      });
+
+      setSelectedAbs((prev) =>
+        prev
+          ? {
+              ...prev,
+              allottedPresentationFormat: allottedFormatSelection,
+              allottedBy: adminIdentity,
+              allottedAt: timestamp,
+            }
+          : null
+      );
+
+      setAllocationSavedSuccess(true);
+      setActionSuccessMsg(`Abstract ${selectedAbs.id} presentation format successfully allocated to "${allottedFormatSelection}".`);
+    } catch (err: any) {
+      console.error('Error saving presentation allocation:', err);
+      alert('Failed to save presentation format allocation in Firestore.');
+    } finally {
+      setSavingAllocation(false);
     }
   };
 
@@ -795,17 +886,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               </button>
             </div>
           </div>
-
-          {/* Quick Info Box */}
-          <div className="bg-gradient-to-br from-purple-50 to-indigo-50/60 rounded-xl p-4 border border-purple-200/60 text-xs space-y-2">
-            <div className="flex items-center gap-1.5 text-purple-900 font-bold">
-              <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-              <span>Free Plan Safeguards</span>
-            </div>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              All sequence allocation, Excel spreadsheets and Acceptance Letters are processed 100% in-browser on the Firebase Spark tier.
-            </p>
-          </div>
         </aside>
 
         {/* Content Area */}
@@ -1102,6 +1182,15 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
                             {/* Actions */}
                             <td className="p-3.5 text-right whitespace-nowrap space-x-1.5">
+                              <button
+                                onClick={() => setPreviewProofReg(reg)}
+                                className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                title="View Payment Proof Attachment"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Proof</span>
+                              </button>
+
                               {reg.paymentStatus !== 'Verified' && (
                                 <button
                                   onClick={() => handleVerifyPayment(reg)}
@@ -1215,7 +1304,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                         <th className="p-3.5">Abstract ID</th>
                         <th className="p-3.5">Linked Reg ID</th>
                         <th className="p-3.5">Title of Abstract</th>
-                        <th className="p-3.5">Track / Mode</th>
+                        <th className="p-3.5">Scientific Track</th>
+                        <th className="p-3.5">Preferred Format</th>
+                        <th className="p-3.5">Allotted Format</th>
                         <th className="p-3.5">Presenting Author</th>
                         <th className="p-3.5">Status</th>
                         <th className="p-3.5">Type</th>
@@ -1225,13 +1316,13 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     <tbody className="divide-y divide-slate-100">
                       {loadingData ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-400">
+                          <td colSpan={10} className="p-8 text-center text-slate-400">
                             Loading abstracts...
                           </td>
                         </tr>
                       ) : filteredAbstracts.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-400">
+                          <td colSpan={10} className="p-8 text-center text-slate-400">
                             No matching abstracts found.
                           </td>
                         </tr>
@@ -1257,12 +1348,29 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 </div>
                               </td>
 
-                              {/* Track & Mode */}
-                              <td className="p-3.5 whitespace-nowrap text-slate-600">
-                                <div className="font-medium text-slate-800">{abs.trackId}</div>
-                                <div className="text-[10px] text-slate-400">
-                                  {abs.presentationPreference || abs.presentationType}
-                                </div>
+                              {/* Track */}
+                              <td className="p-3.5 whitespace-nowrap text-slate-800 font-medium text-xs max-w-[140px] truncate" title={abs.trackId}>
+                                {abs.trackId}
+                              </td>
+
+                              {/* Preferred Format (Author Selection) */}
+                              <td className="p-3.5 whitespace-nowrap text-slate-700 text-xs">
+                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200">
+                                  {abs.presentationPreference || abs.presentationType || 'None'}
+                                </span>
+                              </td>
+
+                              {/* Allotted Format (Admin Allocation) */}
+                              <td className="p-3.5 whitespace-nowrap">
+                                {abs.allottedPresentationFormat ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">
+                                    {abs.allottedPresentationFormat}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                    Pending Allocation
+                                  </span>
+                                )}
                               </td>
 
                               {/* Author */}
@@ -1320,6 +1428,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                   onClick={() => {
                                     setSelectedAbs(abs);
                                     setActionRemarks(abs.reviewNotes || '');
+                                    setAllottedFormatSelection(abs.allottedPresentationFormat || abs.finalPresentationFormat || '');
+                                    setAllocationSavedSuccess(false);
                                   }}
                                   className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-md text-[11px] cursor-pointer"
                                 >
@@ -1437,8 +1547,18 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             <div className="text-slate-500 pt-1">
                               <strong>Category:</strong> {reg.category} | <strong>Mode:</strong> {reg.participationMode}
                             </div>
-                            <div className="text-slate-500">
-                              <strong>Fee:</strong> ₹{reg.paymentAmount || reg.amount || 2500} | <strong>UTR:</strong> {reg.transactionReference}
+                            <div className="text-slate-500 flex flex-wrap items-center justify-between gap-1">
+                              <div>
+                                <strong>Fee:</strong> ₹{reg.paymentAmount || reg.amount || 2500} | <strong>UTR:</strong> {reg.transactionReference}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setPreviewProofReg(reg)}
+                                className="px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>View Proof</span>
+                              </button>
                             </div>
                             <div className="text-slate-500">
                               <strong>Dietary:</strong> {reg.dietaryPreference || 'Not Specified'}
@@ -1473,7 +1593,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                   {linkedAbs.title}
                                 </div>
                                 <div className="text-slate-600">
-                                  <strong>Track:</strong> {linkedAbs.trackId} | <strong>Mode:</strong> {linkedAbs.presentationPreference}
+                                  <strong>Track:</strong> {linkedAbs.trackId}
+                                </div>
+                                <div className="text-slate-600 flex items-center gap-2">
+                                  <span><strong>Preferred:</strong> {linkedAbs.presentationPreference || 'None'}</span>
+                                  <span>·</span>
+                                  <span>
+                                    <strong>Allotted:</strong>{' '}
+                                    <span className={linkedAbs.allottedPresentationFormat ? 'text-purple-700 font-bold' : 'text-amber-700'}>
+                                      {linkedAbs.allottedPresentationFormat || 'Pending Allocation'}
+                                    </span>
+                                  </span>
                                 </div>
                                 {linkedAbs.status === 'Accepted' && (
                                   <button
@@ -1766,7 +1896,19 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   </div>
                   <div>
                     <span className="text-[10px] uppercase text-slate-500 block">Proof Receipt</span>
-                    <span className="truncate block font-mono text-slate-700">{selectedReg.paymentProofName || 'Attached receipt'}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="truncate block font-mono text-slate-700 text-xs max-w-[120px]">
+                        {selectedReg.paymentProofName || 'Attached receipt'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewProofReg(selectedReg)}
+                        className="px-2 py-0.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>View Proof</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1882,6 +2024,94 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
               </div>
 
+              {/* Presentation Format Allocation Section */}
+              <div className="p-4 bg-purple-50/70 rounded-xl border border-purple-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-purple-700" />
+                    <span className="text-xs font-bold text-purple-900 uppercase tracking-wide">
+                      Presentation Format Allocation
+                    </span>
+                  </div>
+                  {selectedAbs.allottedPresentationFormat ? (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">
+                      Allotted: {selectedAbs.allottedPresentationFormat}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                      Pending Allocation
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Field A: Participant's Preferred Presentation Format (Read-only) */}
+                  <div className="p-3 bg-white rounded-lg border border-slate-200">
+                    <span className="text-[10px] uppercase text-slate-400 font-bold block mb-1">
+                      A. Author's Preferred Format (Read-Only)
+                    </span>
+                    <div className="font-semibold text-slate-800 text-xs flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                      <span>{selectedAbs.presentationPreference || selectedAbs.presentationType || 'Not Specified'}</span>
+                    </div>
+                  </div>
+
+                  {/* Field B: Final Allotted Presentation Format (Dropdown) */}
+                  <div className="p-3 bg-white rounded-lg border border-purple-200">
+                    <label className="text-[10px] uppercase text-purple-700 font-bold block mb-1">
+                      B. Final Allotted Presentation Format
+                    </label>
+                    <select
+                      value={allottedFormatSelection}
+                      onChange={(e) => {
+                        setAllottedFormatSelection(e.target.value);
+                        setAllocationSavedSuccess(false);
+                      }}
+                      className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded text-xs text-slate-900 font-medium focus:outline-none focus:border-purple-600"
+                    >
+                      <option value="">-- Select Final Allotted Format --</option>
+                      <option value="Oral Presentation">Oral Presentation</option>
+                      <option value="Poster Presentation">Poster Presentation</option>
+                      <option value="E-Poster Presentation">E-Poster Presentation</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="text-[11px]">
+                    {allocationSavedSuccess && (
+                      <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Allotted format saved successfully!
+                      </span>
+                    )}
+                    {selectedAbs.allottedAt && !allocationSavedSuccess && (
+                      <span className="text-slate-500 text-[10px]">
+                        Last allocated: {new Date(selectedAbs.allottedAt).toLocaleDateString('en-GB')} by {selectedAbs.allottedBy || 'Org. Secretary'}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={savingAllocation || !allottedFormatSelection}
+                    onClick={handleSavePresentationAllocation}
+                    className="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                  >
+                    {savingAllocation ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Save Allocation</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
               {/* Review notes input */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 text-[11px] uppercase">
@@ -1936,6 +2166,189 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     <span>PDF Letter</span>
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL: PAYMENT PROOF ATTACHMENT VIEWER */}
+      {/* ===================================================================== */}
+      {previewProofReg && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white max-w-3xl w-full rounded-2xl shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+            {/* Header */}
+            <div className="p-4 sm:p-5 bg-[#0B112C] text-white flex items-center justify-between shrink-0">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase font-bold text-cyan-300 font-mono tracking-wider">
+                    Payment Proof Verification
+                  </span>
+                  <span className="font-mono text-[11px] font-bold text-purple-200 bg-purple-900/60 px-2 py-0.5 rounded border border-purple-500/40">
+                    {previewProofReg.registrationId || previewProofReg.id}
+                  </span>
+                </div>
+                <h3 className="text-sm sm:text-base font-bold font-heading line-clamp-1">
+                  {previewProofReg.fullName} · {previewProofReg.institution}
+                </h3>
+              </div>
+              <button
+                onClick={() => setPreviewProofReg(null)}
+                className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Subheader Metadata Strip */}
+            <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+              <div>
+                <span className="text-[10px] uppercase text-slate-400 font-semibold block">Transaction Ref (UTR)</span>
+                <strong className="font-mono text-purple-900 text-xs break-all">{previewProofReg.transactionReference}</strong>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-slate-400 font-semibold block">Registration Fee</span>
+                <strong className="font-mono text-slate-900 text-xs">₹{previewProofReg.paymentAmount || previewProofReg.amount || 2500}</strong>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-slate-400 font-semibold block">Attachment Name</span>
+                <span className="truncate block font-mono text-slate-700 text-[11px]" title={previewProofReg.paymentProofName || 'Receipt file'}>
+                  {previewProofReg.paymentProofName || 'Receipt file'}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase text-slate-400 font-semibold block">Payment Status</span>
+                <span
+                  className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                    previewProofReg.paymentStatus === 'Verified'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : previewProofReg.paymentStatus === 'Rejected'
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {previewProofReg.paymentStatus}
+                </span>
+              </div>
+            </div>
+
+            {/* Viewer Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 flex flex-col justify-center">
+              {(() => {
+                const proofData = previewProofReg.paymentProofData || previewProofReg.paymentProofUrl;
+                const hasValid = isProofValid(previewProofReg) && !!proofData;
+
+                if (!hasValid || !proofData) {
+                  return (
+                    <div className="p-6 bg-amber-50/80 rounded-xl border border-amber-200 text-center space-y-3 max-w-lg mx-auto my-auto">
+                      <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-bold text-amber-900">
+                          Payment Proof Attachment Unavailable
+                        </h4>
+                        <p className="text-xs text-amber-800 leading-relaxed">
+                          {!proofData
+                            ? 'No payment proof file was attached to this registration record.'
+                            : proofData.includes('...[secured]')
+                            ? 'This registration was submitted in an earlier test session where proof data was saved in a truncated placeholder format.'
+                            : 'Payment proof not uploaded or storage reference unavailable.'}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-white/90 rounded-lg border border-amber-200/70 text-left text-xs space-y-1 text-slate-600">
+                        <div><strong>Participant:</strong> {previewProofReg.fullName} ({previewProofReg.email})</div>
+                        <div><strong>Transaction UTR:</strong> <span className="font-mono text-purple-900 font-bold">{previewProofReg.transactionReference}</span></div>
+                        <div><strong>Fee Amount:</strong> ₹{previewProofReg.paymentAmount || previewProofReg.amount || 2500}</div>
+                        <div><strong>File Reference:</strong> {previewProofReg.paymentProofName || 'None recorded'}</div>
+                      </div>
+                      <p className="text-[11px] text-slate-500 italic">
+                        Tip: You may audit the transaction in your bank portal using the UTR reference above or contact the participant directly.
+                      </p>
+                    </div>
+                  );
+                }
+
+                const isPdf =
+                  proofData.startsWith('data:application/pdf') ||
+                  (previewProofReg.paymentProofName &&
+                    previewProofReg.paymentProofName.toLowerCase().endsWith('.pdf'));
+
+                if (isPdf) {
+                  return (
+                    <div className="w-full h-[55vh] rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
+                      <iframe
+                        src={proofData}
+                        title={`Payment Proof PDF - ${previewProofReg.transactionReference}`}
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="flex items-center justify-center p-3 bg-slate-100/80 rounded-xl border border-slate-200 overflow-auto max-h-[60vh]">
+                    <img
+                      src={proofData}
+                      alt={`Payment Proof Receipt - ${previewProofReg.transactionReference}`}
+                      className="max-w-full max-h-[55vh] object-contain rounded-lg shadow-sm"
+                    />
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2">
+                {isProofValid(previewProofReg) && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadProof(previewProofReg)}
+                      className="px-3 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Receipt</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenProofNewTab(previewProofReg)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open in New Tab</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {previewProofReg.paymentStatus !== 'Verified' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = previewProofReg;
+                      setPreviewProofReg(null);
+                      handleVerifyPayment(target);
+                    }}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer shadow-xs"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Verify Payment</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setPreviewProofReg(null)}
+                  className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>

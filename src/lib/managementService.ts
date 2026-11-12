@@ -27,9 +27,11 @@ export interface RegistrationRecord {
   category: string;
   otherCategoryDescription?: string;
   participationMode?: string;
+  modeOfParticipation?: string;
   presentationPlans?: string[];
   presentationPlan?: string;
   participatePharmaQuest?: string;
+  pharmaQuest?: string;
   dietaryPreference?: string;
   specialRequirements?: string;
   paymentMode?: string;
@@ -37,7 +39,10 @@ export interface RegistrationRecord {
   paymentAmount?: number;
   amount?: number;
   paymentProofName?: string;
+  paymentReceiptName?: string;
   paymentProofData?: string;
+  paymentReceiptData?: string;
+  paymentProofUrl?: string;
   paymentStatus: 'Pending Verification' | 'Under Verification' | 'Verified' | 'Rejected';
   registrationStatus: 'Awaiting Approval' | 'Approved' | 'Rejected';
   adminRemarks?: string;
@@ -83,12 +88,70 @@ export interface AbstractRecord {
   } | string;
   keywords?: string[];
   status: 'Submitted' | 'Under Review' | 'Accepted' | 'Rejected';
+  allottedPresentationFormat?: 'Oral Presentation' | 'Poster Presentation' | 'E-Poster Presentation' | string | null;
+  finalPresentationFormat?: 'Oral Presentation' | 'Poster Presentation' | 'E-Poster Presentation' | string | null;
+  allottedBy?: string;
+  allottedAt?: string;
   reviewNotes?: string;
   reviewedBy?: string;
   reviewedAt?: string;
   recordType?: 'live' | 'test';
   createdAt: string;
   updatedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 0. AUTOMATIC ATOMIC REGISTRATION ID ALLOCATION & SUBMISSION (AICONDDxxx)
+// ---------------------------------------------------------------------------
+export async function submitConferenceRegistration(
+  registrationData: Omit<RegistrationRecord, 'id' | 'registrationId' | 'createdAt'>
+): Promise<{ regDoc: RegistrationRecord; regId: string }> {
+  const counterRef = doc(db, 'systemCounters', 'registrationCounter');
+  const timestamp = new Date().toISOString();
+
+  try {
+    const result = await runTransaction(db, async (transaction) => {
+      // 1. Fetch current sequence counter atomically (no read of registrations collection)
+      const counterSnap = await transaction.get(counterRef);
+      const currentSeq = counterSnap.exists()
+        ? (counterSnap.data()?.lastSequenceNumber || 0)
+        : 0;
+      const nextSeq = currentSeq + 1;
+
+      // Format: AICONDD001, AICONDD002, AICONDD003... (monotonically increasing, 3-digit minimum zero padding)
+      const newRegId = `AICONDD${String(nextSeq).padStart(3, '0')}`;
+      const regRef = doc(db, 'registrations', newRegId);
+
+      // 2. Increment atomic counter (never decremented, numbers never reused even if records are deleted)
+      transaction.set(
+        counterRef,
+        {
+          lastSequenceNumber: nextSeq,
+          updatedAt: timestamp,
+        },
+        { merge: true }
+      );
+
+      // 3. Construct the official registration record
+      const regDoc: RegistrationRecord = {
+        ...registrationData,
+        id: newRegId,
+        registrationId: newRegId,
+        createdAt: timestamp,
+      };
+
+      // 4. Save registration document
+      transaction.set(regRef, regDoc);
+
+      return { regDoc, regId: newRegId };
+    });
+
+    return result;
+  } catch (error) {
+    console.error('Error submitting conference registration:', error);
+    handleFirestoreError(error, OperationType.WRITE, 'registrations');
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -170,82 +233,75 @@ export async function verifyPaymentAndAllocateRegId(
 // ---------------------------------------------------------------------------
 export async function verifyRegistrationForAbstractSubmission(
   enteredRegId: string,
-  enteredEmail: string
+  enteredEmail?: string
 ): Promise<{ valid: boolean; registration: RegistrationRecord; regDocId: string }> {
   const cleanId = enteredRegId.trim().toUpperCase();
-  const cleanEmail = enteredEmail.trim().toLowerCase();
 
   if (!cleanId) {
-    throw new Error('Please enter your Registration ID (e.g. AICONDD001).');
-  }
-  if (!cleanEmail) {
-    throw new Error('Please enter your registered email address.');
+    throw new Error('Please enter your official Registration ID (e.g. AICONDD001).');
   }
 
   try {
-    // 1. Query registrations by registrationId
-    const regQuery = query(
-      collection(db, 'registrations'),
-      where('registrationId', '==', cleanId)
-    );
-    const snap = await getDocs(regQuery);
-
-    let foundDoc: any = null;
-    let regData: RegistrationRecord | null = null;
-
-    if (!snap.empty) {
-      foundDoc = snap.docs[0];
-      regData = foundDoc.data() as RegistrationRecord;
-      regData.id = foundDoc.id;
-    } else {
-      // Check fallback by document id (in case entered)
-      const directSnap = await getDoc(doc(db, 'registrations', cleanId));
-      if (directSnap.exists()) {
-        foundDoc = directSnap;
-        regData = directSnap.data() as RegistrationRecord;
-        regData.id = directSnap.id;
-      }
-    }
-
-    // Validation Check 1: Existence
-    if (!regData || !foundDoc) {
+    // 1. Single-document getDoc by Registration ID / document ID (Allowed for public by security rules)
+    const directSnap = await getDoc(doc(db, 'registrations', cleanId));
+    if (!directSnap.exists()) {
       throw new Error(
-        'Invalid Registration ID. Please enter the official Registration ID provided upon payment verification (e.g., AICONDD001).'
+        `Registration ID "${cleanId}" was not found. Please ensure you enter the official Registration ID allocated to you after successful conference registration (e.g. AICONDD001).`
       );
     }
+
+    const regData = directSnap.data() as RegistrationRecord;
+    regData.id = directSnap.id;
 
     // Validation Check 2: Payment verification status
     if (regData.paymentStatus !== 'Verified') {
+      if (regData.paymentStatus === 'Rejected') {
+        throw new Error(
+          'Registration payment was marked as rejected. Please contact the conference secretariat (org.secy.cp@srmist.edu.in) to update your payment details.'
+        );
+      }
       throw new Error(
-        'Payment verification pending. Only delegates with verified payment can submit an abstract. Please check your registration status or contact the Organizing Secretary.'
+        'Payment verification is pending. Only delegates with verified payments can submit an abstract. Your payment is currently awaiting verification by the secretariat. Please allow time for processing or check your registration status.'
       );
     }
 
-    // Validation Check 3: Email match
-    if (regData.email.trim().toLowerCase() !== cleanEmail) {
-      throw new Error(
-        'Email address does not match the registered delegate email for this Registration ID.'
-      );
+    // Validation Check 3: Email match (if email is provided)
+    if (enteredEmail && enteredEmail.trim()) {
+      const cleanEmail = enteredEmail.trim().toLowerCase();
+      if (regData.email.trim().toLowerCase() !== cleanEmail) {
+        throw new Error(
+          'Email address does not match the registered delegate email for this Registration ID.'
+        );
+      }
     }
 
     // Validation Check 4: Strict 1:1 check (Already submitted)
     if (regData.linkedAbstractId || regData.abstractSubmitted) {
+      const linkedId = regData.linkedAbstractId || 'on record';
       throw new Error(
-        `An abstract has already been submitted for Registration ID ${cleanId} (Abstract ID: ${regData.linkedAbstractId}). Each registration is permitted one abstract submission only.`
+        `An abstract has already been submitted using Registration ID ${cleanId} (Abstract ID: ${linkedId}). Each registration is permitted exactly one abstract submission.`
       );
     }
 
     return {
       valid: true,
       registration: regData,
-      regDocId: foundDoc.id,
+      regDocId: cleanId,
     };
   } catch (error: any) {
-    if (error.message && error.message.includes('Invalid') || error.message?.includes('Payment') || error.message?.includes('Email') || error.message?.includes('already been submitted')) {
+    if (
+      error.message &&
+      (error.message.includes('not found') ||
+        error.message.includes('Payment verification is pending') ||
+        error.message.includes('rejected') ||
+        error.message.includes('does not match') ||
+        error.message.includes('already been submitted') ||
+        error.message.includes('Registration ID'))
+    ) {
       throw error;
     }
     console.error('Error verifying registration for abstract submission:', error);
-    handleFirestoreError(error, OperationType.GET, 'registrations');
+    handleFirestoreError(error, OperationType.GET, `registrations/${cleanId}`);
     throw error;
   }
 }
@@ -472,7 +528,10 @@ export function exportAbstractsToExcel(abstracts: AbstractRecord[], filename = '
       'Linked Registration ID': a.registrationId,
       'Title': a.title,
       'Scientific Track': a.trackId,
-      'Presentation Preference': a.presentationPreference,
+      'Preferred Presentation Format': a.presentationPreference || a.presentationType || '',
+      'Allotted Presentation Format': a.allottedPresentationFormat || 'Awaiting Allocation',
+      'Allotted By': a.allottedBy || '',
+      'Allotted At': a.allottedAt ? new Date(a.allottedAt).toLocaleString() : '',
       'Presenting Author Name': author.fullName || author.name || '',
       'Presenting Author Email': author.email || '',
       'Presenting Author Phone': author.mobile || author.phone || '',
@@ -523,7 +582,8 @@ export function exportMasterParticipantsToExcel(
       'Abstract Title': linkedAbs?.title || 'None',
       'Scientific Track': linkedAbs?.trackId || 'None',
       'Abstract Review Status': linkedAbs?.status || 'N/A',
-      'Presentation Preference': linkedAbs?.presentationPreference || reg.presentationPlan || 'None',
+      'Preferred Presentation Format': linkedAbs?.presentationPreference || reg.presentationPlan || 'None',
+      'Allotted Presentation Format': linkedAbs?.allottedPresentationFormat || 'Awaiting Allocation',
       'Record Type': (reg.recordType || 'live').toUpperCase(),
     };
   });
@@ -655,7 +715,7 @@ export function generateAcceptanceLetterPDF(abstract: AbstractRecord, registrati
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
   doc.text(`${abstract.trackId}`, 55, 148 + titleOffset);
-  doc.text(`${abstract.presentationPreference || abstract.presentationType || 'Oral Presentation'}`, 55, 154 + titleOffset);
+  doc.text(`${abstract.allottedPresentationFormat || abstract.presentationPreference || abstract.presentationType || 'Oral Presentation'}`, 55, 154 + titleOffset);
   doc.setTextColor(22, 101, 52); // green
   doc.text('ACCEPTED FOR PRESENTATION', 55, 160 + titleOffset);
 
@@ -713,93 +773,527 @@ export function generateAcceptanceLetterPDF(abstract: AbstractRecord, registrati
 // ---------------------------------------------------------------------------
 // 7. PDF SUBMISSION ACKNOWLEDGEMENT RECEIPT (JSPDF)
 // ---------------------------------------------------------------------------
-export function generateSubmissionReceiptPDF(abstract: AbstractRecord) {
+export function generateSubmissionReceiptPDF(abstract: AbstractRecord, registration?: RegistrationRecord) {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
     format: 'a4',
   });
 
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, 210, 32, 'F');
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const marginX = 20;
+  const contentWidth = 170;
 
-  doc.setTextColor(255, 255, 255);
+  const authorName =
+    abstract.presentingAuthor?.fullName ||
+    abstract.presentingAuthor?.name ||
+    registration?.fullName ||
+    'Presenting Author';
+  const authorEmail =
+    abstract.presentingAuthor?.email || registration?.email || 'N/A';
+  const authorMobile =
+    abstract.presentingAuthor?.mobile ||
+    abstract.presentingAuthor?.phone ||
+    registration?.mobile ||
+    'N/A';
+  const authorDesignation =
+    abstract.presentingAuthor?.designation ||
+    registration?.courseOrDesignation ||
+    'Participant';
+  const authorAffiliation =
+    abstract.presentingAuthor?.affiliation ||
+    abstract.presentingAuthor?.institution ||
+    registration?.institution ||
+    'Affiliated Institution';
+
+  const coAuthorsStr =
+    abstract.coAuthors && abstract.coAuthors.length > 0
+      ? abstract.coAuthors
+          .filter((c) => c.name.trim())
+          .map((c) => `${c.name} (${c.affiliation || authorAffiliation})`)
+          .join('; ')
+      : 'None';
+
+  const abstractBody =
+    typeof abstract.abstractContent === 'string'
+      ? abstract.abstractContent
+      : abstract.abstractContent?.text || '';
+
+  const submissionDateFormatted = abstract.createdAt
+    ? new Date(abstract.createdAt).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : new Date().toLocaleDateString('en-GB');
+
+  // Header render function for page 1 and subsequent pages
+  const renderHeader = (isFirstPage: boolean) => {
+    // Navy top bar
+    doc.setFillColor(15, 27, 75); // Deep navy #0F1B4B
+    doc.rect(0, 0, pageWidth, isFirstPage ? 32 : 18, 'F');
+    // Violet accent stripe
+    doc.setFillColor(113, 60, 224); // #713CE0
+    doc.rect(0, isFirstPage ? 32 : 18, pageWidth, 2, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    if (isFirstPage) {
+      doc.setFontSize(13);
+      doc.text('SRM COLLEGE OF PHARMACY', pageWidth / 2, 11, { align: 'center' });
+
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(226, 232, 240);
+      doc.text('SRM Institute of Science and Technology, Kattankulathur - 603203, Tamil Nadu, India', pageWidth / 2, 16, { align: 'center' });
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(34, 211, 238); // Cyan
+      doc.text('AI-Powered Innovations in Drug Discovery and Development (15–16 February 2027)', pageWidth / 2, 23, { align: 'center' });
+
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(203, 213, 225);
+      doc.text('In Association with Indian Pharmaceutical Association (IPA) & INTI International University, Malaysia', pageWidth / 2, 28, { align: 'center' });
+    } else {
+      doc.setFontSize(9.5);
+      doc.text('SRM COLLEGE OF PHARMACY · AI-POWERED DRUG DISCOVERY CONFERENCE 2027', pageWidth / 2, 10, { align: 'center' });
+      doc.setFontSize(8);
+      doc.setTextColor(34, 211, 238);
+      doc.text(`Official Abstract Submission Receipt · Abstract ID: ${abstract.id}`, pageWidth / 2, 15, { align: 'center' });
+    }
+  };
+
+  const renderFooter = (pageNumber: number, totalPages: number = 1) => {
+    doc.setFillColor(15, 27, 75);
+    doc.rect(0, 284, pageWidth, 13, 'F');
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(241, 245, 249);
+    doc.text(
+      'SRM College of Pharmacy, SRM Institute of Science and Technology, Kattankulathur - 603203, Tamil Nadu, India',
+      pageWidth / 2,
+      289,
+      { align: 'center' }
+    );
+    doc.setTextColor(148, 163, 184);
+    doc.setFontSize(7);
+    doc.text(
+      `Official Computer-Generated Submission Receipt. No physical signature required. | org.secy.cp@srmist.edu.in | Page ${pageNumber} of ${totalPages}`,
+      pageWidth / 2,
+      293,
+      { align: 'center' }
+    );
+  };
+
+  // Render Page 1 Header
+  renderHeader(true);
+
+  // Title & Reference Block
+  let currentY = 41;
+  doc.setTextColor(15, 27, 75);
+  doc.setFontSize(12.5);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text('ABSTRACT SUBMISSION ACKNOWLEDGEMENT', 105, 14, { align: 'center' });
-
-  doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(34, 211, 238);
-  doc.text('AI-Powered Innovations in Drug Discovery and Development 2027', 105, 21, { align: 'center' });
-  doc.setTextColor(226, 232, 240);
-  doc.text('SRM College of Pharmacy, SRMIST & INTI International University', 105, 26, { align: 'center' });
-
-  doc.setTextColor(15, 23, 42);
-  doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
-  doc.text('OFFICIAL SUBMISSION RECEIPT', 20, 45);
+  doc.text('OFFICIAL ABSTRACT SUBMISSION RECEIPT', marginX, currentY);
 
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 50);
+  doc.text(`Generated On: ${new Date().toLocaleString('en-GB')}`, marginX, currentY + 5.5);
 
-  // Summary box
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(20, 55, 170, 75, 2, 2, 'FD');
+  // ID Cards on Top Right
+  doc.setFillColor(243, 232, 255); // Purple tint
+  doc.setDrawColor(192, 132, 252);
+  doc.roundedRect(120, currentY - 5, 70, 18, 2, 2, 'FD');
 
-  const addRow = (label: string, value: string, y: number) => {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(109, 40, 217);
+  doc.text('ASSIGNED ABSTRACT ID', 125, currentY);
+  doc.setFontSize(11);
+  doc.text(abstract.id, 125, currentY + 5);
+
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Linked Reg ID: ${abstract.registrationId}`, 125, currentY + 10);
+
+  // Helper function to draw key-value pairs
+  const drawRow = (label: string, value: string, xLabel: number, xVal: number, y: number, maxWidth = 55) => {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.text(label, 25, y);
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(label, xLabel, y);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(15, 23, 42);
-    doc.text(value, 75, y);
+    const split = doc.splitTextToSize(value || 'N/A', maxWidth);
+    doc.text(split, xVal, y);
   };
 
-  addRow('Abstract ID:', abstract.id, 65);
-  addRow('Registration ID:', abstract.registrationId, 72);
-  addRow('Presenting Author:', abstract.presentingAuthor?.fullName || abstract.presentingAuthor?.name || '', 79);
-  addRow('Author Email:', abstract.presentingAuthor?.email || '', 86);
-  addRow('Track:', abstract.trackId, 93);
-  addRow('Presentation Type:', abstract.presentationPreference || 'Oral Presentation', 100);
-  addRow('Submission Date:', new Date(abstract.createdAt).toLocaleString(), 107);
-  addRow('Review Status:', abstract.status, 114);
-  addRow('Keywords:', (abstract.keywords || []).join(', '), 121);
+  // Section 1: Presenting Author Particulars Box
+  currentY = 58;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(marginX, currentY, contentWidth, 38, 2, 2, 'FD');
 
-  // Abstract Title block
+  doc.setFillColor(113, 60, 224); // Violet indicator line
+  doc.rect(marginX, currentY, 3, 38, 'F');
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(15, 23, 42);
-  doc.text('Abstract Title:', 20, 140);
-
-  doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
-  doc.setTextColor(51, 65, 85);
-  const titleLines = doc.splitTextToSize(abstract.title, 170);
-  doc.text(titleLines, 20, 147);
+  doc.setTextColor(15, 27, 75);
+  doc.text('PRESENTING AUTHOR & REGISTRATION PARTICULARS', marginX + 6, currentY + 6.5);
 
-  // Instructions
-  doc.setFillColor(238, 242, 255);
-  doc.setDrawColor(199, 210, 254);
-  doc.roundedRect(20, 175, 170, 35, 2, 2, 'FD');
+  drawRow('Full Name:', authorName, marginX + 6, marginX + 38, currentY + 15, 60);
+  drawRow('Email Address:', authorEmail, 115, 142, currentY + 15, 46);
+
+  drawRow('Designation:', authorDesignation, marginX + 6, marginX + 38, currentY + 23, 60);
+  drawRow('Mobile Phone:', authorMobile, 115, 142, currentY + 23, 46);
+
+  drawRow('Institution / Org:', authorAffiliation, marginX + 6, marginX + 38, currentY + 31, 120);
+
+  // Section 2: Abstract Particulars Box
+  currentY = 100;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(marginX, currentY, contentWidth, 42, 2, 2, 'FD');
+
+  doc.setFillColor(6, 182, 212); // Cyan indicator line
+  doc.rect(marginX, currentY, 3, 42, 'F');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(67, 56, 202);
-  doc.text('Next Steps:', 25, 183);
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('ABSTRACT METADATA & SUBMISSION SPECIFICATIONS', marginX + 6, currentY + 6.5);
+
+  drawRow('Abstract Title:', abstract.title, marginX + 6, marginX + 38, currentY + 15, 120);
+  drawRow('Scientific Track:', abstract.trackId, marginX + 6, marginX + 38, currentY + 23, 58);
+  drawRow('Presentation Type:', abstract.presentationPreference || 'Oral Presentation', 115, 142, currentY + 23, 46);
+
+  drawRow('Co-Authors:', coAuthorsStr, marginX + 6, marginX + 38, currentY + 31, 120);
+  drawRow('Keywords:', (abstract.keywords || []).join(', ') || 'N/A', marginX + 6, marginX + 38, currentY + 37, 120);
+
+  // Section 3: Abstract Content Box
+  currentY = 146;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('ABSTRACT CONTENT (MAX 250 WORDS):', marginX, currentY);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
-  doc.setTextColor(79, 70, 229);
-  const noteLines = doc.splitTextToSize(
-    'Your abstract has been successfully registered in the scientific proceedings system. You can track your review progress anytime on the conference portal using your Abstract ID and registered email address.',
-    160
-  );
-  doc.text(noteLines, 25, 190);
+  doc.setTextColor(51, 65, 85);
 
-  doc.save(`Abstract_Receipt_${abstract.id}.pdf`);
+  const textLines = doc.splitTextToSize(abstractBody || 'No abstract text provided.', contentWidth - 8);
+  const textHeight = Math.min(textLines.length * 4.2 + 8, 48);
+
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(marginX, currentY + 3, contentWidth, textHeight, 2, 2, 'FD');
+  doc.text(textLines.slice(0, 11), marginX + 4, currentY + 9);
+
+  // Section 4: Declaration & Next Steps Box
+  currentY = currentY + textHeight + 7;
+  doc.setFillColor(245, 243, 255);
+  doc.setDrawColor(221, 214, 254);
+  doc.roundedRect(marginX, currentY, contentWidth, 34, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(109, 40, 217);
+  doc.text('NEXT STEPS & PEER REVIEW TIMELINE:', marginX + 5, currentY + 6);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(51, 65, 85);
+  const steps = [
+    `1. Your abstract reference ID is ${abstract.id}. Quote this ID for all conference proceedings inquiries.`,
+    '2. The Scientific Review Committee evaluates all submissions on originality, methodology, and scientific impact.',
+    '3. Acceptance notifications will be published on the conference portal by 30 December 2026.',
+    '4. Upon acceptance, an official presentation schedule and acceptance letter will be issued to your email.',
+  ];
+  let sy = currentY + 11.5;
+  steps.forEach((s) => {
+    doc.text(s, marginX + 5, sy);
+    sy += 5;
+  });
+
+  // Section 5: Author Declaration statement
+  currentY = currentY + 38;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    'Author Declaration: The presenting author has confirmed that this abstract is original, has not been published elsewhere,',
+    marginX,
+    currentY
+  );
+  doc.text(
+    'and all co-authors have consented to its submission and presentation at the conference.',
+    marginX,
+    currentY + 4
+  );
+
+  // Section 6: Official Signatures
+  currentY = 244;
+  doc.setDrawColor(203, 213, 225);
+  doc.line(marginX + 5, currentY + 14, marginX + 65, currentY + 14);
+  doc.line(marginX + 105, currentY + 14, marginX + 165, currentY + 14);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('Dr. N. Damodharan', marginX + 5, currentY + 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Organising Secretary · Vice Principal', marginX + 5, currentY + 22);
+  doc.text('SRM College of Pharmacy, SRMIST', marginX + 5, currentY + 26);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('Dr. V. Chitra', marginX + 105, currentY + 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Dean & Conference Convener', marginX + 105, currentY + 22);
+  doc.text('SRM College of Pharmacy, SRMIST', marginX + 105, currentY + 26);
+
+  // Render Footer
+  renderFooter(1, 1);
+
+  // Save with standard format: <AbstractID>_Abstract_Submission_Receipt.pdf
+  doc.save(`${abstract.id}_Abstract_Submission_Receipt.pdf`);
+}
+
+// ---------------------------------------------------------------------------
+// 8. PDF REGISTRATION RECEIPT GENERATOR (JSPDF)
+// ---------------------------------------------------------------------------
+export function generateRegistrationReceiptPDF(reg: RegistrationRecord) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  // Top Decorative Gradient/Navy Header Bar
+  doc.setFillColor(15, 27, 75); // #0F1B4B deep conference navy
+  doc.rect(0, 0, 210, 32, 'F');
+  doc.setFillColor(113, 60, 224); // #713CE0 vibrant violet accent line
+  doc.rect(0, 32, 210, 2, 'F');
+
+  // Institution & Conference Branding
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13.5);
+  doc.text('SRM COLLEGE OF PHARMACY', 105, 12, { align: 'center' });
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(226, 232, 240);
+  doc.text('SRM Institute of Science and Technology, Kattankulathur - 603203, Tamil Nadu, India', 105, 17, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(34, 211, 238); // Cyan accent
+  doc.text('AI-Powered Innovations in Drug Discovery and Development (15–16 February 2027)', 105, 24, { align: 'center' });
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(203, 213, 225);
+  doc.text('In Association with Indian Pharmaceutical Association (IPA) & INTI International University, Malaysia', 105, 29, { align: 'center' });
+
+  // Receipt Title & Issuance Date
+  doc.setTextColor(15, 27, 75);
+  doc.setFontSize(12.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text('CONFERENCE REGISTRATION RECEIPT', 20, 43);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  const formattedDate = reg.createdAt
+    ? new Date(reg.createdAt).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : new Date().toLocaleDateString('en-GB');
+  doc.text(`Issued On: ${formattedDate}`, 20, 49);
+
+  // Prominent Registration ID Card on the Right
+  const regIdDisplay = reg.registrationId || reg.id;
+  doc.setFillColor(237, 233, 254);
+  doc.setDrawColor(196, 181, 253);
+  doc.roundedRect(120, 38, 70, 15, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(109, 40, 217);
+  doc.text('REGISTRATION ID', 125, 44);
+  doc.setFontSize(12.5);
+  doc.text(regIdDisplay, 125, 50);
+
+  const drawRow = (label: string, value: string, xLabel: number, xVal: number, y: number, maxWidth = 55) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(label, xLabel, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    const split = doc.splitTextToSize(value || 'N/A', maxWidth);
+    doc.text(split, xVal, y);
+  };
+
+  // Section 1: Delegate Information Box
+  let currentY = 57;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(20, currentY, 170, 74, 2, 2, 'FD');
+
+  doc.setFillColor(113, 60, 224); // Violet border indicator
+  doc.rect(20, currentY, 3, 74, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('DELEGATE & ACADEMIC PARTICULARS', 26, currentY + 7);
+
+  drawRow('Full Name:', reg.fullName, 26, 58, currentY + 16, 54);
+  drawRow('Email Address:', reg.email, 115, 142, currentY + 16, 46);
+
+  drawRow('Mobile Phone:', reg.mobile, 26, 58, currentY + 25, 54);
+  const catDisplay = `${reg.category}${reg.otherCategoryDescription ? ` (${reg.otherCategoryDescription})` : ''}`;
+  drawRow('Category:', catDisplay, 115, 142, currentY + 25, 46);
+
+  drawRow('Designation / Role:', reg.courseOrDesignation || 'Delegate', 26, 58, currentY + 34, 54);
+  drawRow('Participation Mode:', reg.participationMode || reg.modeOfParticipation || 'Offline (On-site)', 115, 142, currentY + 34, 46);
+
+  drawRow('Institution / Org:', reg.institution, 26, 58, currentY + 43, 54);
+  drawRow('Location:', `${reg.city || ''}, ${reg.country || 'India'}`, 115, 142, currentY + 43, 46);
+
+  const presPlan = Array.isArray(reg.presentationPlans) && reg.presentationPlans.length > 0
+    ? reg.presentationPlans.join(', ')
+    : reg.presentationPlan || 'None';
+  drawRow('Presentation Plan:', presPlan, 26, 58, currentY + 54, 54);
+  drawRow('PharmaQuest:', reg.participatePharmaQuest || reg.pharmaQuest || 'No', 115, 142, currentY + 54, 46);
+
+  drawRow('Dietary Preference:', reg.dietaryPreference || 'Not Specified', 26, 58, currentY + 64, 54);
+  drawRow('Abstract Eligibility:', `Permitted (Use ID: ${regIdDisplay})`, 115, 142, currentY + 64, 46);
+
+  // Section 2: Payment & Fee Particulars Box
+  currentY = 135;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(20, currentY, 170, 52, 2, 2, 'FD');
+
+  doc.setFillColor(6, 182, 212); // Cyan border indicator
+  doc.rect(20, currentY, 3, 52, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('PAYMENT & TRANSACTION PARTICULARS', 26, currentY + 7);
+
+  drawRow('Registration Fee:', `INR ${reg.paymentAmount || reg.amount || '0'}`, 26, 58, currentY + 17, 54);
+  drawRow('Payment Mode:', reg.paymentMode || 'Bank Transfer / UPI', 115, 142, currentY + 17, 46);
+
+  drawRow('Transaction Ref / UTR:', reg.transactionReference, 26, 58, currentY + 26, 54);
+  drawRow('Proof Document:', reg.paymentProofName || reg.paymentReceiptName || 'Uploaded on file', 115, 142, currentY + 26, 46);
+
+  drawRow('Payment Status:', reg.paymentStatus || 'Pending Verification', 26, 58, currentY + 36, 54);
+  drawRow('Registration Status:', reg.registrationStatus || 'Awaiting Approval', 115, 142, currentY + 36, 46);
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    '* Payment is verified by the organising secretariat against official bank accounts before final delegate kit issue.',
+    26,
+    currentY + 46
+  );
+
+  // Section 3: Important Information for Delegates
+  currentY = 191;
+  doc.setFillColor(245, 243, 255);
+  doc.setDrawColor(221, 214, 254);
+  doc.roundedRect(20, currentY, 170, 47, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(109, 40, 217);
+  doc.text('IMPORTANT INSTRUCTIONS FOR PARTICIPANTS:', 25, currentY + 7);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(51, 65, 85);
+
+  const notes = [
+    `1. Quote your Registration ID (${regIdDisplay}) for abstract submission, queries, or certificate inquiries.`,
+    '2. Abstract Submission: If presenting an Oral, Poster, or E-Poster, submit your abstract quoting this Registration ID.',
+    '3. Check-In & Delegate Kit: Produce this receipt and photo ID at Dr. T. P. Ganesan Auditorium / College of Pharmacy.',
+    '4. Venue & Dates: 15–16 February 2027 at SRM Institute of Science and Technology, Kattankulathur, Chennai.',
+    '5. Secretariat Support: For verification status, email org.secy.cp@srmist.edu.in or dean.pharmacy.ktr@srmist.edu.in.',
+  ];
+
+  let ny = currentY + 14;
+  notes.forEach((note) => {
+    doc.text(note, 25, ny);
+    ny += 6.5;
+  });
+
+  // Authorization Signatures
+  currentY = 244;
+  doc.setDrawColor(203, 213, 225);
+  doc.line(25, currentY + 14, 85, currentY + 14);
+  doc.line(125, currentY + 14, 185, currentY + 14);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('Dr. N. Damodharan', 25, currentY + 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Organising Secretary · Vice Principal', 25, currentY + 22);
+  doc.text('SRM College of Pharmacy, SRMIST', 25, currentY + 26);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 27, 75);
+  doc.text('Dr. V. Chitra', 125, currentY + 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Dean & Conference Convener', 125, currentY + 22);
+  doc.text('SRM College of Pharmacy, SRMIST', 125, currentY + 26);
+
+  // Footer Band
+  doc.setFillColor(15, 27, 75);
+  doc.rect(0, 282, 210, 15, 'F');
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(241, 245, 249);
+  doc.text(
+    'SRM College of Pharmacy, SRM Institute of Science and Technology, Kattankulathur - 603203, Tamil Nadu, India',
+    105,
+    287,
+    { align: 'center' }
+  );
+  doc.setTextColor(148, 163, 184);
+  doc.setFontSize(7);
+  doc.text(
+    'This is an official computer-generated registration receipt. No physical signature is required. | org.secy.cp@srmist.edu.in',
+    105,
+    292,
+    { align: 'center' }
+  );
+
+  const filename = `${regIdDisplay}_Registration_Receipt.pdf`;
+  doc.save(filename);
 }

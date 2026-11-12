@@ -48,7 +48,7 @@ export const CONFERENCE_INFO = {
     'dean.pharmacy.ktr@srmist.edu.in',
     'narayanj@srmist.edu.in',
   ],
-  registrationFee: 2500,
+  registrationFee: 2000,
 };
 
 export const SCIENTIFIC_TRACKS: Track[] = [

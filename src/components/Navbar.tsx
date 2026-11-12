@@ -242,7 +242,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => handleNavClick('registration')}
               className="w-full py-2.5 text-xs font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] rounded-full text-center flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Register Now (₹2,500)</span>
+              <span>Register Now (₹2,000)</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
 

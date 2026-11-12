@@ -13,53 +13,13 @@ const TrackIllustration: React.FC<{ trackNumber: string }> = ({ trackNumber }) =
 
   switch (trackNumber) {
     case '01':
-      // Microchip / AI Circuit Illustration with glowing traces & center die
       return (
-        <svg viewBox="0 0 120 120" className={`${sizeClass} drop-shadow-[0_8px_16px_rgba(2,132,199,0.25)]`} fill="none">
-          <defs>
-            <linearGradient id="t1ChipGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#38BDF8" />
-              <stop offset="50%" stopColor="#0284C7" />
-              <stop offset="100%" stopColor="#0369A1" />
-            </linearGradient>
-            <linearGradient id="t1InnerChip" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#1E293B" />
-              <stop offset="100%" stopColor="#091E3A" />
-            </linearGradient>
-            <radialGradient id="t1Glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#38BDF8" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          <ellipse cx="60" cy="100" rx="42" ry="10" fill="#0284C7" fillOpacity="0.18" filter="blur(5px)" />
-          {/* Ambient Glow */}
-          <circle cx="60" cy="60" r="48" fill="url(#t1Glow)" />
-          {/* Outer Circuit Pins */}
-          <line x1="60" y1="14" x2="60" y2="28" stroke="#38BDF8" strokeWidth="3.5" strokeLinecap="round" />
-          <line x1="44" y1="16" x2="44" y2="28" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="76" y1="16" x2="76" y2="28" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="60" y1="92" x2="60" y2="106" stroke="#38BDF8" strokeWidth="3.5" strokeLinecap="round" />
-          <line x1="44" y1="92" x2="44" y2="104" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="76" y1="92" x2="76" y2="104" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="14" y1="60" x2="28" y2="60" stroke="#38BDF8" strokeWidth="3.5" strokeLinecap="round" />
-          <line x1="16" y1="44" x2="28" y2="44" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="16" y1="76" x2="28" y2="76" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="92" y1="60" x2="106" y2="60" stroke="#38BDF8" strokeWidth="3.5" strokeLinecap="round" />
-          <line x1="92" y1="44" x2="104" y2="44" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="92" y1="76" x2="104" y2="76" stroke="#67E8F9" strokeWidth="2.5" strokeLinecap="round" />
-          {/* Main 3D Chip Body */}
-          <rect x="28" y="28" width="64" height="64" rx="16" fill="url(#t1ChipGrad)" stroke="#E0F2FE" strokeWidth="2" />
-          <rect x="36" y="36" width="48" height="48" rx="12" fill="url(#t1InnerChip)" stroke="#38BDF8" strokeWidth="1.5" />
-          {/* Corner Accent Dots */}
-          <circle cx="43" cy="43" r="2.5" fill="#38BDF8" />
-          <circle cx="77" cy="43" r="2.5" fill="#38BDF8" />
-          <circle cx="43" cy="77" r="2.5" fill="#38BDF8" />
-          <circle cx="77" cy="77" r="2.5" fill="#38BDF8" />
-          {/* AI Monogram */}
-          <text x="60" y="66" textAnchor="middle" fontSize="20" fontWeight="900" fill="#FFFFFF" fontFamily="system-ui, sans-serif" letterSpacing="1">
-            AI
-          </text>
-        </svg>
+        <img
+          src="/images/tracks/pharmaceutics.png"
+          alt="Pharmaceutical Technology & Pharmaceutics"
+          className={`${sizeClass} object-contain`}
+          loading="lazy"
+        />
       );
 
     case '02':

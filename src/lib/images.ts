@@ -41,6 +41,21 @@ export const IMAGES = {
   // Section 3: About the Conference Background Artwork
   aboutSectionBg: '/assets/aistudio/Futuristic_AI_Science_Conference_Banner_723bfcec.png',
 
+  // Section 4: Scientific Tracks Background Artwork
+  scientificTracksBg: '/assets/aistudio/Glowing_AI_Pharmaceutical_Waves_e0bf85aa.png',
+
+  // Section 6.5: Important Dates & Deadlines Background Artwork
+  importantDatesBg: '/assets/aistudio/Futuristic_Biotech_Dates_and_Deadlines_66c87718.png',
+
+  // Section 6: PharmaQuest Hackathon Background Artwork
+  pharmaQuestBg: '/assets/aistudio/Pastel_Pharmaceutical_Conference_Background_20a120d8.png',
+
+  // Section 8: Call for Abstracts & Delegate Registration Background Artwork
+  callForAbstractsBg: '/assets/aistudio/Pastel_Biotech_Waves_with_Molecular_Flask_45251617.png',
+
+  // Scientific Track 01 Illustration
+  track01Pharmaceutics: '/images/tracks/pharmaceutics.png',
+
   // Official Accreditations & Rankings Logos
   nirfLogo: '/assets/aistudio/NIRF_logo_7a7c6967.jpg',
   naacLogo: '/assets/aistudio/naac_a___Logo-removebg-preview_f1269f70.png',

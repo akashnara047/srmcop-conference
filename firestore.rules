@@ -29,7 +29,7 @@ service cloud.firestore {
     // System Counters for Atomic Sequential ID Allocation
     match /systemCounters/{counterId} {
       allow read: if true;
-      allow write: if isAdmin() || counterId == 'abstractCounter';
+      allow write: if isAdmin() || counterId == 'abstractCounter' || counterId == 'registrationCounter';
     }
 
     // Abstract Submissions

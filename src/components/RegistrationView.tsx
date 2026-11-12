@@ -27,10 +27,17 @@ import {
   Square,
   FileCheck,
   X,
+  Download,
+  Calendar,
 } from 'lucide-react';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { dispatchRegistrationEmails } from '../lib/emailService';
+import {
+  submitConferenceRegistration,
+  generateRegistrationReceiptPDF,
+  type RegistrationRecord,
+} from '../lib/managementService';
 import confetti from 'canvas-confetti';
 
 // Available categories
@@ -123,6 +130,8 @@ export const RegistrationView: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [registeredId, setRegisteredId] = useState<string | null>(null);
+  const [submittedRecord, setSubmittedRecord] = useState<RegistrationRecord | null>(null);
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // =========================================================================
@@ -186,7 +195,35 @@ export const RegistrationView: React.FC = () => {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      setPaymentProofData((event.target?.result as string) || '');
+      const rawData = (event.target?.result as string) || '';
+      if (file.type.startsWith('image/')) {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 1600;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          const optimizedData = canvas.toDataURL('image/jpeg', 0.88);
+          setPaymentProofData(optimizedData);
+        };
+        img.src = rawData;
+      } else {
+        // PDF or raw document
+        setPaymentProofData(rawData);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -268,7 +305,7 @@ export const RegistrationView: React.FC = () => {
     return Object.keys(errors).length === 0;
   };
 
-  // Final Registration Submission Handler
+  // Final Registration Submission Handler with Concurrency-Safe Automatic ID Allocation
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -281,12 +318,9 @@ export const RegistrationView: React.FC = () => {
 
     setSubmitting(true);
     const parsedAmount = parseFloat(paymentAmount.trim());
-    const generatedRegId = `REG-2027-${Math.floor(1000 + Math.random() * 9000)}`;
-    const timestamp = new Date().toISOString();
 
     try {
-      const regDoc = {
-        id: generatedRegId,
+      const regPayload: Omit<RegistrationRecord, 'id' | 'registrationId' | 'createdAt'> = {
         fullName: fullName.trim(),
         email: email.trim(),
         mobile: mobile.trim(),
@@ -295,7 +329,6 @@ export const RegistrationView: React.FC = () => {
         city: city.trim(),
         country: country.trim(),
         category,
-        registrationCategory: category,
         otherCategoryDescription: category === 'Others' ? otherCategoryDescription.trim() : '',
         participationMode,
         presentationPlans: presentationPlans.length > 0 ? presentationPlans : ['None'],
@@ -303,26 +336,23 @@ export const RegistrationView: React.FC = () => {
         paymentMode,
         transactionReference: transactionRef.trim(),
         paymentAmount: parsedAmount,
-        amount: parsedAmount,
         paymentProofName: paymentProofName || 'proof_receipt.pdf',
-        paymentProofData: paymentProofData ? paymentProofData.substring(0, 300) + '...[secured]' : 'Stored securely',
+        paymentProofData: paymentProofData || '',
         dietaryPreference: dietaryPreference ? dietaryPreference.trim() : '',
-        registrationId: null,
         linkedAbstractId: null,
         abstractSubmitted: false,
         recordType: 'live',
         paymentStatus: 'Pending Verification',
         registrationStatus: 'Awaiting Approval',
         adminRemarks: '',
-        createdAt: timestamp,
       };
 
-      // 1. Save in Cloud Firestore under 'registrations'
-      await setDoc(doc(db, 'registrations', generatedRegId), regDoc);
+      // 1. Concurrency-safe atomic transaction write to Firestore (allocates AICONDD001, AICONDD002, etc.)
+      const { regDoc, regId } = await submitConferenceRegistration(regPayload);
 
-      // 2. Trigger notification emails to organizers and participant
-      await dispatchRegistrationEmails({
-        id: generatedRegId,
+      // 2. Trigger notification emails to organizers and participant asynchronously without blocking UI
+      dispatchRegistrationEmails({
+        id: regId,
         fullName: fullName.trim(),
         email: email.trim(),
         institution: institution.trim(),
@@ -330,24 +360,27 @@ export const RegistrationView: React.FC = () => {
         otherCategoryDescription: category === 'Others' ? otherCategoryDescription.trim() : undefined,
         transactionReference: transactionRef.trim(),
         amount: parsedAmount,
+      }).catch((emailErr) => {
+        console.warn('Background email dispatch note:', emailErr);
       });
 
-      setRegisteredId(generatedRegId);
-      confetti({ particleCount: 75, spread: 65, origin: { y: 0.6 } });
+      // 3. Update state to display confirmation dialog and downloadable receipt
+      setSubmittedRecord(regDoc);
+      setRegisteredId(regId);
+      setShowConfirmationModal(true);
+      confetti({ particleCount: 85, spread: 70, origin: { y: 0.6 } });
       window.scrollTo({ top: 120, behavior: 'smooth' });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Registration error:', err);
-      try {
-        handleFirestoreError(err, OperationType.CREATE, `registrations/${generatedRegId}`);
-      } catch (e: any) {
-        setFormError(e.message || 'Registration submission failed. Please check your network and try again.');
-      }
+      setFormError(
+        err.message || 'Registration submission failed. Please check your network and try again.'
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Status Tracking Lookup Handler
+  // Status Tracking Lookup Handler (Direct document get, privacy-preserving, no collection scan)
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!lookupRegId.trim()) return;
@@ -415,8 +448,43 @@ export const RegistrationView: React.FC = () => {
     }
   };
 
+  const handleDownloadPDF = () => {
+    if (submittedRecord) {
+      generateRegistrationReceiptPDF(submittedRecord);
+    } else if (registeredId) {
+      const fallbackRecord: RegistrationRecord = {
+        id: registeredId,
+        registrationId: registeredId,
+        fullName: fullName.trim(),
+        email: email.trim(),
+        mobile: mobile.trim(),
+        courseOrDesignation: courseOrDesignation.trim(),
+        institution: institution.trim(),
+        city: city.trim(),
+        country: country.trim(),
+        category,
+        otherCategoryDescription: category === 'Others' ? otherCategoryDescription.trim() : '',
+        participationMode,
+        presentationPlans,
+        participatePharmaQuest,
+        paymentMode,
+        transactionReference: transactionRef.trim(),
+        paymentAmount: parseFloat(paymentAmount.trim()) || 0,
+        amount: parseFloat(paymentAmount.trim()) || 0,
+        paymentProofName: paymentProofName || 'proof_receipt.pdf',
+        paymentStatus: 'Pending Verification',
+        registrationStatus: 'Awaiting Approval',
+        dietaryPreference,
+        createdAt: new Date().toISOString(),
+      };
+      generateRegistrationReceiptPDF(fallbackRecord);
+    }
+  };
+
   const resetForm = () => {
     setRegisteredId(null);
+    setSubmittedRecord(null);
+    setShowConfirmationModal(false);
     setFullName('');
     setEmail('');
     setMobile('');
@@ -444,6 +512,102 @@ export const RegistrationView: React.FC = () => {
 
   return (
     <div className="w-full bg-gradient-to-b from-[#EBF2FF] via-[#F4F1FD] to-[#E9F3FF] min-h-screen py-7 sm:py-9 relative overflow-hidden font-['Inter',sans-serif]">
+      {/* =====================================================================
+          REGISTRATION CONFIRMATION DIALOG MODAL (Requirement 3)
+         ===================================================================== */}
+      {showConfirmationModal && registeredId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-[#D8D2F8] overflow-hidden animate-in zoom-in-95 duration-200"
+          >
+            {/* Top decorative gradient bar */}
+            <div className="h-2.5 bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6]" />
+
+            <div className="p-6 sm:p-8 space-y-5 text-center">
+              {/* Success Icon */}
+              <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-xs">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+
+              {/* Heading & Subtitle */}
+              <div className="space-y-1">
+                <h3 className="text-2xl sm:text-3xl font-bold text-[#101B4B] font-heading">
+                  Registration Successful!
+                </h3>
+                <p className="text-sm sm:text-[14.5px] font-medium text-slate-600">
+                  Your conference registration has been successfully submitted.
+                </p>
+              </div>
+
+              {/* Conference Meta Box */}
+              <div className="p-3.5 bg-gradient-to-r from-[#FAF8FE] to-[#F1EDFD] border border-[#DDD6FE] rounded-2xl text-left space-y-1">
+                <div className="text-[10.5px] font-bold uppercase tracking-wider text-[#713CE0]">
+                  Conference Title & Dates
+                </div>
+                <div className="text-[13.5px] font-bold text-[#101B4B] leading-snug">
+                  AI-Powered Innovations in Drug Discovery and Development
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium pt-0.5">
+                  <Calendar className="w-3.5 h-3.5 text-[#713CE0]" />
+                  <span>Conference Dates: <strong>15–16 February 2027</strong></span>
+                </div>
+              </div>
+
+              {/* Prominent Registration ID Display & Participant Name */}
+              <div className="p-4 bg-[#EDE9FD] border-2 border-[#C5B9F7] rounded-2xl space-y-2">
+                <div className="text-xs uppercase font-bold tracking-wider text-[#713CE0]">
+                  Official Registration ID
+                </div>
+                <div className="flex items-center justify-center gap-2.5">
+                  <span className="font-mono font-black text-2xl sm:text-3xl text-[#101B4B] tracking-wider">
+                    {registeredId}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={copyId}
+                    title="Copy Registration ID"
+                    className="p-2 bg-white hover:bg-slate-50 border border-[#D8D2F8] rounded-xl text-xs font-bold text-[#713CE0] flex items-center gap-1 cursor-pointer shadow-xs transition-colors"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+                <div className="text-xs text-slate-700 pt-1 border-t border-[#DDD6FE]/70">
+                  Participant: <strong>{fullName}</strong> ({email})
+                </div>
+              </div>
+
+              {/* Notice */}
+              <p className="text-[11.5px] text-slate-500 leading-relaxed text-left bg-slate-50 p-3 rounded-xl border border-slate-200">
+                Please retain your Registration ID (<code>{registeredId}</code>). A computer-generated PDF receipt containing all submitted details is ready for download.
+              </p>
+
+              {/* Action Buttons: Download Registration Receipt (PDF) & Close */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDownloadPDF}
+                  className="w-full sm:flex-1 h-[44px] px-5 bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[13.5px] rounded-xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Registration Receipt (PDF)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmationModal(false)}
+                  className="w-full sm:w-auto h-[44px] px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[13.5px] rounded-xl transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Upper-Right 3D Pill/Molecular Artwork matching mockup */}
       <div className="absolute right-2 sm:right-6 lg:right-10 top-1 w-44 sm:w-52 lg:w-60 h-auto pointer-events-none opacity-90 hidden sm:block z-0">
         <svg viewBox="0 0 240 200" className="w-full h-auto drop-shadow-[0_12px_24px_rgba(113,60,224,0.22)]" fill="none">
@@ -557,7 +721,7 @@ export const RegistrationView: React.FC = () => {
 
             <div className="p-5 sm:p-6 space-y-4">
               <p className="text-[13px] text-slate-600">
-                Enter your unique Registration ID (e.g. REG-2027-1234) received upon submission to check payment verification and registration approval.
+                Enter your official Registration ID (e.g. AICONDD001) received upon submission to check payment verification and registration approval.
               </p>
 
               <form onSubmit={handleLookup} className="flex flex-col sm:flex-row gap-2.5">
@@ -565,7 +729,7 @@ export const RegistrationView: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. REG-2027-4829"
+                    placeholder="e.g. AICONDD001"
                     value={lookupRegId}
                     onChange={(e) => setLookupRegId(e.target.value)}
                     className="w-full h-[40px] px-3.5 bg-white border border-[#D8D2F8] rounded-xl font-mono uppercase font-semibold text-[14px] text-[#101B4B] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0]"
@@ -722,46 +886,76 @@ export const RegistrationView: React.FC = () => {
           /* ===================================================================
               REGISTRATION CONFIRMATION SCREEN
              =================================================================== */
-          <div className="bg-white/85 backdrop-blur-md border border-emerald-300 p-6 sm:p-9 rounded-2xl text-center space-y-4 shadow-sm animate-in fade-in duration-300">
-            <div className="w-13 h-13 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-2xs">
-              <CheckCircle2 className="w-7 h-7" />
+          <div className="bg-white/85 backdrop-blur-md border border-emerald-300 p-6 sm:p-9 rounded-2xl text-center space-y-5 shadow-sm animate-in fade-in duration-300">
+            <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-2xs">
+              <CheckCircle2 className="w-8 h-8" />
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <h2 className="text-2xl sm:text-3xl font-bold text-[#101B4B] font-heading">
-                Registration Submitted Successfully
+                Registration Successful!
               </h2>
-              <p className="text-[13px] text-slate-600 max-w-lg mx-auto leading-relaxed">
-                Thank you for registering for the International Conference on AI-Powered Innovations in Drug Discovery and Development 2027. Your details and payment proof have been saved securely.
+              <p className="text-sm sm:text-base text-slate-600 max-w-lg mx-auto leading-relaxed">
+                Your conference registration has been successfully submitted.
               </p>
             </div>
 
-            {/* Application Reference Banner */}
-            <div className="p-4 bg-[#EDE9FD] border border-[#DDD6FE] rounded-xl inline-flex flex-col sm:flex-row items-center gap-3 sm:gap-5 shadow-2xs">
+            {/* Conference Meta Box */}
+            <div className="max-w-md mx-auto p-3.5 bg-gradient-to-r from-[#FAF8FE] to-[#F1EDFD] border border-[#DDD6FE] rounded-2xl text-left space-y-1">
+              <div className="text-[10.5px] font-bold uppercase tracking-wider text-[#713CE0]">
+                Conference Title & Dates
+              </div>
+              <div className="text-[13.5px] font-bold text-[#101B4B] leading-snug">
+                AI-Powered Innovations in Drug Discovery and Development
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium pt-0.5">
+                <Calendar className="w-3.5 h-3.5 text-[#713CE0]" />
+                <span>Conference Dates: <strong>15–16 February 2027</strong></span>
+              </div>
+            </div>
+
+            {/* Official Registration ID Banner */}
+            <div className="p-4 bg-[#EDE9FD] border-2 border-[#C5B9F7] rounded-2xl inline-flex flex-col sm:flex-row items-center gap-3 sm:gap-5 shadow-2xs">
               <div className="text-left">
                 <span className="text-[11px] text-[#713CE0] uppercase font-bold tracking-wider block">
-                  Application Reference Number
+                  Official Registration ID
                 </span>
-                <span className="font-mono font-bold text-[22px] sm:text-[25px] text-[#101B4B] tracking-wide">
+                <span className="font-mono font-bold text-[24px] sm:text-[28px] text-[#101B4B] tracking-wide">
                   {registeredId}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={copyId}
-                className="h-[36px] px-3 bg-white hover:bg-slate-50 border border-[#D8D2F8] rounded-lg text-[12px] font-bold text-[#713CE0] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                className="h-[38px] px-3.5 bg-white hover:bg-slate-50 border border-[#D8D2F8] rounded-xl text-[12px] font-bold text-[#713CE0] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? 'Copied' : 'Copy Reference'}</span>
+                {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                <span>{copied ? 'Copied' : 'Copy Registration ID'}</span>
               </button>
             </div>
 
-            <div className="p-3 bg-purple-50/70 border border-purple-200/60 rounded-xl text-xs text-purple-900 max-w-lg mx-auto">
-              <strong>Notice on Registration ID:</strong> Your payment reference is currently under verification. Your official Conference Registration ID (Format: <code>AICONDDxxx</code>) will be allocated and issued once the Organising Secretary verifies your payment.
+            {/* Action Buttons: Download PDF Receipt & Register Another */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleDownloadPDF}
+                className="w-full sm:w-auto h-[44px] px-6 bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[13.5px] rounded-xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download Registration Receipt (PDF)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={resetForm}
+                className="w-full sm:w-auto h-[44px] px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[13.5px] rounded-xl transition-colors cursor-pointer"
+              >
+                Register Another Delegate
+              </button>
             </div>
 
             {/* Submission Details Summary Box */}
-            <div className="p-4 bg-[#FAF8FE] border border-slate-200 rounded-xl text-left max-w-md mx-auto space-y-2 text-[13px]">
+            <div className="p-4.5 bg-[#FAF8FE] border border-slate-200 rounded-xl text-left max-w-md mx-auto space-y-2 text-[13px]">
               <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
                 <span className="text-slate-500 font-normal">Participant Name:</span>
                 <strong className="text-[#101B4B] font-semibold">{fullName}</strong>
@@ -786,23 +980,13 @@ export const RegistrationView: React.FC = () => {
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-normal">Total Amount Paid:</span>
+                <span className="text-slate-500 font-normal">Total Fee Paid:</span>
                 <strong className="text-[#101B4B] font-mono font-bold text-[15px]">₹{paymentAmount}</strong>
               </div>
             </div>
 
             <div className="text-[12px] text-slate-500 max-w-lg mx-auto">
               A formal acknowledgement has been dispatched to <strong>{email}</strong> and the organizing secretariat at <strong>dean.pharmacy.ktr@srmist.edu.in</strong> and <strong>narayanj@srmist.edu.in</strong>.
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={resetForm}
-                className="h-[40px] px-6 text-[13px] font-bold uppercase tracking-wider text-white bg-gradient-to-r from-[#6D3CE2] to-[#12B8D6] rounded-full shadow-xs hover:opacity-95 transition-opacity cursor-pointer"
-              >
-                Register Another Delegate
-              </button>
             </div>
           </div>
         ) : (
@@ -1335,7 +1519,7 @@ export const RegistrationView: React.FC = () => {
                         type="text"
                         inputMode="decimal"
                         required
-                        placeholder="e.g. 1500"
+                        placeholder="e.g. 2000"
                         value={paymentAmount}
                         onChange={(e) => {
                           const val = e.target.value;

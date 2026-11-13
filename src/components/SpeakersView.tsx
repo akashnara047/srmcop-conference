@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { INVITED_SPEAKERS, PRESENTATION_FORMATS, Speaker } from '../data/conferenceData';
-import { ExternalLink, Edit3, Check, MapPin, Users, Presentation, Award, BookOpen } from 'lucide-react';
+import { INVITED_SPEAKERS, Speaker } from '../data/conferenceData';
+import { ExternalLink, Edit3, Check } from 'lucide-react';
 import { SectionBackToTop } from './BackToTop';
 
 export const SpeakersView: React.FC = () => {
@@ -135,54 +135,6 @@ export const SpeakersView: React.FC = () => {
 
         {/* Section Back to Top control */}
         <SectionBackToTop variant="light" />
-      </section>
-
-      {/* SECTION 2: PRESENTATION FORMATS */}
-      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-[#F8FAFD] flex flex-col justify-between py-12 sm:py-16 border-b border-[#E2E8F0]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex-1 flex flex-col justify-center space-y-8">
-          <div className="space-y-2 max-w-2xl">
-            <span className="text-xs font-bold tracking-widest text-[#087E8B] uppercase">
-              DELEGATE PARTICIPATION MODALITIES
-            </span>
-            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[36px] font-black text-[#082746] font-heading">
-              Conference Presentation Formats
-            </h2>
-            <p className="text-sm sm:text-base text-[#45536B] leading-relaxed">
-              All accepted abstracts will be categorized into one of the designated presentation formats by the Scientific Programme Committee.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {PRESENTATION_FORMATS.map((fmt) => (
-              <div
-                key={fmt.id}
-                className="bg-white border border-[#22C5D9]/30 p-8 rounded-2xl space-y-4 hover:border-[#087E8B] transition-all shadow-xs hover:shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="text-xs sm:text-[13px] font-bold text-[#087E8B] uppercase tracking-wider bg-[#E6F4F8] px-3 py-1 rounded-full">
-                    {fmt.mode}
-                  </div>
-                </div>
-
-                <h3 className="text-xl sm:text-2xl font-bold text-[#082746] font-heading">
-                  {fmt.format}
-                </h3>
-
-                <p className="text-sm sm:text-[15px] text-[#45536B] leading-relaxed">
-                  {fmt.description}
-                </p>
-
-                <div className="pt-4 border-t border-slate-100 flex items-center gap-2 text-xs sm:text-sm font-semibold text-slate-600">
-                  <MapPin className="w-4 h-4 text-[#7554D9] shrink-0" />
-                  <span>{fmt.location}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Section Back to Top control */}
-        <SectionBackToTop variant="glass" />
       </section>
     </div>
   );

@@ -10,7 +10,8 @@ import {
   updateDoc,
   setDoc,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { db, storage, handleFirestoreError, OperationType } from './firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 
@@ -95,6 +96,11 @@ export interface AbstractRecord {
   reviewNotes?: string;
   reviewedBy?: string;
   reviewedAt?: string;
+  supportingDocumentName?: string;
+  supportingDocumentSize?: number;
+  supportingDocumentType?: string;
+  supportingDocumentUrl?: string;
+  supportingDocumentData?: string;
   recordType?: 'live' | 'test';
   createdAt: string;
   updatedAt?: string;
@@ -325,10 +331,38 @@ export async function submitAbstractWithAtomicId(params: {
   coAuthors: Array<{ name: string; affiliation: string }>;
   abstractContent: string;
   keywords: string[];
+  supportingDocumentFile?: File | null;
+  supportingDocumentData?: string;
   recordType?: 'live' | 'test';
 }): Promise<string> {
   const counterRef = doc(db, 'systemCounters', 'abstractCounter');
   const regRef = doc(db, 'registrations', params.regDocId);
+
+  // Attempt optional supporting document storage outside the Firestore transaction
+  let supportingDocumentUrl: string | undefined;
+  let supportingDocumentData: string | undefined;
+  let supportingDocumentName: string | undefined;
+  let supportingDocumentSize: number | undefined;
+  let supportingDocumentType: string | undefined;
+
+  if (params.supportingDocumentFile) {
+    const file = params.supportingDocumentFile;
+    supportingDocumentName = file.name;
+    supportingDocumentSize = file.size;
+    supportingDocumentType = file.type;
+
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storageRef = ref(storage, `abstract-documents/${params.registrationId}/${Date.now()}_${safeName}`);
+      await uploadBytes(storageRef, file);
+      supportingDocumentUrl = await getDownloadURL(storageRef);
+    } catch (storageErr) {
+      console.warn('Firebase Storage upload skipped or unavailable, falling back if file fits Firestore limit:', storageErr);
+      if (params.supportingDocumentData && params.supportingDocumentData.length <= 750000) {
+        supportingDocumentData = params.supportingDocumentData;
+      }
+    }
+  }
 
   try {
     const allocatedAbstractId = await runTransaction(db, async (transaction) => {
@@ -386,6 +420,11 @@ export async function submitAbstractWithAtomicId(params: {
           text: params.abstractContent.trim(),
         },
         keywords: params.keywords,
+        ...(supportingDocumentName ? { supportingDocumentName } : {}),
+        ...(supportingDocumentSize !== undefined ? { supportingDocumentSize } : {}),
+        ...(supportingDocumentType ? { supportingDocumentType } : {}),
+        ...(supportingDocumentUrl ? { supportingDocumentUrl } : {}),
+        ...(supportingDocumentData ? { supportingDocumentData } : {}),
         status: 'Submitted',
         reviewNotes: '',
         recordType: params.recordType || regData.recordType || 'live',

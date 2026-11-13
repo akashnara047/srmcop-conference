@@ -475,8 +475,8 @@ export const ProgrammeView: React.FC = () => {
 
                 {/* ----------------- AFTERNOON (AN) ----------------- */}
                 <div className="grid grid-cols-12 gap-3 sm:gap-4 items-stretch">
-                  {/* Time Band Column */}
-                  <div className="col-span-12 lg:col-span-2 bg-[#F8FAFD] border border-slate-200/90 rounded-2xl p-4 flex flex-row lg:flex-col items-center justify-center gap-2 text-center shadow-2xs">
+                  {/* Time Band Column spanning Main Halls + Poster Space */}
+                  <div className="col-span-12 lg:col-span-2 lg:row-span-2 bg-[#F8FAFD] border border-slate-200/90 rounded-2xl p-4 flex flex-row lg:flex-col items-center justify-center gap-2 text-center shadow-2xs">
                     <div className="p-2 bg-orange-50 rounded-xl border border-orange-100">
                       <Sunset className="w-5 h-5 text-[#EA580C]" />
                     </div>
@@ -512,30 +512,34 @@ export const ProgrammeView: React.FC = () => {
                   <div className="col-span-12 lg:col-span-3 bg-[#F8F9FE]/60 border border-slate-200/60 rounded-2xl p-4 flex items-center justify-center text-slate-400 font-medium text-2xl min-h-[140px]">
                     <span>—</span>
                   </div>
-                </div>
 
-                {/* ----------------- SEPARATE POSTER VENUE BLOCK ----------------- */}
-                <div className="bg-gradient-to-r from-[#EFF6FF] via-[#F5F3FF] to-[#ECFEFF] border-2 border-indigo-200/90 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
-                  <div className="flex items-center gap-3.5">
-                    <div className="p-3 bg-white text-[#7554D9] rounded-2xl shadow-xs border border-indigo-100 shrink-0">
-                      <FileText className="w-6 h-6 sm:w-7 sm:h-7" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-base sm:text-lg font-black text-[#082746] font-heading">
-                          Poster Presentations
-                        </span>
-                        <FormatBadge format="Offline" />
+                  {/* Separate Poster Space Activity in Day 2 Afternoon */}
+                  <div className="col-span-12 lg:col-span-10 bg-gradient-to-r from-[#EFF6FF] via-[#F5F3FF] to-[#ECFEFF] border-2 border-indigo-200/90 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="p-3 bg-white text-[#7554D9] rounded-2xl shadow-xs border border-indigo-100 shrink-0">
+                        <FileText className="w-6 h-6 sm:w-7 sm:h-7" />
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-[#087E8B] pt-0.5">
-                        <MapPin className="w-3.5 h-3.5 text-[#7554D9] shrink-0" />
-                        <span>Venue: Dr. T. P. Ganesan Auditorium – Poster Space</span>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-base sm:text-lg font-black text-[#082746] font-heading">
+                            Poster Presentation
+                          </span>
+                          <FormatBadge format="Offline" />
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-orange-50 text-[#C2410C] border border-orange-200 shrink-0">
+                            <Clock className="w-3 h-3" />
+                            <span>Afternoon (AN) · 16 February 2027</span>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-[#087E8B] pt-1">
+                          <MapPin className="w-3.5 h-3.5 text-[#7554D9] shrink-0" />
+                          <span>Venue: Dr. T. P. Ganesan Auditorium – Poster Space</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="text-xs text-slate-500 font-medium text-right hidden md:block max-w-xs">
-                    Concurrent physical poster boards and scientific research interactive discussions.
+                    <div className="text-xs text-slate-500 font-medium md:text-right max-w-xs">
+                      Physical poster presentations and scientific research interactive discussions at the Poster Space.
+                    </div>
                   </div>
                 </div>
               </div>

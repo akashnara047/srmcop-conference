@@ -750,44 +750,35 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           <div className="absolute inset-0 bg-white/15 pointer-events-none" />
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-8 relative z-10">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-10 w-full flex-1 flex flex-col justify-center space-y-7 sm:space-y-9 relative z-10">
           {/* 1. SECTION IDENTITY & HEADER */}
-          <div className="text-center space-y-2.5 max-w-3xl mx-auto">
+          <div className="text-center space-y-3.5 max-w-6xl mx-auto">
             {/* Top Capsule with Layered Icon */}
             <div className="flex items-center justify-center gap-3 sm:gap-4">
-              <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-[#7554D9]/40" />
-              <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
-                <Layers className="w-3.5 h-3.5 text-white" />
-                <span className="text-[10.5px] sm:text-xs font-black tracking-widest uppercase">
+              <div className="w-14 sm:w-24 md:w-32 h-[1.5px] bg-gradient-to-r from-transparent to-[#7554D9]/50" />
+              <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-[0_6px_18px_rgba(117,84,217,0.25)]">
+                <Layers className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="text-[11px] sm:text-xs font-extrabold tracking-[0.14em] uppercase whitespace-nowrap">
                   SCIENTIFIC TRACKS
                 </span>
               </div>
-              <div className="w-12 sm:w-20 md:w-28 h-[1.5px] bg-[#22C5D9]/50" />
+              <div className="w-14 sm:w-24 md:w-32 h-[1.5px] bg-gradient-to-l from-transparent to-[#22C5D9]/60" />
             </div>
 
             {/* Main Heading with Purple-to-Cyan Gradient Emphasis */}
-            <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.2]">
+            <h2 className="text-[28px] sm:text-4xl lg:text-[40px] xl:text-[50px] font-extrabold text-[#082746] font-heading tracking-tight leading-[1.15] lg:whitespace-nowrap">
               Explore the Key Themes{' '}
-              <span className="bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] bg-clip-text text-transparent relative inline-block">
+              <span className="bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] bg-clip-text text-transparent relative inline-block pb-1.5">
                 of the Conference
-                <svg
-                  className="absolute -bottom-1 sm:-bottom-1.5 left-0 w-full h-2 text-[#22C5D9]"
-                  viewBox="0 0 100 8"
-                  preserveAspectRatio="none"
-                >
-                  <path
-                    d="M0,5 Q50,0 100,5"
-                    stroke="currentColor"
-                    strokeWidth="3.5"
-                    fill="none"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <span
+                  aria-hidden="true"
+                  className="absolute bottom-0 left-0 right-0 h-[3.5px] rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] opacity-90"
+                />
               </span>
             </h2>
 
             {/* Supporting Text */}
-            <p className="text-sm sm:text-base text-[#45536B] leading-relaxed max-w-2xl mx-auto font-normal">
+            <p className="text-[15px] sm:text-[17.5px] lg:text-[18.5px] text-[#3B4A62] leading-[1.6] max-w-[780px] mx-auto font-normal pt-0.5">
               The conference will cover seven focused scientific tracks, addressing the integration of AI, emerging technologies and translational research in drug discovery and development.
             </p>
           </div>
@@ -795,32 +786,32 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           {/* 2. SEVEN SCIENTIFIC TRACK CARDS (ROW 1: 4 CARDS, ROW 2: 3 CENTERED CARDS) */}
           <div className="space-y-5 lg:space-y-6 w-full">
             {/* ROW 1: CARDS 01, 02, 03, 04 (4 EQUAL COLUMNS ON DESKTOP) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6 max-w-7xl mx-auto w-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 xl:gap-6 w-full">
               {SCIENTIFIC_TRACKS.slice(0, 4).map((track, idx) => {
                 const styles = [
                   {
-                    bg: 'bg-gradient-to-br from-[#FAF8FF] via-[#F4F0FE] to-[#EDE5FE]',
-                    border: 'border-[#E2D6FD]',
+                    bg: 'bg-gradient-to-br from-[#F8F5FF] via-[#F3EEFF] to-[#EAE1FE]',
+                    border: 'border-[#DFD2FC]',
                     hoverBorder: 'hover:border-[#7554D9]',
-                    badge: 'bg-[#EDE9FA] text-[#7554D9]',
+                    badge: 'bg-[#E7DDFD] text-[#6D47D9]',
                   },
                   {
-                    bg: 'bg-gradient-to-br from-[#F0FBFC] via-[#E4F8FA] to-[#D5F5F8]',
-                    border: 'border-[#BDEEF5]',
+                    bg: 'bg-gradient-to-br from-[#EEFBFC] via-[#E3F7FA] to-[#D4F3F7]',
+                    border: 'border-[#BBEBF2]',
                     hoverBorder: 'hover:border-[#087E8B]',
-                    badge: 'bg-[#E0F7FA] text-[#087E8B]',
+                    badge: 'bg-[#D7F4F8] text-[#087E8B]',
                   },
                   {
-                    bg: 'bg-gradient-to-br from-[#FFF9F2] via-[#FEF2E4] to-[#FDE8D3]',
-                    border: 'border-[#FBD7BA]',
-                    hoverBorder: 'hover:border-[#EA580C]',
-                    badge: 'bg-[#FFEAD7] text-[#EA580C]',
+                    bg: 'bg-gradient-to-br from-[#FFF8F1] via-[#FEF1E4] to-[#FDE7D2]',
+                    border: 'border-[#FAD6B8]',
+                    hoverBorder: 'hover:border-[#D95D16]',
+                    badge: 'bg-[#FFE9D4] text-[#D95D16]',
                   },
                   {
-                    bg: 'bg-gradient-to-br from-[#F2F7FD] via-[#E7F1FC] to-[#D7E9FB]',
-                    border: 'border-[#C3DDF9]',
-                    hoverBorder: 'hover:border-[#0284C7]',
-                    badge: 'bg-[#E0F2FE] text-[#0284C7]',
+                    bg: 'bg-gradient-to-br from-[#F1F7FE] via-[#E6F0FC] to-[#D8E8FA]',
+                    border: 'border-[#C2DCF8]',
+                    hoverBorder: 'hover:border-[#1D6FD8]',
+                    badge: 'bg-[#DCEBFD] text-[#1D6FD8]',
                   },
                 ][idx];
 
@@ -831,36 +822,36 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                     tabIndex={0}
                     onClick={() => onNavigate('tracks', track.id)}
                     onKeyDown={(e) => e.key === 'Enter' && onNavigate('tracks', track.id)}
-                    className={`w-full ${styles.bg} ${styles.border} ${styles.hoverBorder} rounded-[28px] p-5 sm:p-6 shadow-[0_8px_24px_rgba(117,84,217,0.06)] hover:shadow-[0_16px_36px_rgba(117,84,217,0.18)] transition-all duration-300 flex items-center justify-between gap-2.5 group cursor-pointer hover:-translate-y-1.5 relative overflow-hidden min-h-[165px] sm:min-h-[178px]`}
+                    className={`w-full h-full ${styles.bg} border ${styles.border} ${styles.hoverBorder} rounded-[24px] px-5 py-5 sm:px-6 sm:py-6 shadow-[0_10px_28px_rgba(117,84,217,0.07),inset_0_1px_0_rgba(255,255,255,0.85)] hover:shadow-[0_16px_36px_rgba(117,84,217,0.16)] transition-all duration-300 flex items-center justify-between gap-2.5 group cursor-pointer hover:-translate-y-1 relative overflow-hidden min-h-[168px] sm:min-h-[180px]`}
                   >
                     {/* Left Content Column */}
-                    <div className="flex-1 min-w-0 pr-1 space-y-3 z-10">
+                    <div className="flex-1 min-w-0 pr-1 flex flex-col justify-center space-y-3 z-10">
                       <div>
                         <span
-                          className={`inline-flex items-center justify-center px-3.5 py-1 rounded-xl text-xs sm:text-[13px] font-mono font-black ${styles.badge}`}
+                          className={`inline-flex items-center justify-center px-3.5 py-1 rounded-xl text-xs sm:text-[13px] font-bold tabular-nums ${styles.badge}`}
                         >
                           {track.number}
                         </span>
                       </div>
 
-                      <h3 className="text-base sm:text-lg lg:text-[19px] font-black text-[#082746] font-heading leading-snug group-hover:text-[#7554D9] transition-colors">
+                      <h3 className="text-[16px] sm:text-[17px] xl:text-[18px] font-extrabold text-[#082746] font-heading leading-[1.3] group-hover:text-[#7554D9] transition-colors">
                         {track.title}
                       </h3>
                     </div>
 
-                    {/* Right 3D Scientific Illustration (Large & Prominent) */}
-                    <div className="shrink-0 flex items-center justify-center group-hover:scale-108 transition-transform duration-300 z-10">
+                    {/* Right 3D Scientific Illustration */}
+                    <div className="shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform duration-300 z-10">
                       {track.number === '01' ? (
                         <img
-                          src="/images/tracks/pharmaceutics.png"
+                          src="/images/tracks/pharmaceutics-transparent.png"
                           alt={track.title}
-                          className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 object-contain"
+                          className="w-[104px] h-[104px] sm:w-[116px] sm:h-[116px] xl:w-[122px] xl:h-[122px] object-contain"
                           loading="lazy"
                         />
                       ) : (
                         <TrackIllustration
                           type={track.iconType || 'laptop-ai'}
-                          className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 drop-shadow-md"
+                          className="w-[112px] h-[84px] sm:w-[122px] sm:h-[92px] xl:w-[130px] xl:h-[98px]"
                         />
                       )}
                     </div>
@@ -870,26 +861,26 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* ROW 2: CARDS 05, 06, 07 (3 CENTERED COLUMNS ON DESKTOP, MATCHING ROW 1 CARD WIDTH) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6 max-w-[954px] mx-auto w-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 xl:gap-6 lg:w-[calc(75%-5px)] xl:w-[calc(75%-6px)] mx-auto w-full">
               {SCIENTIFIC_TRACKS.slice(4, 7).map((track, idx) => {
                 const styles = [
                   {
-                    bg: 'bg-gradient-to-br from-[#F0FAF4] via-[#E3F7EB] to-[#D1F2DE]',
-                    border: 'border-[#B6EAC7]',
-                    hoverBorder: 'hover:border-[#16A34A]',
-                    badge: 'bg-[#DCFCE7] text-[#16A34A]',
+                    bg: 'bg-gradient-to-br from-[#EFFBF4] via-[#E3F7EC] to-[#D3F2E0]',
+                    border: 'border-[#B8E9CB]',
+                    hoverBorder: 'hover:border-[#15803D]',
+                    badge: 'bg-[#D8F7E3] text-[#15803D]',
                   },
                   {
-                    bg: 'bg-gradient-to-br from-[#F8F4FF] via-[#EFE5FE] to-[#E3D4FE]',
-                    border: 'border-[#D4BCFE]',
-                    hoverBorder: 'hover:border-[#9333EA]',
-                    badge: 'bg-[#F3E8FF] text-[#9333EA]',
+                    bg: 'bg-gradient-to-br from-[#F7F2FF] via-[#EFE5FE] to-[#E4D5FE]',
+                    border: 'border-[#D5BDFE]',
+                    hoverBorder: 'hover:border-[#7E22CE]',
+                    badge: 'bg-[#EBDDFF] text-[#7E22CE]',
                   },
                   {
-                    bg: 'bg-gradient-to-br from-[#FFF4F5] via-[#FEE8EA] to-[#FDD8DC]',
-                    border: 'border-[#FBBFC7]',
-                    hoverBorder: 'hover:border-[#E11D48]',
-                    badge: 'bg-[#FFE4E6] text-[#E11D48]',
+                    bg: 'bg-gradient-to-br from-[#FFF3F6] via-[#FEE8EE] to-[#FDD9E3]',
+                    border: 'border-[#FAC0CF]',
+                    hoverBorder: 'hover:border-[#BE185D]',
+                    badge: 'bg-[#FFE0E8] text-[#BE185D]',
                   },
                 ][idx];
 
@@ -900,28 +891,28 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                     tabIndex={0}
                     onClick={() => onNavigate('tracks', track.id)}
                     onKeyDown={(e) => e.key === 'Enter' && onNavigate('tracks', track.id)}
-                    className={`w-full ${styles.bg} ${styles.border} ${styles.hoverBorder} rounded-[28px] p-5 sm:p-6 shadow-[0_8px_24px_rgba(117,84,217,0.06)] hover:shadow-[0_16px_36px_rgba(117,84,217,0.18)] transition-all duration-300 flex items-center justify-between gap-2.5 group cursor-pointer hover:-translate-y-1.5 relative overflow-hidden min-h-[165px] sm:min-h-[178px]`}
+                    className={`w-full h-full ${styles.bg} border ${styles.border} ${styles.hoverBorder} rounded-[24px] px-5 py-5 sm:px-6 sm:py-6 shadow-[0_10px_28px_rgba(117,84,217,0.07),inset_0_1px_0_rgba(255,255,255,0.85)] hover:shadow-[0_16px_36px_rgba(117,84,217,0.16)] transition-all duration-300 flex items-center justify-between gap-2.5 group cursor-pointer hover:-translate-y-1 relative overflow-hidden min-h-[168px] sm:min-h-[180px]`}
                   >
                     {/* Left Content Column */}
-                    <div className="flex-1 min-w-0 pr-1 space-y-3 z-10">
+                    <div className="flex-1 min-w-0 pr-1 flex flex-col justify-center space-y-3 z-10">
                       <div>
                         <span
-                          className={`inline-flex items-center justify-center px-3.5 py-1 rounded-xl text-xs sm:text-[13px] font-mono font-black ${styles.badge}`}
+                          className={`inline-flex items-center justify-center px-3.5 py-1 rounded-xl text-xs sm:text-[13px] font-bold tabular-nums ${styles.badge}`}
                         >
                           {track.number}
                         </span>
                       </div>
 
-                      <h3 className="text-base sm:text-lg lg:text-[19px] font-black text-[#082746] font-heading leading-snug group-hover:text-[#7554D9] transition-colors">
+                      <h3 className="text-[16px] sm:text-[17px] xl:text-[18px] font-extrabold text-[#082746] font-heading leading-[1.3] group-hover:text-[#7554D9] transition-colors">
                         {track.title}
                       </h3>
                     </div>
 
-                    {/* Right 3D Scientific Illustration (Large & Prominent) */}
-                    <div className="shrink-0 flex items-center justify-center group-hover:scale-108 transition-transform duration-300 z-10">
+                    {/* Right 3D Scientific Illustration */}
+                    <div className="shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform duration-300 z-10">
                       <TrackIllustration
                         type={track.iconType || 'laptop-ai'}
-                        className="w-24 h-24 sm:w-28 sm:h-28 lg:w-32 lg:h-32 drop-shadow-md"
+                        className="w-[112px] h-[84px] sm:w-[122px] sm:h-[92px] xl:w-[130px] xl:h-[98px]"
                       />
                     </div>
                   </div>
@@ -931,14 +922,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           </div>
 
           {/* 3. PROMINENT LARGE CENTRED GRADIENT BUTTON */}
-          <div className="flex justify-center pt-3 pb-1">
+          <div className="flex justify-center pt-2 pb-1">
             <button
               type="button"
               onClick={() => onNavigate('tracks')}
-              className="px-10 py-4 text-sm sm:text-[15.5px] font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] hover:opacity-95 rounded-full shadow-lg hover:shadow-2xl hover:scale-[1.02] transition-all flex items-center gap-2 cursor-pointer group"
+              className="px-9 py-3.5 sm:px-10 sm:py-4 text-sm sm:text-base font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] hover:opacity-95 rounded-full shadow-[0_10px_25px_rgba(117,84,217,0.28)] hover:shadow-[0_14px_32px_rgba(117,84,217,0.38)] hover:scale-[1.02] transition-all flex items-center gap-2.5 cursor-pointer group whitespace-nowrap shrink-0"
             >
               <span>View Detailed Tracks</span>
-              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1.5" />
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
             </button>
           </div>
         </div>
@@ -1172,15 +1163,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* ROW 1: THREE CARDS (Undergraduate Students, Postgraduate Students, Doctoral Researchers) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4 lg:gap-5 w-full">
               {/* Card 1: Undergraduate Students */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => onNavigate('registration')}
-                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
-                className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#7554D9]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
-              >
+              <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm flex items-center gap-3.5 sm:gap-4">
                 {/* 3D Graduation Cap on Books Illustration */}
-                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center">
                   <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(117,84,217,0.22)]" fill="none">
                     <defs>
                       <linearGradient id="mortarGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1219,28 +1204,19 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 </div>
                 {/* Content */}
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#7554D9] transition-colors leading-tight">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading leading-tight">
                     Undergraduate Students
                   </h3>
                   <div className="text-xs sm:text-[13.5px] font-bold text-[#7554D9] mt-0.5">
                     B.Pharm and other relevant undergraduate students
                   </div>
-                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
-                    Explore emerging technologies and present innovative research ideas.
-                  </p>
                 </div>
               </div>
 
               {/* Card 2: Postgraduate Students */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => onNavigate('registration')}
-                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
-                className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#0284C7]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
-              >
+              <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm flex items-center gap-3.5 sm:gap-4">
                 {/* 3D Modern Research Microscope & Test Tubes Illustration */}
-                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center">
                   <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(2,132,199,0.22)]" fill="none">
                     <defs>
                       <linearGradient id="scopeCyanGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1277,28 +1253,19 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 </div>
                 {/* Content */}
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#0284C7] transition-colors leading-tight">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading leading-tight">
                     Postgraduate Students
                   </h3>
                   <div className="text-xs sm:text-[13.5px] font-bold text-[#0284C7] mt-0.5">
                     M.Pharm and other relevant postgraduate students
                   </div>
-                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
-                    Showcase research findings and engage with experts across scientific disciplines.
-                  </p>
                 </div>
               </div>
 
               {/* Card 3: Doctoral Researchers */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => onNavigate('registration')}
-                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
-                className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#7554D9]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
-              >
+              <div className="bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm flex items-center gap-3.5 sm:gap-4">
                 {/* 3D Erlenmeyer Flask & Molecular Atom Illustration */}
-                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center">
                   <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(117,84,217,0.22)]" fill="none">
                     <defs>
                       <linearGradient id="flaskPurpleLiquid5" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1341,15 +1308,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 </div>
                 {/* Content */}
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#7554D9] transition-colors leading-tight">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading leading-tight">
                     Doctoral Researchers
                   </h3>
                   <div className="text-xs sm:text-[13.5px] font-bold text-[#7554D9] mt-0.5">
                     PhD scholars and research fellows
                   </div>
-                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
-                    Share original research, exchange scientific insights and build research collaborations.
-                  </p>
                 </div>
               </div>
             </div>
@@ -1357,15 +1321,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* ROW 2: TWO CARDS CENTERED (Faculty & Academicians, Industry Professionals & Scientists) */}
             <div className="flex flex-col md:flex-row justify-center gap-3.5 sm:gap-4 lg:gap-5 w-full max-w-4xl mx-auto">
               {/* Card 4: Faculty & Academicians */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => onNavigate('registration')}
-                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
-                className="w-full md:w-[calc(50%-10px)] bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#EA580C]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
-              >
+              <div className="w-full md:w-[calc(50%-10px)] bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm flex items-center gap-3.5 sm:gap-4">
                 {/* 3D Open Manuscript Book & Laurel Illustration */}
-                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center">
                   <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(234,88,12,0.2)]" fill="none">
                     <defs>
                       <linearGradient id="bookSpineAmber5" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -1399,28 +1357,19 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 </div>
                 {/* Content */}
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#EA580C] transition-colors leading-tight">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading leading-tight">
                     Faculty & Academicians
                   </h3>
                   <div className="text-xs sm:text-[13.5px] font-bold text-[#EA580C] mt-0.5">
                     Professors, faculty members and academic researchers
                   </div>
-                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
-                    Discuss scientific advancements, share expertise and establish academic collaborations.
-                  </p>
                 </div>
               </div>
 
               {/* Card 5: Industry Professionals & Scientists */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => onNavigate('registration')}
-                onKeyDown={(e) => e.key === 'Enter' && onNavigate('registration')}
-                className="w-full md:w-[calc(50%-10px)] bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm hover:shadow-xl hover:border-[#0284C7]/50 hover:-translate-y-1 transition-all duration-300 flex items-center gap-3.5 sm:gap-4 cursor-pointer group"
-              >
+              <div className="w-full md:w-[calc(50%-10px)] bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-[#E2E8F0] shadow-sm flex items-center gap-3.5 sm:gap-4">
                 {/* 3D Modern Biopharma Facility & 3D Medicine Capsule Illustration */}
-                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <div className="w-16 h-16 sm:w-18 sm:h-18 shrink-0 flex items-center justify-center">
                   <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_8px_16px_rgba(2,132,199,0.22)]" fill="none">
                     <defs>
                       <linearGradient id="facilityCyan5" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1457,15 +1406,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 </div>
                 {/* Content */}
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading group-hover:text-[#0284C7] transition-colors leading-tight">
+                  <h3 className="text-base sm:text-lg lg:text-[19px] font-extrabold text-[#082746] font-heading leading-tight">
                     Industry Professionals & Scientists
                   </h3>
                   <div className="text-xs sm:text-[13.5px] font-bold text-[#0284C7] mt-0.5">
                     Pharmaceutical scientists, R&D professionals and healthcare innovators
                   </div>
-                  <p className="text-xs sm:text-[14px] text-[#52617A] leading-snug mt-1">
-                    Explore emerging technologies and strengthen industry–academia interactions.
-                  </p>
                 </div>
               </div>
             </div>
@@ -2247,35 +2193,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Centered pill button: "Explore Full Travel & Venue Guide →"
           - Faint architectural skyline illustration at bottom right
          ========================================================================= */}
-      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-gradient-to-b from-[#FAF8FF] via-white to-[#F0F9FD] relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden">
-        {/* Soft flowing wave background ribbons */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
-            <path
-              d="M-50,70 C300,140 680,20 1080,85 C1290,125 1410,40 1500,70 L1500,0 L-50,0 Z"
-              fill="url(#topWaveRibbonVenue)"
-              opacity="0.45"
-            />
-            <path
-              d="M-50,830 C340,780 720,880 1100,810 C1290,770 1410,830 1500,805 L1500,900 L-50,900 Z"
-              fill="url(#bottomWaveRibbonVenue)"
-              opacity="0.4"
-            />
-            <defs>
-              <linearGradient id="topWaveRibbonVenue" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
-                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
-                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
-              </linearGradient>
-              <linearGradient id="bottomWaveRibbonVenue" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.35" />
-                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.6" />
-                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.25" />
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-
+      <section
+        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-[#F6F2FF] bg-cover bg-center bg-no-repeat relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden"
+        style={{
+          backgroundImage: `url(${IMAGES.venueSectionBg})`,
+        }}
+      >
         <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-7 relative z-10">
           {/* 1. SECTION HEADING & IDENTITY */}
           <div className="text-center space-y-2">
@@ -2435,45 +2358,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
-        </div>
-
-        {/* Faint Architectural Skyline Illustration at Bottom Right */}
-        <div className="absolute right-4 sm:right-8 bottom-3 pointer-events-none opacity-25 hidden md:block z-0">
-          <svg width="200" height="85" viewBox="0 0 200 85" fill="none" stroke="#6366F1" strokeWidth="1.2">
-            <rect x="75" y="14" width="50" height="70" rx="2" fill="none" />
-            <polygon points="72,14 100,2 128,14" fill="none" />
-            <circle cx="100" cy="22" r="4.5" fill="none" />
-            <rect x="84" y="34" width="9" height="11" rx="1" />
-            <rect x="107" y="34" width="9" height="11" rx="1" />
-            <rect x="84" y="52" width="9" height="11" rx="1" />
-            <rect x="107" y="52" width="9" height="11" rx="1" />
-            <rect x="93" y="68" width="14" height="16" rx="1" />
-            <rect x="20" y="30" width="55" height="54" rx="2" />
-            <line x1="20" y1="43" x2="75" y2="43" />
-            <line x1="20" y1="60" x2="75" y2="60" />
-            <rect x="28" y="34" width="7" height="6" />
-            <rect x="42" y="34" width="7" height="6" />
-            <rect x="56" y="34" width="7" height="6" />
-            <rect x="28" y="47" width="7" height="6" />
-            <rect x="42" y="47" width="7" height="6" />
-            <rect x="56" y="47" width="7" height="6" />
-            <rect x="28" y="64" width="7" height="6" />
-            <rect x="42" y="64" width="7" height="6" />
-            <rect x="56" y="64" width="7" height="6" />
-            <rect x="125" y="30" width="55" height="54" rx="2" />
-            <line x1="125" y1="43" x2="180" y2="43" />
-            <line x1="125" y1="60" x2="180" y2="60" />
-            <rect x="133" y="34" width="7" height="6" />
-            <rect x="147" y="34" width="7" height="6" />
-            <rect x="161" y="34" width="7" height="6" />
-            <rect x="133" y="47" width="7" height="6" />
-            <rect x="147" y="47" width="7" height="6" />
-            <rect x="161" y="47" width="7" height="6" />
-            <rect x="133" y="64" width="7" height="6" />
-            <rect x="147" y="64" width="7" height="6" />
-            <rect x="161" y="64" width="7" height="6" />
-            <line x1="10" y1="84" x2="190" y2="84" strokeWidth="1.5" />
-          </svg>
         </div>
       </section>
 

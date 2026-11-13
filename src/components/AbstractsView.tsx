@@ -32,11 +32,12 @@ import {
   Award,
   Sparkles,
   Lock,
-  Unlock,
   ExternalLink,
   RefreshCw,
   Calendar,
-  Clock,
+  Upload,
+  FileCheck,
+  Info,
 } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -61,6 +62,14 @@ interface CoAuthorItem {
   name: string;
   affiliation: string;
 }
+
+const ACCEPTED_DOC_EXTENSIONS = ['.doc', '.docx', '.pdf'];
+const ACCEPTED_DOC_MIME_TYPES = [
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/pdf',
+];
+const MAX_DOC_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
 
 export const AbstractsView: React.FC<AbstractsViewProps> = ({
   initialTrackId,
@@ -97,7 +106,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     { id: '2', name: '', affiliation: '' },
   ]);
 
-  // Abstract text (Max 250 words)
+  // Abstract text (Max 300 words)
   const [abstractText, setAbstractText] = useState('');
 
   // Keywords (3 to 5 keywords required)
@@ -117,7 +126,15 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
   >('Oral Presentation');
 
   // =========================================================================
-  // STEP 4: DECLARATION
+  // STEP 4: SUPPORTING ABSTRACT DOCUMENT (OPTIONAL, DOC/DOCX/PDF <= 2 MB)
+  // =========================================================================
+  const [supportingDocFile, setSupportingDocFile] = useState<File | null>(null);
+  const [supportingDocData, setSupportingDocData] = useState<string>('');
+  const [supportingDocError, setSupportingDocError] = useState<string | null>(null);
+  const [isDraggingDoc, setIsDraggingDoc] = useState(false);
+
+  // =========================================================================
+  // STEP 5: DECLARATION
   // =========================================================================
   const [declarationAccepted, setDeclarationAccepted] = useState(false);
 
@@ -206,7 +223,6 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
         setErrorType('payment_pending');
       } else if (msg.includes('already been submitted')) {
         setErrorType('already_submitted');
-        // Extract abstract ID if present in message
         const match = msg.match(/AICONDD-ABS-\d+/);
         if (match) setLinkedExistingAbstractId(match[0]);
       } else {
@@ -283,6 +299,56 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     } else if (e.key === 'Backspace' && !keywordInput && keywords.length > 0) {
       setKeywords((prev) => prev.slice(0, -1));
     }
+  };
+
+  // Supporting Document Upload Handlers (DOC, DOCX, PDF, max 2 MB)
+  const processSupportingDocument = (file: File) => {
+    setSupportingDocError(null);
+    const lowerName = file.name.toLowerCase();
+    const hasValidExt = ACCEPTED_DOC_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+    const hasValidMime = ACCEPTED_DOC_MIME_TYPES.includes(file.type) || file.type === '';
+
+    if (!hasValidExt && !hasValidMime) {
+      setSupportingDocError('Unsupported format. Please upload a DOC, DOCX, or PDF file.');
+      return;
+    }
+
+    if (file.size > MAX_DOC_SIZE_BYTES) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      setSupportingDocError(`File size (${sizeMB} MB) exceeds the 2 MB limit. Please upload a smaller file.`);
+      return;
+    }
+
+    setSupportingDocFile(file);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = (event.target?.result as string) || '';
+      setSupportingDocData(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSupportingDocChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processSupportingDocument(file);
+    }
+  };
+
+  const handleSupportingDocDrop = (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    setIsDraggingDoc(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processSupportingDocument(file);
+    }
+  };
+
+  const removeSupportingDocument = () => {
+    setSupportingDocFile(null);
+    setSupportingDocData('');
+    setSupportingDocError(null);
   };
 
   // Form validation
@@ -371,6 +437,8 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
         coAuthors: validCoAuthors,
         abstractContent: abstractText.trim(),
         keywords,
+        supportingDocumentFile: supportingDocFile,
+        supportingDocumentData: supportingDocData || undefined,
         recordType: verifiedRegistration.recordType || 'live',
       });
 
@@ -390,6 +458,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
         coAuthors: validCoAuthors,
         abstractContent: { text: abstractText.trim() },
         keywords,
+        ...(supportingDocFile ? { supportingDocumentName: supportingDocFile.name } : {}),
         status: 'Submitted',
         createdAt: new Date().toISOString(),
       };
@@ -469,194 +538,160 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       { id: '2', name: '', affiliation: '' },
     ]);
     setKeywords(['Drug Discovery', 'HDAC Inhibition', 'Computational Pharmacology']);
+    setSupportingDocFile(null);
+    setSupportingDocData('');
+    setSupportingDocError(null);
     setDeclarationAccepted(false);
   };
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-b from-[#FAF8FF] via-[#F4F0FF] to-[#FAF8FF] text-slate-800 font-['Inter',sans-serif] relative overflow-hidden pb-20 pt-6">
-      {/* Ambient background glows */}
-      <div className="absolute top-0 right-1/4 w-96 h-96 bg-[#8B5CF6]/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute top-1/3 left-10 w-80 h-80 bg-[#06B6D4]/12 rounded-full blur-3xl pointer-events-none" />
+    <div
+      className="w-full min-h-screen text-slate-800 font-['Inter',sans-serif] relative overflow-x-clip pb-20"
+      style={{
+        backgroundColor: '#F3EEFF',
+        backgroundImage: `url(${IMAGES.abstractSubmissionBg})`,
+        backgroundSize: '100% auto',
+        backgroundPosition: 'top center',
+        backgroundRepeat: 'repeat-y',
+      }}
+    >
+      {/* Subtle readability veil preserving full-page background artwork across all heights */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-white/10 via-[#F8F6FF]/15 to-white/10"
+      />
 
-      <div className="w-[94%] sm:w-[92%] max-w-5xl mx-auto relative z-10 space-y-6">
-        {/* =====================================================================
-            HERO SECTION: Match approved conference branding
-           ===================================================================== */}
-        <section className="relative overflow-hidden pt-2 pb-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative">
-            {/* Campus photograph on left */}
-            <div className="hidden lg:block w-48 xl:w-56 h-36 rounded-2xl overflow-hidden border-2 border-white/80 shadow-md shrink-0 relative group">
-              <img
-                src={IMAGES.srmPharmacyBuilding}
-                alt="SRM College of Pharmacy"
-                className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent flex items-end p-2.5">
-                <span className="text-[10px] font-bold text-white tracking-wide">
-                  SRM College of Pharmacy
-                </span>
-              </div>
-            </div>
-
-            {/* Central Hero Titles & Action Toggle */}
-            <div className="flex-1 text-center space-y-3 z-10 max-w-xl mx-auto">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#EAE5FC] border border-[#DDD6FE] text-[#6745C5] text-[11px] font-bold tracking-wider uppercase shadow-2xs">
-                <BookOpen className="w-3.5 h-3.5 text-[#6745C5]" />
-                <span>PEER-REVIEWED SCIENTIFIC PROCEEDINGS</span>
-              </div>
-
-              <h1 className="text-3xl sm:text-4xl md:text-[42px] font-black text-[#101B4B] font-heading tracking-tight leading-tight">
-                Abstract Submission Portal
-              </h1>
-
-              {/* Mode Toggle Buttons: Submit Abstract & Track Status */}
-              <div className="flex items-center justify-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('submit')}
-                  className={`px-6 py-2.5 rounded-full text-sm sm:text-[15px] font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                    activeTab === 'submit'
-                      ? 'bg-gradient-to-r from-[#6366F1] to-[#7C3AED] text-white shadow-md scale-102'
-                      : 'bg-white/90 hover:bg-white text-[#1E1B4B] border border-slate-200/90 shadow-2xs'
-                  }`}
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>Submit Abstract</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('track')}
-                  className={`px-6 py-2.5 rounded-full text-sm sm:text-[15px] font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                    activeTab === 'track'
-                      ? 'bg-gradient-to-r from-[#101B4B] to-[#1E293B] text-white shadow-md scale-102'
-                      : 'bg-white/90 hover:bg-white text-[#1E1B4B] border border-slate-200/90 shadow-2xs'
-                  }`}
-                >
-                  <List className="w-4 h-4" />
-                  <span>Track Status</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Scientific 3D Capsule & DNA Illustration on right */}
-            <div className="hidden lg:block w-48 xl:w-56 h-36 shrink-0 relative flex items-center justify-center select-none pointer-events-none">
-              <svg viewBox="0 0 240 180" className="w-full h-full drop-shadow-[0_12px_24px_rgba(113,60,224,0.25)]" fill="none">
-                <defs>
-                  <radialGradient id="molPurple" cx="35%" cy="30%" r="70%">
-                    <stop offset="0%" stopColor="#FFFFFF" />
-                    <stop offset="35%" stopColor="#C084FC" />
-                    <stop offset="80%" stopColor="#8B50E8" />
-                    <stop offset="100%" stopColor="#581C87" />
-                  </radialGradient>
-                  <radialGradient id="molCyan" cx="35%" cy="30%" r="70%">
-                    <stop offset="0%" stopColor="#FFFFFF" />
-                    <stop offset="35%" stopColor="#67E8F9" />
-                    <stop offset="80%" stopColor="#0891B2" />
-                    <stop offset="100%" stopColor="#0E7490" />
-                  </radialGradient>
-                  <linearGradient id="capGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#C084FC" />
-                    <stop offset="45%" stopColor="#713CE0" />
-                    <stop offset="100%" stopColor="#12B8D6" />
-                  </linearGradient>
-                  <linearGradient id="dnaCurve" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#C084FC" />
-                    <stop offset="50%" stopColor="#22D3EE" />
-                    <stop offset="100%" stopColor="#8B5CF6" />
-                  </linearGradient>
-                </defs>
-
-                <path d="M150 20 C180 50 180 80 150 110 C120 140 120 170 150 190" stroke="url(#dnaCurve)" strokeWidth="3" strokeDasharray="4 3" opacity="0.8" />
-                <path d="M170 20 C140 50 140 80 170 110 C200 140 200 170 170 190" stroke="url(#dnaCurve)" strokeWidth="3" strokeDasharray="4 3" opacity="0.6" />
-
-                <line x1="30" y1="40" x2="70" y2="75" stroke="#DDD6FE" strokeWidth="3.5" strokeLinecap="round" />
-                <line x1="70" y1="75" x2="25" y2="120" stroke="#BAE6FD" strokeWidth="3.5" strokeLinecap="round" />
-                <circle cx="30" cy="40" r="13" fill="url(#molPurple)" />
-                <circle cx="25" cy="120" r="14" fill="url(#molPurple)" />
-                <circle cx="70" cy="75" r="17" fill="url(#molPurple)" />
-
-                <g transform="translate(130, 85) rotate(-35)">
-                  <rect x="-20" y="-45" width="40" height="90" rx="20" fill="#FFFFFF" fillOpacity="0.4" stroke="#DDD6FE" strokeWidth="2.5" />
-                  <path d="M-20,0 L20,0 L20,25 C20,36 11,45 0,45 C-11,45 -20,36 -20,25 Z" fill="url(#capGrad)" fillOpacity="0.95" />
-                  <circle cx="0" cy="18" r="9" fill="#FFFFFF" fillOpacity="0.9" />
-                  <text x="0" y="21" textAnchor="middle" fontSize="10" fontWeight="bold" fill="#713CE0" fontFamily="sans-serif">
-                    AI
-                  </text>
-                </g>
-
-                <circle cx="185" cy="45" r="11" fill="url(#molCyan)" />
-                <circle cx="165" cy="155" r="11" fill="url(#molCyan)" />
-              </svg>
-            </div>
+      {/* =====================================================================
+          HERO SECTION: Centered badge, heading & action buttons over page background
+         ===================================================================== */}
+      <section className="relative z-10 w-full pt-10 pb-8 sm:pt-14 sm:pb-10">
+        {/* Centered Hero Header & Actions */}
+        <div className="w-[94%] sm:w-[93%] lg:w-[92%] max-w-[1440px] mx-auto relative z-10 text-center space-y-4">
+          <div className="inline-flex items-center gap-2.5 px-5 py-2 rounded-full bg-white/85 backdrop-blur-md border border-[#D8CEFA] text-[#3B219B] text-xs sm:text-[13px] font-extrabold tracking-[0.1em] uppercase shadow-xs">
+            <BookOpen className="w-4 h-4 text-[#6366F1]" />
+            <span>PEER-REVIEWED SCIENTIFIC PROCEEDINGS</span>
           </div>
-        </section>
 
-        {/* =====================================================================
+          <h1 className="text-3xl sm:text-5xl lg:text-[52px] xl:text-[56px] font-black text-[#101B4B] font-heading tracking-tight leading-[1.1]">
+            Abstract Submission Portal
+          </h1>
+
+          {/* Mode Toggle Buttons: Submit Abstract & Track Status */}
+          <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('submit')}
+              className={`px-8 py-3.5 rounded-full text-sm sm:text-base font-bold flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'submit'
+                  ? 'bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#6D28D9] text-white shadow-[0_10px_24px_rgba(109,40,217,0.3)] scale-[1.02]'
+                  : 'bg-white/92 hover:bg-white text-[#101B4B] border border-[#D9D1F5] shadow-sm'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Submit Abstract</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('track')}
+              className={`px-8 py-3.5 rounded-full text-sm sm:text-base font-bold flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap ${
+                activeTab === 'track'
+                  ? 'bg-gradient-to-r from-[#101B4B] to-[#1E293B] text-white shadow-[0_10px_24px_rgba(16,27,75,0.28)] scale-[1.02]'
+                  : 'bg-white/92 hover:bg-white text-[#101B4B] border border-[#D9D1F5] shadow-sm'
+              }`}
+            >
+              <List className="w-4 h-4" />
+              <span>Track Status</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          MAIN PORTAL CONTENT CONTAINER (92–94% Desktop Width)
+         ===================================================================== */}
+      <div className="w-[94%] sm:w-[93%] lg:w-[92%] max-w-[1440px] mx-auto relative z-10 space-y-7">
+        {/* ===================================================================
             TRACK STATUS VIEW
-           ===================================================================== */}
+           =================================================================== */}
         {activeTab === 'track' ? (
-          <div className="bg-white/95 backdrop-blur-md rounded-2xl p-6 sm:p-8 border border-[#E4E8F4] shadow-sm space-y-6 max-w-3xl mx-auto">
-            <div className="space-y-1.5 border-b border-slate-100 pb-4">
-              <div className="inline-flex items-center gap-2 text-xs font-bold text-[#6D28D9] uppercase font-mono">
-                <Search className="w-4 h-4" />
-                <span>ABSTRACT STATUS INQUIRY</span>
+          <div className="bg-white/90 backdrop-blur-xl rounded-[24px] border border-[#DCD3FA] shadow-[0_14px_40px_rgba(103,69,197,0.09)] overflow-hidden">
+            {/* Soft Violet Header Strip */}
+            <div className="bg-gradient-to-r from-[#E6E0FC] via-[#EFEBFD] to-[#F7F5FE] px-6 sm:px-8 py-4 sm:py-5 border-b border-[#E3DCF9] flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-sm shrink-0">
+                  <Search className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-[#101B4B] font-heading">
+                    Check Scientific Review Progress
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#4B557A]">
+                    Enter your unique Abstract ID (Format: <code className="font-mono font-semibold text-[#5B21B6]">AICONDD-ABS-001</code>) and registered email address.
+                  </p>
+                </div>
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold text-[#101B4B] font-heading">
-                Check Scientific Review Progress
-              </h2>
-              <p className="text-xs text-slate-500">
-                Enter your unique Abstract ID (Format: <code>AICONDD-ABS-001</code>) and registered email address.
-              </p>
             </div>
 
-            <form onSubmit={handleLookup} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  required
-                  placeholder="Abstract ID (e.g. AICONDD-ABS-001)"
-                  value={lookupId}
-                  onChange={(e) => setLookupId(e.target.value)}
-                  className="h-12 px-4 bg-[#FBFBFF] border border-slate-300 rounded-xl font-mono uppercase text-xs sm:text-sm focus:ring-2 focus:ring-[#7C3AED]/20 focus:border-[#7C3AED] outline-none transition"
-                />
-
-                <input
-                  type="email"
-                  placeholder="Presenting Author Email (Optional)"
-                  value={lookupEmail}
-                  onChange={(e) => setLookupEmail(e.target.value)}
-                  className="h-12 px-4 bg-[#FBFBFF] border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#7C3AED]/20 focus:border-[#7C3AED] outline-none transition"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={searchingLookup}
-                className="w-full h-12 px-6 text-xs font-bold uppercase tracking-wider text-white bg-gradient-to-r from-[#6366F1] to-[#7C3AED] hover:opacity-95 rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 transition"
-              >
-                <Search className="w-4 h-4" />
-                <span>{searchingLookup ? 'Searching Records...' : 'Check Abstract Status'}</span>
-              </button>
-            </form>
-
-            {lookupError && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-xs text-red-700">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{lookupError}</span>
-              </div>
-            )}
-
-            {lookupResult && (
-              <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-6 space-y-4 shadow-2xs">
-                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400">Abstract ID</span>
-                    <div className="font-mono font-bold text-lg text-[#101B4B]">{lookupResult.id}</div>
+            <div className="p-6 sm:p-8 space-y-6">
+              <form onSubmit={handleLookup} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                  <div className="md:col-span-5 space-y-1.5">
+                    <label className="text-sm font-bold text-[#101B4B] block">
+                      Official Abstract ID <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. AICONDD-ABS-001"
+                      value={lookupId}
+                      onChange={(e) => setLookupId(e.target.value)}
+                      className="h-12 sm:h-[52px] px-4 w-full bg-white border border-[#D4D9EC] rounded-xl font-mono uppercase text-sm sm:text-[15px] text-slate-800 focus:ring-2 focus:ring-[#7C3AED]/20 focus:border-[#7C3AED] outline-none transition"
+                    />
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  <div className="md:col-span-5 space-y-1.5">
+                    <label className="text-sm font-bold text-[#101B4B] block">
+                      Presenting Author Email (Optional)
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="author@institution.edu"
+                      value={lookupEmail}
+                      onChange={(e) => setLookupEmail(e.target.value)}
+                      className="h-12 sm:h-[52px] px-4 w-full bg-white border border-[#D4D9EC] rounded-xl text-sm sm:text-[15px] text-slate-800 focus:ring-2 focus:ring-[#7C3AED]/20 focus:border-[#7C3AED] outline-none transition"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2 flex items-end">
+                    <button
+                      type="submit"
+                      disabled={searchingLookup}
+                      className="w-full h-12 sm:h-[52px] px-5 text-sm font-bold text-white bg-gradient-to-r from-[#6366F1] to-[#7C3AED] hover:opacity-95 rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 transition whitespace-nowrap"
+                    >
+                      <Search className="w-4 h-4" />
+                      <span>{searchingLookup ? 'Checking...' : 'Check Status'}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {lookupError && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-sm text-red-700">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{lookupError}</span>
+                </div>
+              )}
+
+              {lookupResult && (
+                <div className="bg-[#FAF8FF] border border-[#DFD6FA] rounded-2xl p-6 sm:p-7 space-y-5 shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#E5DDFB]">
+                    <div>
+                      <span className="text-xs uppercase font-bold text-slate-500 block">Abstract ID</span>
+                      <div className="font-mono font-black text-xl text-[#101B4B]">{lookupResult.id}</div>
+                    </div>
                     <span
-                      className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                      className={`px-4 py-1.5 rounded-full text-xs sm:text-sm font-bold uppercase tracking-wider ${
                         lookupResult.status === 'Accepted'
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                           : lookupResult.status === 'Under Review'
@@ -669,114 +704,116 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                       {lookupResult.status || 'Submitted'}
                     </span>
                   </div>
-                </div>
 
-                <div>
-                  <h3 className="text-base font-bold text-[#101B4B] font-heading">{lookupResult.title}</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Presenting Author: <strong>{lookupResult.presentingAuthor?.fullName || lookupResult.presentingAuthor?.name}</strong> ({lookupResult.presentingAuthor?.affiliation || lookupResult.presentingAuthor?.institution})
-                  </p>
-                </div>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-bold text-[#101B4B] font-heading">{lookupResult.title}</h3>
+                    <p className="text-sm text-slate-600 mt-1">
+                      Presenting Author: <strong className="text-slate-900">{lookupResult.presentingAuthor?.fullName || lookupResult.presentingAuthor?.name}</strong> ({lookupResult.presentingAuthor?.affiliation || lookupResult.presentingAuthor?.institution})
+                    </p>
+                  </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-2">
-                  <div className="p-3 bg-white rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Track</span>
-                    <strong className="text-slate-800 truncate block">{lookupResult.trackId}</strong>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 text-sm pt-1">
+                    <div className="p-3.5 bg-white rounded-xl border border-[#E5DDFB]">
+                      <span className="text-[11px] text-slate-500 uppercase font-semibold block">Track</span>
+                      <strong className="text-slate-800 truncate block">{lookupResult.trackId}</strong>
+                    </div>
+                    <div className="p-3.5 bg-white rounded-xl border border-[#E5DDFB]">
+                      <span className="text-[11px] text-slate-500 uppercase font-semibold block">Registration ID</span>
+                      <strong className="text-purple-700 font-mono block">{lookupResult.registrationId}</strong>
+                    </div>
+                    <div className="p-3.5 bg-white rounded-xl border border-[#E5DDFB]">
+                      <span className="text-[11px] text-slate-500 uppercase font-semibold block">Presentation Mode</span>
+                      <strong className="text-slate-800 block">{lookupResult.presentationPreference}</strong>
+                    </div>
+                    <div className="p-3.5 bg-white rounded-xl border border-[#E5DDFB]">
+                      <span className="text-[11px] text-slate-500 uppercase font-semibold block">Submission Date</span>
+                      <strong className="text-slate-800 block">
+                        {new Date(lookupResult.createdAt).toLocaleDateString('en-GB')}
+                      </strong>
+                    </div>
                   </div>
-                  <div className="p-3 bg-white rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Reg ID</span>
-                    <strong className="text-purple-700 font-mono block">{lookupResult.registrationId}</strong>
-                  </div>
-                  <div className="p-3 bg-white rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Mode</span>
-                    <strong className="text-slate-800 block">{lookupResult.presentationPreference}</strong>
-                  </div>
-                  <div className="p-3 bg-white rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Submission Date</span>
-                    <strong className="text-slate-800 block">
-                      {new Date(lookupResult.createdAt).toLocaleDateString('en-GB')}
-                    </strong>
-                  </div>
-                </div>
 
-                {lookupResult.reviewNotes && (
-                  <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-slate-400">Reviewer Notes</span>
-                    <p className="text-slate-700">{lookupResult.reviewNotes}</p>
-                  </div>
-                )}
+                  {lookupResult.reviewNotes && (
+                    <div className="p-4 bg-white rounded-xl border border-[#E5DDFB] text-sm space-y-1">
+                      <span className="text-xs uppercase font-bold text-slate-500">Reviewer Notes</span>
+                      <p className="text-slate-700">{lookupResult.reviewNotes}</p>
+                    </div>
+                  )}
 
-                <div className="pt-2 flex flex-wrap items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => generateSubmissionReceiptPDF(lookupResult)}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg flex items-center gap-2 cursor-pointer shadow-xs transition"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Submission Receipt (PDF)</span>
-                  </button>
-
-                  {lookupResult.status === 'Accepted' && (
+                  <div className="pt-2 flex flex-wrap items-center justify-end gap-3">
                     <button
                       type="button"
-                      onClick={() => generateAcceptanceLetterPDF(lookupResult)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg flex items-center gap-2 cursor-pointer shadow-xs transition"
+                      onClick={() => generateSubmissionReceiptPDF(lookupResult)}
+                      className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm rounded-xl flex items-center gap-2 cursor-pointer shadow-xs transition"
                     >
-                      <Award className="w-4 h-4" />
-                      <span>Download Acceptance Letter (PDF)</span>
+                      <Download className="w-4 h-4" />
+                      <span>Download Submission Receipt (PDF)</span>
                     </button>
-                  )}
+
+                    {lookupResult.status === 'Accepted' && (
+                      <button
+                        type="button"
+                        onClick={() => generateAcceptanceLetterPDF(lookupResult)}
+                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl flex items-center gap-2 cursor-pointer shadow-xs transition"
+                      >
+                        <Award className="w-4 h-4" />
+                        <span>Download Acceptance Letter (PDF)</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         ) : (
-          /* =====================================================================
+          /* ===================================================================
               PRIMARY SUBMISSION FLOW: VERIFY REGISTRATION -> UNLOCK FORM
-             ===================================================================== */
-          <div className="space-y-6">
-            {/* ===================================================================
-                SECTION 1: INITIAL REGISTRATION ID VERIFICATION (MANDATORY GATEKEEPER)
-               =================================================================== */}
-            <div className="bg-white/95 backdrop-blur-md rounded-2xl p-6 sm:p-8 border border-[#E4E8F4] shadow-sm space-y-5">
-              <div className="flex items-start justify-between gap-4 pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-xs shrink-0">
+             =================================================================== */
+          <div className="space-y-7">
+            {/* =================================================================
+                PANEL 0: INITIAL REGISTRATION ID VERIFICATION (GATEKEEPER)
+               ================================================================= */}
+            <div className="bg-white/90 backdrop-blur-xl rounded-[24px] border border-[#DCD3FA] shadow-[0_14px_40px_rgba(103,69,197,0.09)] overflow-hidden">
+              {/* Soft Violet Header Strip */}
+              <div className="bg-gradient-to-r from-[#E6E0FC] via-[#EFEBFD] to-[#F7F5FE] px-6 sm:px-8 py-4 sm:py-5 border-b border-[#E3DCF9] flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-sm shrink-0">
                     <ShieldCheck className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl sm:text-2xl font-bold text-[#101B4B] font-heading">
+                    <h2 className="text-xl sm:text-[23px] font-extrabold text-[#101B4B] font-heading">
                       Verify Your Conference Registration
                     </h2>
-                    <p className="text-xs sm:text-sm text-slate-500">
+                    <p className="text-xs sm:text-sm text-[#4B557A]">
                       Enter the official Registration ID allocated to you after successful conference registration.
                     </p>
                   </div>
                 </div>
 
                 {verifiedRegistration && (
-                  <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300">
+                  <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-100 text-emerald-800 text-xs sm:text-sm font-bold border border-emerald-300">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Registration Verified</span>
                   </span>
                 )}
               </div>
 
-              {!verifiedRegistration ? (
-                /* Unverified State: Registration ID Verification Box */
-                <div className="space-y-4">
-                  <form onSubmit={handleVerifyRegistration} className="space-y-3">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700 block">
+              <div className="p-6 sm:p-8">
+                {!verifiedRegistration ? (
+                  <div className="space-y-5">
+                    <form onSubmit={handleVerifyRegistration} className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B]">
                           Official Registration ID <span className="text-red-500">*</span>
                         </label>
-                        <span className="text-[11px] text-slate-400 font-mono">Example: AICONDD001</span>
+                        <span className="text-xs sm:text-[13px] font-mono font-semibold text-[#5B21B6] bg-[#F3EFFE] border border-[#E2DAF8] px-3 py-1 rounded-full">
+                          Example format: AICONDD001
+                        </span>
                       </div>
 
-                      <div className="flex flex-col sm:flex-row gap-2.5">
+                      <div className="flex flex-col sm:flex-row gap-3.5">
                         <div className="relative flex-1 flex items-center">
-                          <ShieldCheck className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
+                          <ShieldCheck className="w-5 h-5 text-[#7C3AED] absolute left-4 pointer-events-none" />
                           <input
                             type="text"
                             required
@@ -785,11 +822,11 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                               setRegistrationIdInput(e.target.value.toUpperCase());
                               if (regVerificationError) setRegVerificationError(null);
                             }}
-                            placeholder="Enter Registration ID (e.g. AICONDD001)"
-                            className={`h-12 pl-10 pr-3.5 w-full rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm font-mono text-slate-800 uppercase focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/20 transition ${
+                            placeholder="Enter your Official Registration ID (e.g. AICONDD001)"
+                            className={`h-13 sm:h-[54px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-base font-mono font-semibold text-slate-900 uppercase placeholder:normal-case placeholder:font-sans placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/20 transition ${
                               regVerificationError
                                 ? 'border-red-400 focus:border-red-500'
-                                : 'border-slate-300 focus:border-[#7C3AED]'
+                                : 'border-[#D4D9EC] focus:border-[#7C3AED]'
                             }`}
                           />
                         </div>
@@ -797,7 +834,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                         <button
                           type="submit"
                           disabled={verifyingReg || !registrationIdInput.trim()}
-                          className="h-12 px-6 bg-gradient-to-r from-[#6366F1] to-[#7C3AED] hover:opacity-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+                          className="h-13 sm:h-[54px] px-8 bg-gradient-to-r from-[#6366F1] via-[#7C3AED] to-[#6D28D9] hover:opacity-95 text-white font-bold text-sm sm:text-base rounded-xl shadow-[0_8px_20px_rgba(124,58,237,0.25)] transition flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 shrink-0 whitespace-nowrap"
                         >
                           {verifyingReg ? (
                             <>
@@ -806,557 +843,593 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                             </>
                           ) : (
                             <>
-                              <CheckCircle2 className="w-4 h-4" />
+                              <CheckCircle2 className="w-5 h-5" />
                               <span>Verify Registration ID</span>
                             </>
                           )}
                         </button>
                       </div>
+                    </form>
+
+                    {/* Context-aware verification feedback alerts */}
+                    {regVerificationError && (
+                      <div className="p-4 sm:p-5 rounded-2xl border space-y-2.5 text-sm animate-in fade-in duration-200 bg-red-50/95 border-red-200 text-red-800">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                          <div className="space-y-1.5">
+                            <p className="font-bold">{regVerificationError}</p>
+
+                            {errorType === 'not_found' && (
+                              <p className="text-xs sm:text-sm text-red-700 leading-relaxed">
+                                Haven't registered for the conference yet? Complete conference registration first to receive your official Registration ID and submit your abstract.
+                              </p>
+                            )}
+
+                            {errorType === 'payment_pending' && (
+                              <p className="text-xs sm:text-sm text-red-700 leading-relaxed">
+                                The organising secretariat is actively validating transaction references against bank accounts. Once approved by the Organising Secretary, abstract submission will automatically unlock.
+                              </p>
+                            )}
+
+                            {errorType === 'already_submitted' && linkedExistingAbstractId && (
+                              <div className="pt-1 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLookupId(linkedExistingAbstractId);
+                                    setActiveTab('track');
+                                  }}
+                                  className="px-4 py-1.5 bg-purple-700 text-white rounded-lg font-bold text-xs sm:text-sm hover:bg-purple-800 transition cursor-pointer"
+                                >
+                                  View Linked Abstract ({linkedExistingAbstractId})
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {errorType === 'not_found' && onNavigateToRegistration && (
+                          <div className="pt-1 pl-8">
+                            <button
+                              type="button"
+                              onClick={onNavigateToRegistration}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
+                            >
+                              <span>Go to Conference Registration Portal</span>
+                              <ExternalLink className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Informational Note Box */}
+                    <div className="p-4 sm:p-5 bg-[#F6F3FE] border border-[#E2DAF8] rounded-2xl text-xs sm:text-sm text-[#384162] flex items-start gap-3 leading-relaxed">
+                      <Info className="w-5 h-5 text-[#7C3AED] shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="text-[#101B4B]">Delegate Verification Notice:</strong> Abstract submission is strictly restricted to verified registered conference delegates (one abstract per Registration ID). Do not enter an Abstract ID here — your official sequential Abstract ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDD-ABS-xxx</span>) will be generated automatically upon submission.
+                      </div>
                     </div>
-                  </form>
-
-                  {/* Context-aware friendly verification feedback alerts */}
-                  {regVerificationError && (
-                    <div className="p-4 rounded-xl border space-y-2 text-xs animate-in fade-in duration-200 bg-red-50/90 border-red-200 text-red-800">
-                      <div className="flex items-start gap-2.5">
-                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="font-semibold">{regVerificationError}</p>
-
-                          {errorType === 'not_found' && (
-                            <p className="text-[11px] text-red-700 leading-relaxed">
-                              Haven't registered for the conference yet? Complete registration to receive your official Registration ID and submit your abstract.
-                            </p>
-                          )}
-
-                          {errorType === 'payment_pending' && (
-                            <p className="text-[11px] text-red-700 leading-relaxed">
-                              The organizing secretariat is actively validating transaction references against bank accounts. Once approved by the Organising Secretary, abstract submission will automatically unlock.
-                            </p>
-                          )}
-
-                          {errorType === 'already_submitted' && linkedExistingAbstractId && (
-                            <div className="pt-1 flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setLookupId(linkedExistingAbstractId);
-                                  setActiveTab('track');
-                                }}
-                                className="px-3 py-1 bg-purple-700 text-white rounded-lg font-bold text-[11px] hover:bg-purple-800 transition cursor-pointer"
-                              >
-                                View Linked Abstract ({linkedExistingAbstractId})
-                              </button>
-                            </div>
-                          )}
+                  </div>
+                ) : (
+                  /* Verified Banner & Details Summary */
+                  <div className="p-5 sm:p-6 bg-emerald-50/85 border border-emerald-300 rounded-2xl space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-11 h-11 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                          <Check className="w-6 h-6 stroke-[2.5]" />
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs uppercase font-extrabold text-emerald-800 tracking-wider">
+                              Registration Verified
+                            </span>
+                            <span className="px-2.5 py-0.5 rounded-md bg-emerald-200 text-emerald-950 font-mono text-xs sm:text-sm font-bold">
+                              {verifiedRegistration.registrationId || registrationIdInput}
+                            </span>
+                          </div>
+                          <div className="font-bold text-slate-900 text-base sm:text-lg">
+                            {verifiedRegistration.fullName}
+                          </div>
                         </div>
                       </div>
 
-                      {errorType === 'not_found' && onNavigateToRegistration && (
-                        <div className="pt-2 pl-6">
-                          <button
-                            type="button"
-                            onClick={onNavigateToRegistration}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-2xs transition cursor-pointer"
-                          >
-                            <span>Go to Conference Registration Portal</span>
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={handleResetVerification}
+                        className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs sm:text-sm font-bold rounded-xl self-start sm:self-auto cursor-pointer transition shadow-2xs"
+                      >
+                        Verify Different ID
+                      </button>
                     </div>
-                  )}
 
-                  {/* Informational callout on verification rules */}
-                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 flex items-start gap-2.5">
-                    <Sparkles className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong>Note:</strong> Abstract submission is reserved for registered and verified delegates. Do not enter an Abstract ID here; your unique Abstract ID will be generated automatically upon submission.
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* Verified Banner & Details Summary */
-                <div className="p-4 sm:p-5 bg-emerald-50/70 border border-emerald-300 rounded-xl space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                        <Check className="w-5 h-5 stroke-[2.5]" />
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 text-sm border-t border-emerald-200/80 text-slate-700">
+                      <div>
+                        <span className="text-[11px] text-slate-500 uppercase font-bold block">Institution</span>
+                        <strong className="text-slate-900">{verifiedRegistration.institution}</strong>
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs uppercase font-bold text-emerald-800 tracking-wider">
-                            Registration Verified
-                          </span>
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-200 text-emerald-900 font-mono text-xs font-bold">
-                            {verifiedRegistration.registrationId || registrationIdInput}
-                          </span>
-                        </div>
-                        <div className="font-bold text-slate-900 text-sm sm:text-base">
-                          {verifiedRegistration.fullName}
-                        </div>
+                        <span className="text-[11px] text-slate-500 uppercase font-bold block">Delegate Category</span>
+                        <strong className="text-slate-900">{verifiedRegistration.category}</strong>
+                      </div>
+                      <div>
+                        <span className="text-[11px] text-slate-500 uppercase font-bold block">Registered Email</span>
+                        <strong className="text-slate-900">{verifiedRegistration.email}</strong>
                       </div>
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={handleResetVerification}
-                      className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-lg self-start sm:self-auto cursor-pointer transition shadow-2xs"
-                    >
-                      Verify Different ID
-                    </button>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 text-xs border-t border-emerald-200/60 text-slate-700">
-                    <div>
-                      <span className="text-[10px] text-slate-500 uppercase font-semibold block">Institution</span>
-                      <strong className="text-slate-800">{verifiedRegistration.institution}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 uppercase font-semibold block">Category</span>
-                      <strong className="text-slate-800">{verifiedRegistration.category}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 uppercase font-semibold block">Registered Email</span>
-                      <strong className="text-slate-800">{verifiedRegistration.email}</strong>
-                    </div>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            {/* ===================================================================
+            {/* =================================================================
                 LOCKED STATE PLACEHOLDER (WHEN NOT YET VERIFIED)
-               =================================================================== */}
+               ================================================================= */}
             {!verifiedRegistration ? (
-              <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-8 sm:p-12 border border-slate-200/80 text-center space-y-4 shadow-sm">
-                <div className="w-16 h-16 rounded-2xl bg-purple-100 text-[#7C3AED] flex items-center justify-center mx-auto shadow-2xs">
+              <div className="bg-white/85 backdrop-blur-xl rounded-[24px] p-8 sm:p-12 border border-[#DCD3FA] text-center space-y-6 shadow-[0_14px_40px_rgba(103,69,197,0.08)]">
+                <div className="w-16 h-16 rounded-2xl bg-[#EDE9FE] text-[#7C3AED] flex items-center justify-center mx-auto shadow-xs border border-[#DDD6FE]">
                   <Lock className="w-8 h-8" />
                 </div>
-                <div className="space-y-1.5 max-w-md mx-auto">
-                  <h3 className="text-lg font-bold text-[#101B4B]">
+                <div className="space-y-2 max-w-xl mx-auto">
+                  <h3 className="text-xl sm:text-2xl font-extrabold text-[#101B4B] font-heading">
                     Abstract Submission Form is Locked
                   </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Please verify your official conference Registration ID above to unlock the abstract submission fields, author pre-population, and scientific track selection.
+                  <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
+                    Please verify your official conference Registration ID above to unlock all submission panels, automatic presenting author pre-population, and scientific track selection.
                   </p>
                 </div>
 
-                <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl mx-auto text-left text-xs">
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/90 shadow-2xs space-y-1">
-                    <span className="font-bold text-[#7C3AED] flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5" />
-                      <span>Step 1</span>
+                <div className="pt-2 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto text-left">
+                  <div className="p-5 bg-[#FAF8FF] rounded-2xl border border-[#E2DAF8] space-y-1.5">
+                    <span className="font-bold text-sm text-[#6D28D9] flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>1. Verify Registration ID</span>
                     </span>
-                    <p className="text-slate-600 text-[11px]">Enter your official Registration ID (e.g. AICONDD001).</p>
+                    <p className="text-slate-600 text-xs sm:text-sm leading-relaxed">
+                      Enter your verified conference ID (e.g. AICONDD001) to validate delegate eligibility.
+                    </p>
                   </div>
 
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/90 shadow-2xs space-y-1">
-                    <span className="font-bold text-[#7C3AED] flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Step 2</span>
+                  <div className="p-5 bg-[#FAF8FF] rounded-2xl border border-[#E2DAF8] space-y-1.5">
+                    <span className="font-bold text-sm text-[#6D28D9] flex items-center gap-2">
+                      <FileText className="w-4 h-4" />
+                      <span>2. Auto-Populated Details</span>
                     </span>
-                    <p className="text-slate-600 text-[11px]">Presenting author fields pre-fill automatically.</p>
+                    <p className="text-slate-600 text-xs sm:text-sm leading-relaxed">
+                      Presenting author fields pre-fill automatically from your verified registration record.
+                    </p>
                   </div>
 
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/90 shadow-2xs space-y-1">
-                    <span className="font-bold text-[#7C3AED] flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Step 3</span>
+                  <div className="p-5 bg-[#FAF8FF] rounded-2xl border border-[#E2DAF8] space-y-1.5">
+                    <span className="font-bold text-sm text-[#6D28D9] flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      <span>3. Instant Abstract ID & PDF</span>
                     </span>
-                    <p className="text-slate-600 text-[11px]">Receive sequential Abstract ID & PDF receipt.</p>
+                    <p className="text-slate-600 text-xs sm:text-sm leading-relaxed">
+                      Receive an automatically generated Abstract ID and downloadable PDF receipt upon submission.
+                    </p>
                   </div>
                 </div>
               </div>
             ) : (
-              /* ===================================================================
-                  UNLOCKED ABSTRACT SUBMISSION FORM
-                 =================================================================== */
-              <form onSubmit={handleSubmitAbstract} className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              /* =================================================================
+                  UNLOCKED ABSTRACT SUBMISSION FORM (WIDE FROSTED-GLASS PANELS)
+                 ================================================================= */
+              <form onSubmit={handleSubmitAbstract} className="space-y-7 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 {generalError && (
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-xs sm:text-sm text-red-700">
+                  <div className="p-4 sm:p-5 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-sm text-red-700 shadow-sm">
                     <AlertCircle className="w-5 h-5 shrink-0" />
                     <span>{generalError}</span>
                   </div>
                 )}
 
-                {/* =================================================================
-                    FORM SECTION 1: PRESENTING AUTHOR DETAILS (PRE-FILLED)
-                   ================================================================= */}
-                <div className="bg-white/95 backdrop-blur-md rounded-2xl p-6 sm:p-7 border border-[#E4E8F4] shadow-sm space-y-5">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-xs shrink-0">
+                {/* ===============================================================
+                    FORM PANEL 1: PRESENTING AUTHOR DETAILS
+                   =============================================================== */}
+                <div className="bg-white/90 backdrop-blur-xl rounded-[24px] border border-[#DCD3FA] shadow-[0_14px_40px_rgba(103,69,197,0.08)] overflow-hidden">
+                  {/* Soft Violet Header Strip */}
+                  <div className="bg-gradient-to-r from-[#E6E0FC] via-[#EFEBFD] to-[#F7F5FE] px-6 sm:px-8 py-4 sm:py-5 border-b border-[#E3DCF9] flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-sm shrink-0">
                         <User className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="text-xl font-bold text-[#101B4B] font-heading">
+                        <h3 className="text-xl sm:text-[23px] font-extrabold text-[#101B4B] font-heading">
                           Presenting Author Details
                         </h3>
-                        <p className="text-xs text-slate-500">
-                          Pre-populated from your verified conference registration.
+                        <p className="text-xs sm:text-sm text-[#4B557A]">
+                          Pre-populated from your verified registration record (one abstract per Registration ID).
                         </p>
                       </div>
                     </div>
 
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 text-xs font-mono font-bold">
-                      <ShieldCheck className="w-3.5 h-3.5" />
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white text-[#5B21B6] border border-[#D4C7FA] text-xs sm:text-sm font-mono font-bold shadow-2xs">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
                       <span>{verifiedRegistration.registrationId || registrationIdInput}</span>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-                    {/* Read-Only Registration ID Badge */}
-                    <div className="space-y-1.5 md:col-span-2">
-                      <label className="text-xs font-semibold text-slate-700 block">
-                        Linked Registration ID <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative flex items-center">
-                        <ShieldCheck className="w-4 h-4 text-emerald-600 absolute left-3.5 pointer-events-none" />
-                        <input
-                          type="text"
-                          readOnly
-                          value={verifiedRegistration.registrationId || registrationIdInput}
-                          className="h-11 pl-10 pr-3.5 w-full rounded-xl border border-emerald-200 bg-emerald-50/50 text-xs sm:text-sm font-mono font-bold text-emerald-900 cursor-not-allowed select-none"
-                        />
+                  <div className="p-6 sm:p-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
+                      {/* Full Name */}
+                      <div className="space-y-2">
+                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
+                          Full Name <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <User className="w-5 h-5 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                          <input
+                            type="text"
+                            required
+                            value={fullName}
+                            onChange={(e) => {
+                              setFullName(e.target.value);
+                              if (formErrors.fullName) setFormErrors((prev) => ({ ...prev, fullName: '' }));
+                            }}
+                            placeholder="Dr. / Prof. / Scholar Name"
+                            className={`h-12 sm:h-[52px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
+                              formErrors.fullName ? 'border-red-400' : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                            }`}
+                          />
+                        </div>
+                        {formErrors.fullName && <p className="text-xs text-red-500 font-medium">{formErrors.fullName}</p>}
                       </div>
-                      <p className="text-[11px] text-slate-400">
-                        Locked to your verified registration. Each Registration ID permits one abstract submission.
-                      </p>
-                    </div>
 
-                    {/* Full Name */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-700 block">
-                        Presenting Author Full Name <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative flex items-center">
-                        <User className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                        <input
-                          type="text"
-                          required
-                          value={fullName}
-                          onChange={(e) => {
-                            setFullName(e.target.value);
-                            if (formErrors.fullName) setFormErrors((prev) => ({ ...prev, fullName: '' }));
-                          }}
-                          placeholder="Dr. / Prof. / Scholar Name"
-                          className={`h-11 pl-10 pr-3.5 w-full rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
-                            formErrors.fullName ? 'border-red-400' : 'border-slate-200 focus:border-[#7C3AED]'
-                          }`}
-                        />
+                      {/* Email Address */}
+                      <div className="space-y-2">
+                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
+                          Email Address <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <Mail className="w-5 h-5 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                          <input
+                            type="email"
+                            required
+                            value={email}
+                            onChange={(e) => {
+                              setEmail(e.target.value);
+                              if (formErrors.email) setFormErrors((prev) => ({ ...prev, email: '' }));
+                            }}
+                            placeholder="author@institution.edu"
+                            className={`h-12 sm:h-[52px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
+                              formErrors.email ? 'border-red-400' : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                            }`}
+                          />
+                        </div>
+                        {formErrors.email && <p className="text-xs text-red-500 font-medium">{formErrors.email}</p>}
                       </div>
-                      {formErrors.fullName && <p className="text-[11px] text-red-500">{formErrors.fullName}</p>}
-                    </div>
 
-                    {/* Registered Email */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-700 block">
-                        Registered Email Address <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative flex items-center">
-                        <Mail className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                        <input
-                          type="email"
-                          required
-                          value={email}
-                          onChange={(e) => {
-                            setEmail(e.target.value);
-                            if (formErrors.email) setFormErrors((prev) => ({ ...prev, email: '' }));
-                          }}
-                          placeholder="author@institution.edu"
-                          className={`h-11 pl-10 pr-3.5 w-full rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
-                            formErrors.email ? 'border-red-400' : 'border-slate-200 focus:border-[#7C3AED]'
-                          }`}
-                        />
+                      {/* Mobile Number */}
+                      <div className="space-y-2">
+                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
+                          Mobile Number <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <Phone className="w-5 h-5 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                          <input
+                            type="tel"
+                            required
+                            value={mobile}
+                            onChange={(e) => {
+                              setMobile(e.target.value);
+                              if (formErrors.mobile) setFormErrors((prev) => ({ ...prev, mobile: '' }));
+                            }}
+                            placeholder="+91 98765 43210"
+                            className={`h-12 sm:h-[52px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
+                              formErrors.mobile ? 'border-red-400' : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                            }`}
+                          />
+                        </div>
+                        {formErrors.mobile && <p className="text-xs text-red-500 font-medium">{formErrors.mobile}</p>}
                       </div>
-                      {formErrors.email && <p className="text-[11px] text-red-500">{formErrors.email}</p>}
-                    </div>
 
-                    {/* Mobile Number */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-700 block">
-                        Mobile Number <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative flex items-center">
-                        <Phone className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                        <input
-                          type="tel"
-                          required
-                          value={mobile}
-                          onChange={(e) => {
-                            setMobile(e.target.value);
-                            if (formErrors.mobile) setFormErrors((prev) => ({ ...prev, mobile: '' }));
-                          }}
-                          placeholder="+91 98765 43210"
-                          className={`h-11 pl-10 pr-3.5 w-full rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
-                            formErrors.mobile ? 'border-red-400' : 'border-slate-200 focus:border-[#7C3AED]'
-                          }`}
-                        />
+                      {/* Academic Designation */}
+                      <div className="space-y-2">
+                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
+                          Academic Designation <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <GraduationCap className="w-5 h-5 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                          <input
+                            type="text"
+                            required
+                            value={designation}
+                            onChange={(e) => {
+                              setDesignation(e.target.value);
+                              if (formErrors.designation) setFormErrors((prev) => ({ ...prev, designation: '' }));
+                            }}
+                            placeholder="e.g. Associate Professor / PhD Scholar"
+                            className={`h-12 sm:h-[52px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
+                              formErrors.designation ? 'border-red-400' : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                            }`}
+                          />
+                        </div>
+                        {formErrors.designation && <p className="text-xs text-red-500 font-medium">{formErrors.designation}</p>}
                       </div>
-                      {formErrors.mobile && <p className="text-[11px] text-red-500">{formErrors.mobile}</p>}
-                    </div>
 
-                    {/* Academic Designation */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-700 block">
-                        Academic Designation <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative flex items-center">
-                        <GraduationCap className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                        <input
-                          type="text"
-                          required
-                          value={designation}
-                          onChange={(e) => {
-                            setDesignation(e.target.value);
-                            if (formErrors.designation) setFormErrors((prev) => ({ ...prev, designation: '' }));
-                          }}
-                          placeholder="e.g. Associate Professor / PhD Scholar"
-                          className={`h-11 pl-10 pr-3.5 w-full rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
-                            formErrors.designation ? 'border-red-400' : 'border-slate-200 focus:border-[#7C3AED]'
-                          }`}
-                        />
+                      {/* Affiliation / University (Full Width) */}
+                      <div className="md:col-span-2 space-y-2">
+                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
+                          Affiliation / University <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
+                          <Building2 className="w-5 h-5 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                          <input
+                            type="text"
+                            required
+                            value={affiliation}
+                            onChange={(e) => {
+                              setAffiliation(e.target.value);
+                              if (formErrors.affiliation) setFormErrors((prev) => ({ ...prev, affiliation: '' }));
+                            }}
+                            placeholder="e.g. Department of Pharmacology, SRM College of Pharmacy, SRMIST"
+                            className={`h-12 sm:h-[52px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
+                              formErrors.affiliation ? 'border-red-400' : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                            }`}
+                          />
+                        </div>
+                        {formErrors.affiliation && <p className="text-xs text-red-500 font-medium">{formErrors.affiliation}</p>}
                       </div>
-                      {formErrors.designation && <p className="text-[11px] text-red-500">{formErrors.designation}</p>}
-                    </div>
-
-                    {/* Institution / University */}
-                    <div className="md:col-span-2 space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-700 block">
-                        Institution / University / Department <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative flex items-center">
-                        <Building2 className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                        <input
-                          type="text"
-                          required
-                          value={affiliation}
-                          onChange={(e) => {
-                            setAffiliation(e.target.value);
-                            if (formErrors.affiliation) setFormErrors((prev) => ({ ...prev, affiliation: '' }));
-                          }}
-                          placeholder="e.g. Department of Pharmacology, SRM College of Pharmacy, SRMIST"
-                          className={`h-11 pl-10 pr-3.5 w-full rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
-                            formErrors.affiliation ? 'border-red-400' : 'border-slate-200 focus:border-[#7C3AED]'
-                          }`}
-                        />
-                      </div>
-                      {formErrors.affiliation && <p className="text-[11px] text-red-500">{formErrors.affiliation}</p>}
                     </div>
                   </div>
                 </div>
 
-                {/* =================================================================
-                    FORM SECTION 2: ABSTRACT DETAILS & AUTHOR INFORMATION
-                   ================================================================= */}
-                <div className="bg-white/95 backdrop-blur-md rounded-2xl p-6 sm:p-7 border border-[#E4E8F4] shadow-sm space-y-5">
-                  <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-xs shrink-0">
+                {/* ===============================================================
+                    FORM PANEL 2: ABSTRACT DETAILS & AUTHOR INFORMATION
+                   =============================================================== */}
+                <div className="bg-white/90 backdrop-blur-xl rounded-[24px] border border-[#DCD3FA] shadow-[0_14px_40px_rgba(103,69,197,0.08)] overflow-hidden">
+                  <div className="bg-gradient-to-r from-[#E6E0FC] via-[#EFEBFD] to-[#F7F5FE] px-6 sm:px-8 py-4 sm:py-5 border-b border-[#E3DCF9] flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-sm shrink-0">
                       <FileText className="w-5 h-5" />
                     </div>
-                    <h3 className="text-xl font-bold text-[#101B4B] font-heading">
-                      Abstract Details & Author Information
-                    </h3>
+                    <div>
+                      <h3 className="text-xl sm:text-[23px] font-extrabold text-[#101B4B] font-heading">
+                        Abstract Details & Author Information
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[#4B557A]">
+                        Provide the complete abstract title, author listing, structured text, and keywords.
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Title of Abstract */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-700 block">
-                      Title of the Abstract <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative flex items-center">
-                      <PenLine className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                      <input
-                        type="text"
-                        required
-                        value={title}
-                        onChange={(e) => {
-                          setTitle(e.target.value);
-                          if (formErrors.title) setFormErrors((prev) => ({ ...prev, title: '' }));
-                        }}
-                        placeholder="Enter the complete title of your research abstract"
-                        className={`h-11 pl-10 pr-3.5 w-full rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
-                          formErrors.title ? 'border-red-400' : 'border-slate-200 focus:border-[#7C3AED]'
-                        }`}
-                      />
-                    </div>
-                    {formErrors.title && <p className="text-[11px] text-red-500">{formErrors.title}</p>}
-                  </div>
-
-                  {/* Co-Authors Block */}
-                  <div className="space-y-3 pt-1">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EDE9FE] text-[#6D28D9] text-xs font-bold">
-                      <Users className="w-3.5 h-3.5" />
-                      <span>Co-Author(s) (Optional)</span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {coAuthors.map((coAuthor, idx) => (
-                        <div key={coAuthor.id} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                          <div className="md:col-span-6 relative flex items-center">
-                            <User className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                            <input
-                              type="text"
-                              value={coAuthor.name}
-                              onChange={(e) => handleUpdateCoAuthor(coAuthor.id, 'name', e.target.value)}
-                              placeholder={`Co-author ${idx + 1} Name`}
-                              className="h-11 pl-10 pr-3.5 w-full rounded-xl border border-slate-200 bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition"
-                            />
-                          </div>
-
-                          <div className="md:col-span-5 relative flex items-center">
-                            <Building2 className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
-                            <input
-                              type="text"
-                              value={coAuthor.affiliation}
-                              onChange={(e) => handleUpdateCoAuthor(coAuthor.id, 'affiliation', e.target.value)}
-                              placeholder="Affiliation / Department"
-                              className="h-11 pl-10 pr-3.5 w-full rounded-xl border border-slate-200 bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition"
-                            />
-                          </div>
-
-                          <div className="md:col-span-1 flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCoAuthor(coAuthor.id)}
-                              className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                              title="Remove co-author"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleAddCoAuthor}
-                      className="px-4 py-2 rounded-full border border-[#7C3AED] text-[#7C3AED] bg-white hover:bg-[#EDE9FE]/50 text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs cursor-pointer transition"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Co-Author</span>
-                    </button>
-                  </div>
-
-                  {/* Abstract Content */}
-                  <div className="space-y-1.5 pt-2">
-                    <label className="text-xs font-semibold text-slate-700 block">
-                      Abstract Content <span className="text-red-500">*</span> (Maximum 300 words)
-                    </label>
-                    <textarea
-                      rows={6}
-                      required
-                      value={abstractText}
-                      onChange={(e) => {
-                        setAbstractText(e.target.value);
-                        if (formErrors.abstract) setFormErrors((prev) => ({ ...prev, abstract: '' }));
-                      }}
-                      placeholder="Enter structured abstract content (Background, Objectives, Methodology, Results, Conclusion)..."
-                      className={`w-full p-4 rounded-xl border bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition leading-relaxed ${
-                        formErrors.abstract || isWordCountExceeded
-                          ? 'border-red-400'
-                          : 'border-slate-200 focus:border-[#7C3AED]'
-                      }`}
-                    />
-
-                    {/* LIVE WORD COUNTER DIRECTLY BELOW INPUT */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 pt-0.5">
-                      <div
-                        className={`text-xs font-semibold flex items-center gap-2 ${
-                          isWordCountExceeded
-                            ? 'text-red-600 font-bold'
-                            : wordCount > 0
-                            ? 'text-purple-700'
-                            : 'text-slate-500'
-                        }`}
-                      >
-                        <span className="font-mono">Word Count: {wordCount} / 300</span>
-                        {isWordCountExceeded && (
-                          <span className="text-[11px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
-                            Exceeded by {wordCount - 300} words
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-slate-400">
-                        Updates in real time as you type, paste, or edit text
-                      </span>
-                    </div>
-
-                    {formErrors.abstract && (
-                      <p className="text-[11px] text-red-500 pt-0.5">{formErrors.abstract}</p>
-                    )}
-                  </div>
-
-                  {/* Keywords */}
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 block">
-                        Keywords <span className="text-red-500">*</span> (Specify 3 to 5 keywords)
+                  <div className="p-6 sm:p-8 space-y-6">
+                    {/* Title of Abstract */}
+                    <div className="space-y-2">
+                      <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
+                        Title of the Abstract <span className="text-red-500">*</span>
                       </label>
-                      <span className="text-[11px] text-slate-400">{keywords.length} of 5 keywords added</span>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                      <div className="relative flex-1 w-full">
-                        <Tag className="w-4 h-4 text-[#7C3AED] absolute left-3.5 pointer-events-none" />
+                      <div className="relative flex items-center">
+                        <PenLine className="w-5 h-5 text-[#7C3AED] absolute left-4 pointer-events-none" />
                         <input
                           type="text"
-                          value={keywordInput}
-                          onChange={(e) => setKeywordInput(e.target.value)}
-                          onKeyDown={handleKeywordKeyDown}
-                          placeholder="Type a keyword and press Enter or comma"
-                          className="h-11 pl-10 pr-3.5 w-full rounded-xl border border-slate-200 bg-[#FBFBFF] text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition"
+                          required
+                          value={title}
+                          onChange={(e) => {
+                            setTitle(e.target.value);
+                            if (formErrors.title) setFormErrors((prev) => ({ ...prev, title: '' }));
+                          }}
+                          placeholder="Enter the complete title of your research abstract"
+                          className={`h-12 sm:h-[52px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
+                            formErrors.title ? 'border-red-400' : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                          }`}
                         />
                       </div>
+                      {formErrors.title && <p className="text-xs text-red-500 font-medium">{formErrors.title}</p>}
+                    </div>
 
-                      <div className="flex flex-wrap gap-2 items-center">
-                        {keywords.map((kw, i) => (
-                          <span
-                            key={i}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#EDE9FE] text-[#6D28D9] border border-[#DDD6FE] text-xs font-medium shadow-2xs"
-                          >
-                            <span>{kw}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveKeyword(kw)}
-                              className="hover:text-red-600 p-0.5 rounded-full cursor-pointer transition"
-                              title="Remove keyword"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
+                    {/* Presenting Author Name & Affiliation Summary */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 p-4 sm:p-5 rounded-2xl bg-[#FAF8FF] border border-[#E4DCF9]">
+                      <div className="space-y-1">
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#6D28D9] block">
+                          Presenting Author Name
+                        </span>
+                        <div className="text-sm sm:text-base font-bold text-[#101B4B]">
+                          {fullName.trim() || 'Enter Presenting Author Full Name above'}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-xs font-bold uppercase tracking-wider text-[#6D28D9] block">
+                          Presenting Author Affiliation
+                        </span>
+                        <div className="text-sm sm:text-base font-semibold text-slate-700">
+                          {affiliation.trim() || 'Enter Affiliation / University above'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Co-Authors Block */}
+                    <div className="space-y-3.5 pt-1 border-t border-slate-100">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                        <div className="inline-flex items-center gap-2 text-sm sm:text-[15px] font-bold text-[#101B4B]">
+                          <Users className="w-4 h-4 text-[#7C3AED]" />
+                          <span>Co-Author(s) (Optional)</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddCoAuthor}
+                          className="px-4 py-2 rounded-full border border-[#7C3AED] text-[#7C3AED] bg-white hover:bg-[#F3EFFE] text-xs sm:text-sm font-bold inline-flex items-center gap-1.5 shadow-2xs cursor-pointer transition"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Add Co-Author</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {coAuthors.map((coAuthor, idx) => (
+                          <div key={coAuthor.id} className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-center">
+                            <div className="md:col-span-5 relative flex items-center">
+                              <User className="w-4 h-4 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                              <input
+                                type="text"
+                                value={coAuthor.name}
+                                onChange={(e) => handleUpdateCoAuthor(coAuthor.id, 'name', e.target.value)}
+                                placeholder={`Co-author ${idx + 1} Full Name`}
+                                className="h-12 pl-11 pr-4 w-full rounded-xl border border-[#D4D9EC] bg-white text-sm text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition"
+                              />
+                            </div>
+
+                            <div className="md:col-span-6 relative flex items-center">
+                              <Building2 className="w-4 h-4 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                              <input
+                                type="text"
+                                value={coAuthor.affiliation}
+                                onChange={(e) => handleUpdateCoAuthor(coAuthor.id, 'affiliation', e.target.value)}
+                                placeholder="Department / Institution / University"
+                                className="h-12 pl-11 pr-4 w-full rounded-xl border border-[#D4D9EC] bg-white text-sm text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition"
+                              />
+                            </div>
+
+                            <div className="md:col-span-1 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveCoAuthor(coAuthor.id)}
+                                className="px-3 py-2.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl transition cursor-pointer inline-flex items-center gap-1 text-xs font-semibold"
+                                title="Remove co-author"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                <span className="md:hidden">Remove</span>
+                              </button>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
-                    {formErrors.keywords && <p className="text-[11px] text-red-500">{formErrors.keywords}</p>}
+
+                    {/* Abstract Text Area + Live Word Counter */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block pt-2">
+                        Abstract Content <span className="text-red-500">*</span> <span className="text-xs sm:text-sm font-medium text-slate-500">(Maximum 300 words)</span>
+                      </label>
+                      <textarea
+                        rows={7}
+                        required
+                        value={abstractText}
+                        onChange={(e) => {
+                          setAbstractText(e.target.value);
+                          if (formErrors.abstract) setFormErrors((prev) => ({ ...prev, abstract: '' }));
+                        }}
+                        placeholder="Enter structured abstract text covering Background, Objectives, Methodology, Results, and Conclusion..."
+                        className={`w-full p-4 sm:p-5 rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition leading-relaxed ${
+                          formErrors.abstract || isWordCountExceeded
+                            ? 'border-red-400'
+                            : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                        }`}
+                      />
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                        <div
+                          className={`text-sm font-semibold flex items-center gap-2.5 ${
+                            isWordCountExceeded
+                              ? 'text-red-600 font-bold'
+                              : wordCount > 0
+                              ? 'text-[#6D28D9]'
+                              : 'text-slate-600'
+                          }`}
+                        >
+                          <span className="font-mono tabular-nums px-3 py-1 rounded-lg bg-[#F4F0FE] border border-[#E2DAF8]">
+                            Word Count: {wordCount} / 300
+                          </span>
+                          {isWordCountExceeded && (
+                            <span className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200">
+                              Exceeded by {wordCount - 300} words
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-500">
+                          Updates in real time as you type, paste, or edit text
+                        </span>
+                      </div>
+
+                      {formErrors.abstract && (
+                        <p className="text-xs text-red-500 font-medium pt-0.5">{formErrors.abstract}</p>
+                      )}
+                    </div>
+
+                    {/* Keywords */}
+                    <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
+                          Keywords <span className="text-red-500">*</span> <span className="text-xs sm:text-sm font-medium text-slate-500">(Specify 3 to 5 keywords)</span>
+                        </label>
+                        <span className="text-xs font-semibold text-[#5B21B6]">
+                          {keywords.length} of 5 keywords added
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col lg:flex-row gap-3.5 items-stretch lg:items-center">
+                        <div className="flex gap-2 flex-1">
+                          <div className="relative flex-1 flex items-center">
+                            <Tag className="w-4 h-4 text-[#7C3AED] absolute left-4 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={keywordInput}
+                              onChange={(e) => setKeywordInput(e.target.value)}
+                              onKeyDown={handleKeywordKeyDown}
+                              placeholder="Type a keyword and press Enter or click Add"
+                              className="h-12 pl-11 pr-4 w-full rounded-xl border border-[#D4D9EC] bg-white text-sm text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleAddKeyword}
+                            className="h-12 px-5 rounded-xl bg-[#EDE9FE] hover:bg-[#DDD6FE] text-[#5B21B6] font-bold text-sm transition cursor-pointer shrink-0"
+                          >
+                            Add
+                          </button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 items-center">
+                          {keywords.map((kw, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-[#EDE9FE] text-[#5B21B6] border border-[#D4C7FA] text-xs sm:text-sm font-semibold shadow-2xs"
+                            >
+                              <span>{kw}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveKeyword(kw)}
+                                className="hover:text-red-600 p-0.5 rounded-full cursor-pointer transition"
+                                title="Remove keyword"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      {formErrors.keywords && <p className="text-xs text-red-500 font-medium">{formErrors.keywords}</p>}
+                    </div>
                   </div>
                 </div>
 
-                {/* =================================================================
-                    FORM SECTION 3: SCIENTIFIC TRACK & TYPE OF PRESENTATION
-                   ================================================================= */}
-                <div className="bg-white/95 backdrop-blur-md rounded-2xl p-6 sm:p-7 border border-[#E4E8F4] shadow-sm space-y-5">
-                  <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-xs shrink-0">
+                {/* ===============================================================
+                    FORM PANEL 3: SCIENTIFIC TRACK & TYPE OF PRESENTATION
+                   =============================================================== */}
+                <div className="bg-white/90 backdrop-blur-xl rounded-[24px] border border-[#DCD3FA] shadow-[0_14px_40px_rgba(103,69,197,0.08)] overflow-hidden">
+                  <div className="bg-gradient-to-r from-[#E6E0FC] via-[#EFEBFD] to-[#F7F5FE] px-6 sm:px-8 py-4 sm:py-5 border-b border-[#E3DCF9] flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-sm shrink-0">
                       <Layers className="w-5 h-5" />
                     </div>
-                    <h3 className="text-xl font-bold text-[#101B4B] font-heading">
-                      Scientific Track & Type of Presentation
-                    </h3>
+                    <div>
+                      <h3 className="text-xl sm:text-[23px] font-extrabold text-[#101B4B] font-heading">
+                        Scientific Track & Type of Presentation
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[#4B557A]">
+                        Select the primary scientific theme and your preferred presentation category.
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  <div className="p-6 sm:p-8 space-y-6">
                     {/* Scientific Track Dropdown */}
-                    <div className="lg:col-span-5 space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 block">
+                    <div className="space-y-2">
+                      <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
                         Scientific Track <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={selectedTrack}
                         onChange={(e) => setSelectedTrack(e.target.value)}
-                        className="h-12 w-full rounded-xl border border-slate-200 bg-[#FBFBFF] px-3.5 text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition cursor-pointer"
+                        className="h-12 sm:h-[52px] w-full rounded-xl border border-[#D4D9EC] bg-white px-4 text-sm sm:text-[15px] text-slate-800 font-medium focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition cursor-pointer"
                       >
                         {SCIENTIFIC_TRACKS.map((t) => (
                           <option key={t.id} value={t.id}>
@@ -1366,19 +1439,19 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                       </select>
                     </div>
 
-                    {/* Presentation Preference Cards */}
-                    <div className="lg:col-span-7 space-y-2">
-                      <label className="text-sm font-semibold text-slate-700 block">
+                    {/* Type of Presentation (3-column cards on desktop) */}
+                    <div className="space-y-2.5">
+                      <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
                         Type of Presentation <span className="text-red-500">*</span>
                       </label>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <label
                           onClick={() => setPresentationType('Oral Presentation')}
-                          className={`p-3.5 rounded-xl border-2 flex items-center gap-3 cursor-pointer transition ${
+                          className={`p-4 sm:p-5 rounded-2xl border-2 flex items-center gap-3.5 cursor-pointer transition ${
                             presentationType === 'Oral Presentation'
-                              ? 'border-[#7C3AED] bg-[#F5F2FF] shadow-xs'
-                              : 'border-slate-200 bg-white hover:border-slate-300'
+                              ? 'border-[#7C3AED] bg-[#F5F2FF] shadow-sm'
+                              : 'border-[#DCE0EE] bg-white hover:border-[#B6A5F5]'
                           }`}
                         >
                           <input
@@ -1386,20 +1459,22 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                             name="presentationPreference"
                             checked={presentationType === 'Oral Presentation'}
                             onChange={() => setPresentationType('Oral Presentation')}
-                            className="accent-[#7C3AED] w-4 h-4 cursor-pointer"
+                            className="accent-[#7C3AED] w-5 h-5 cursor-pointer shrink-0"
                           />
-                          <Monitor className="w-5 h-5 text-[#7C3AED] shrink-0" />
-                          <span className="text-sm font-bold text-slate-800 leading-tight">
-                            Oral
+                          <div className="w-10 h-10 rounded-xl bg-[#EDE9FE] text-[#7C3AED] flex items-center justify-center shrink-0">
+                            <Monitor className="w-5 h-5" />
+                          </div>
+                          <span className="text-sm sm:text-base font-bold text-[#101B4B] leading-tight">
+                            Oral Presentation
                           </span>
                         </label>
 
                         <label
                           onClick={() => setPresentationType('Poster Presentation')}
-                          className={`p-3.5 rounded-xl border-2 flex items-center gap-3 cursor-pointer transition ${
+                          className={`p-4 sm:p-5 rounded-2xl border-2 flex items-center gap-3.5 cursor-pointer transition ${
                             presentationType === 'Poster Presentation'
-                              ? 'border-[#7C3AED] bg-[#F5F2FF] shadow-xs'
-                              : 'border-slate-200 bg-white hover:border-slate-300'
+                              ? 'border-[#7C3AED] bg-[#F5F2FF] shadow-sm'
+                              : 'border-[#DCE0EE] bg-white hover:border-[#B6A5F5]'
                           }`}
                         >
                           <input
@@ -1407,20 +1482,22 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                             name="presentationPreference"
                             checked={presentationType === 'Poster Presentation'}
                             onChange={() => setPresentationType('Poster Presentation')}
-                            className="accent-[#7C3AED] w-4 h-4 cursor-pointer"
+                            className="accent-[#7C3AED] w-5 h-5 cursor-pointer shrink-0"
                           />
-                          <Layout className="w-5 h-5 text-[#7C3AED] shrink-0" />
-                          <span className="text-sm font-bold text-slate-800 leading-tight">
-                            Poster
+                          <div className="w-10 h-10 rounded-xl bg-[#EDE9FE] text-[#7C3AED] flex items-center justify-center shrink-0">
+                            <Layout className="w-5 h-5" />
+                          </div>
+                          <span className="text-sm sm:text-base font-bold text-[#101B4B] leading-tight">
+                            Poster Presentation
                           </span>
                         </label>
 
                         <label
                           onClick={() => setPresentationType('E-Poster Presentation')}
-                          className={`p-3.5 rounded-xl border-2 flex items-center gap-3 cursor-pointer transition ${
+                          className={`p-4 sm:p-5 rounded-2xl border-2 flex items-center gap-3.5 cursor-pointer transition ${
                             presentationType === 'E-Poster Presentation'
-                              ? 'border-[#7C3AED] bg-[#F5F2FF] shadow-xs'
-                              : 'border-slate-200 bg-white hover:border-slate-300'
+                              ? 'border-[#7C3AED] bg-[#F5F2FF] shadow-sm'
+                              : 'border-[#DCE0EE] bg-white hover:border-[#B6A5F5]'
                           }`}
                         >
                           <input
@@ -1428,11 +1505,13 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                             name="presentationPreference"
                             checked={presentationType === 'E-Poster Presentation'}
                             onChange={() => setPresentationType('E-Poster Presentation')}
-                            className="accent-[#7C3AED] w-4 h-4 cursor-pointer"
+                            className="accent-[#7C3AED] w-5 h-5 cursor-pointer shrink-0"
                           />
-                          <Tv className="w-5 h-5 text-[#7C3AED] shrink-0" />
-                          <span className="text-sm font-bold text-slate-800 leading-tight">
-                            E-Poster
+                          <div className="w-10 h-10 rounded-xl bg-[#EDE9FE] text-[#7C3AED] flex items-center justify-center shrink-0">
+                            <Tv className="w-5 h-5" />
+                          </div>
+                          <span className="text-sm sm:text-base font-bold text-[#101B4B] leading-tight">
+                            E-Poster Presentation
                           </span>
                         </label>
                       </div>
@@ -1440,58 +1519,177 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                   </div>
                 </div>
 
-                {/* =================================================================
-                    FORM SECTION 4: DECLARATION
-                   ================================================================= */}
-                <div className="bg-white/95 backdrop-blur-md rounded-2xl p-6 sm:p-7 border border-[#E4E8F4] shadow-sm space-y-4">
-                  <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-xs shrink-0">
+                {/* ===============================================================
+                    FORM PANEL 4: SUPPORTING ABSTRACT DOCUMENT (OPTIONAL)
+                   =============================================================== */}
+                <div className="bg-white/90 backdrop-blur-xl rounded-[24px] border border-[#DCD3FA] shadow-[0_14px_40px_rgba(103,69,197,0.08)] overflow-hidden">
+                  <div className="bg-gradient-to-r from-[#E6E0FC] via-[#EFEBFD] to-[#F7F5FE] px-6 sm:px-8 py-4 sm:py-5 border-b border-[#E3DCF9] flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-sm shrink-0">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl sm:text-[23px] font-extrabold text-[#101B4B] font-heading">
+                          Supporting Abstract Document
+                        </h3>
+                        <p className="text-xs sm:text-sm text-[#4B557A]">
+                          Optional document upload in DOC, DOCX, or PDF format (Maximum 2 MB).
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-3.5 py-1 rounded-full bg-white text-[#5B21B6] border border-[#D4C7FA] text-xs font-bold uppercase tracking-wide">
+                      Optional
+                    </span>
+                  </div>
+
+                  <div className="p-6 sm:p-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                      {/* Left Dropzone */}
+                      <div className="lg:col-span-7 flex flex-col">
+                        <label
+                          htmlFor="supporting-abstract-doc"
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            setIsDraggingDoc(true);
+                          }}
+                          onDragLeave={() => setIsDraggingDoc(false)}
+                          onDrop={handleSupportingDocDrop}
+                          className={`flex-1 min-h-[190px] border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
+                            supportingDocError
+                              ? 'border-red-400 bg-red-50/30'
+                              : isDraggingDoc
+                              ? 'border-[#7C3AED] bg-[#F1ECFE]'
+                              : 'border-[#C5B6F5] bg-[#FAF8FF] hover:bg-[#F3EEFE] hover:border-[#7C3AED]'
+                          }`}
+                        >
+                          {supportingDocFile ? (
+                            <div className="space-y-3 flex flex-col items-center">
+                              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-2xs">
+                                <FileCheck className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <p className="text-sm sm:text-base font-bold text-[#101B4B] break-all max-w-md">
+                                  {supportingDocFile.name}
+                                </p>
+                                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                                  {(supportingDocFile.size / 1024).toFixed(1)} KB · Ready to attach
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  removeSupportingDocument();
+                                }}
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold cursor-pointer transition"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>Remove File</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-3 flex flex-col items-center">
+                              <div className="w-12 h-12 rounded-2xl bg-[#EAE5FC] text-[#7C3AED] flex items-center justify-center">
+                                <Upload className="w-6 h-6" />
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-sm sm:text-base font-bold text-[#101B4B]">
+                                  Drag and drop your abstract file here, or click to upload
+                                </p>
+                                <p className="text-xs sm:text-sm text-slate-500">
+                                  DOC, DOCX or PDF (Max. 2 MB)
+                                </p>
+                              </div>
+                              <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white border border-[#C9BBF5] text-[#4C1D95] text-xs sm:text-sm font-bold shadow-2xs">
+                                <Upload className="w-4 h-4 text-[#7C3AED]" />
+                                <span>Choose File</span>
+                              </span>
+                            </div>
+                          )}
+
+                          <input
+                            id="supporting-abstract-doc"
+                            type="file"
+                            accept=".doc,.docx,.pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                            onChange={handleSupportingDocChange}
+                            className="hidden"
+                          />
+                        </label>
+
+                        {supportingDocError && (
+                          <p className="text-xs sm:text-sm text-red-600 font-medium mt-2">{supportingDocError}</p>
+                        )}
+                      </div>
+
+                      {/* Right Format Guidelines Card */}
+                      <div className="lg:col-span-5 bg-[#F5F2FE] border border-[#E1D8F8] rounded-2xl p-6 flex flex-col justify-center space-y-3">
+                        <div className="flex items-center gap-2 text-[#5B21B6] font-extrabold text-sm sm:text-base">
+                          <Info className="w-5 h-5 text-[#7C3AED] shrink-0" />
+                          <span>Abstract Format</span>
+                        </div>
+                        <ul className="space-y-2 text-xs sm:text-sm text-[#2E3659] list-disc pl-5 leading-relaxed">
+                          <li>Supporting file upload is optional.</li>
+                          <li>Accepted formats: <strong>DOC, DOCX and PDF</strong>.</li>
+                          <li>Maximum file size: <strong>2 MB</strong>.</li>
+                          <li>All submitted abstracts undergo peer review for scientific acceptance.</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ===============================================================
+                    FORM PANEL 5: DECLARATION & SUBMIT BUTTON
+                   =============================================================== */}
+                <div className="bg-white/90 backdrop-blur-xl rounded-[24px] border border-[#DCD3FA] shadow-[0_14px_40px_rgba(103,69,197,0.08)] overflow-hidden">
+                  <div className="bg-gradient-to-r from-[#E6E0FC] via-[#EFEBFD] to-[#F7F5FE] px-6 sm:px-8 py-4 sm:py-5 border-b border-[#E3DCF9] flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#6366F1] text-white flex items-center justify-center shadow-sm shrink-0">
                       <ShieldCheck className="w-5 h-5" />
                     </div>
-                    <h3 className="text-xl font-bold text-[#101B4B] font-heading">
+                    <h3 className="text-xl sm:text-[23px] font-extrabold text-[#101B4B] font-heading">
                       Declaration
                     </h3>
                   </div>
 
-                  <label className="flex items-start gap-3.5 cursor-pointer pt-1 group">
-                    <input
-                      type="checkbox"
-                      required
-                      checked={declarationAccepted}
-                      onChange={(e) => {
-                        setDeclarationAccepted(e.target.checked);
-                        if (formErrors.declaration) setFormErrors((prev) => ({ ...prev, declaration: '' }));
-                      }}
-                      className="w-5 h-5 mt-0.5 rounded-md accent-[#7C3AED] cursor-pointer shrink-0"
-                    />
-                    <span className="text-sm sm:text-base text-slate-700 leading-relaxed group-hover:text-slate-900">
-                      I hereby declare that the abstract submitted is original, has not been published elsewhere, and all co-authors have consented to its submission for this conference. <span className="text-red-500">*</span>
-                    </span>
-                  </label>
-                  {formErrors.declaration && <p className="text-[11px] text-red-500">{formErrors.declaration}</p>}
-                </div>
+                  <div className="p-6 sm:p-8 space-y-6">
+                    <label className="flex items-start gap-3.5 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        required
+                        checked={declarationAccepted}
+                        onChange={(e) => {
+                          setDeclarationAccepted(e.target.checked);
+                          if (formErrors.declaration) setFormErrors((prev) => ({ ...prev, declaration: '' }));
+                        }}
+                        className="w-5 h-5 mt-0.5 rounded-md accent-[#7C3AED] cursor-pointer shrink-0"
+                      />
+                      <span className="text-sm sm:text-base text-slate-700 leading-relaxed group-hover:text-slate-900">
+                        I hereby declare that the abstract submitted is original, has not been published elsewhere, and all co-authors have consented to its submission for this conference. <span className="text-red-500">*</span>
+                      </span>
+                    </label>
+                    {formErrors.declaration && <p className="text-xs text-red-500 font-medium">{formErrors.declaration}</p>}
 
-                {/* =================================================================
-                    SUBMISSION BUTTON
-                   ================================================================= */}
-                <div className="pt-2 text-center">
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="inline-flex items-center justify-center gap-2.5 px-10 py-3.5 sm:py-4 rounded-full bg-gradient-to-r from-[#8B5CF6] via-[#6366F1] to-[#06B6D4] text-white text-base sm:text-[17px] font-bold shadow-lg hover:shadow-xl hover:scale-102 active:scale-98 transition-all cursor-pointer disabled:opacity-60"
-                  >
-                    {submitting ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                        <span>Allocating Abstract ID & Submitting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-5 h-5" />
-                        <span>Submit Abstract</span>
-                      </>
-                    )}
-                  </button>
+                    <div className="pt-4 border-t border-slate-100 text-center">
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        className="inline-flex items-center justify-center gap-3 px-12 py-4 rounded-full bg-gradient-to-r from-[#7C3AED] via-[#6366F1] to-[#14B8D4] text-white text-base sm:text-lg font-bold shadow-[0_12px_30px_rgba(109,40,217,0.3)] hover:shadow-[0_16px_36px_rgba(109,40,217,0.38)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-60"
+                      >
+                        {submitting ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            <span>Allocating Abstract ID & Submitting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-5 h-5" />
+                            <span>Submit Abstract</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </form>
             )}
@@ -1504,9 +1702,9 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
         </div>
       </div>
 
-      {/* =======================================================================
+      {/* =====================================================================
           CONFIRMATION DIALOG MODAL (ELEVATED CONFIRMATION DIALOG)
-         ======================================================================= */}
+         ===================================================================== */}
       {showConfirmationModal && submittedAbstractData && (
         <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 space-y-6 my-8 animate-in zoom-in-95 duration-200">

@@ -278,9 +278,9 @@ export const PROGRAMME_DAY_2: ProgrammeSession[] = [
     description: 'Focused scientific sessions exploring neuropharmacology, biologics, gene therapy vectors, and clinical toxicology.',
   },
   {
-    timePlaceholder: 'Early Afternoon',
-    title: 'Offline Poster Presentation & Exhibition Jury Walk',
-    hall: 'Auditorium Exhibition Foyer',
+    timePlaceholder: 'Afternoon Session',
+    title: 'Poster Presentation (Offline)',
+    hall: 'Dr. T. P. Ganesan Auditorium – Poster Space',
     type: 'parallel',
     description: 'Curated scientific poster exhibition, delegate interactions, and evaluation by distinguished poster jury panel.',
   },

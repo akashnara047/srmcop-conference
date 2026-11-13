@@ -41,8 +41,14 @@ export const IMAGES = {
   // Section 3: About the Conference Background Artwork
   aboutSectionBg: '/assets/aistudio/Futuristic_AI_Science_Conference_Banner_723bfcec.png',
 
-  // Section 4: Scientific Tracks Background Artwork
+  // Section 4: Home Page Scientific Tracks Background Artwork
   scientificTracksBg: '/assets/aistudio/Glowing_AI_Pharmaceutical_Waves_e0bf85aa.png',
+
+  // Scientific Tracks Page Full-Section Background Artwork
+  tracksPageBg: '/assets/aistudio/Pastel_AI_Pharmacy_Conference_Background_9e247e1a.png',
+
+  // Section 7: Conference Venue & Host Section Background Artwork
+  venueSectionBg: '/assets/aistudio/Lavender_SRM_Campus_Conference_Background_9d3f0288.png',
 
   // Section 6.5: Important Dates & Deadlines Background Artwork
   importantDatesBg: '/assets/aistudio/Futuristic_Biotech_Dates_and_Deadlines_66c87718.png',
@@ -53,8 +59,17 @@ export const IMAGES = {
   // Section 8: Call for Abstracts & Delegate Registration Background Artwork
   callForAbstractsBg: '/assets/aistudio/Pastel_Biotech_Waves_with_Molecular_Flask_45251617.png',
 
-  // Scientific Track 01 Illustration
-  track01Pharmaceutics: '/images/tracks/pharmaceutics.png',
+  // Abstract Submission Portal Full-Page Background Artwork
+  abstractSubmissionBg: '/assets/aistudio/Luminous_Pharma_Waves_and_DNA_Canvas_c999607f.png',
+
+  // Scientific Track Illustrations (Transparent PNGs)
+  track01Pharmaceutics: '/images/tracks/pharmaceutics-transparent.png',
+  track02Pharmacology: '/images/tracks/track-02-pharmacology.png',
+  track03PharmaceuticalChemistry: '/images/tracks/track-03-pharmaceutical-chemistry.png',
+  track04PharmaceuticalAnalysis: '/images/tracks/track-04-pharmaceutical-analysis.png',
+  track05PharmacyPractice: '/images/tracks/track-05-pharmacy-practice.png',
+  track06Pharmacognosy: '/images/tracks/track-06-pharmacognosy.png',
+  track07RegulatoryQuality: '/images/tracks/track-07-regulatory-quality.png',
 
   // Official Accreditations & Rankings Logos
   nirfLogo: '/assets/aistudio/NIRF_logo_7a7c6967.jpg',

@@ -6,7 +6,7 @@ import {
   Award, ChevronRight, Sparkles, Building2, Cpu, Dna, Activity, Brain, Users,
   Mic, Presentation, Handshake, Star, ArrowUp, ExternalLink, Shield, Clock,
   Trophy, Lightbulb, Target, X, Mail, FlaskConical, TrendingUp, Info,
-  Layers, Pill, Microscope, GraduationCap, UserPlus, Download, BookOpen, ClipboardList,
+  Layers, Pill, Microscope, GraduationCap, UserPlus, Download, BookOpen,
   UserCheck, ClipboardCheck, Bell
 } from 'lucide-react';
 import {
@@ -956,163 +956,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Viewport-fitting snap section without clipping
           - CTA: "Register to Participate →"
          ========================================================================= */}
-      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-gradient-to-b from-[#FAF8FF] via-white to-[#EBF9FD]">
-        {/* Soft flowing cyan and violet curved wave ribbons across top and bottom */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
-            <path
-              d="M-50,70 C320,150 680,15 1060,100 C1280,145 1390,55 1500,85 L1500,0 L-50,0 Z"
-              fill="url(#topWaveRibbonParticipate5)"
-              opacity="0.5"
-            />
-            <path
-              d="M-50,830 C360,770 710,885 1100,795 C1290,755 1410,835 1500,805 L1500,900 L-50,900 Z"
-              fill="url(#bottomWaveRibbonParticipate5)"
-              opacity="0.5"
-            />
-            <defs>
-              <linearGradient id="topWaveRibbonParticipate5" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.4" />
-                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
-                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.3" />
-              </linearGradient>
-              <linearGradient id="bottomWaveRibbonParticipate5" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#22C5D9" stopOpacity="0.45" />
-                <stop offset="50%" stopColor="#EDE9FA" stopOpacity="0.65" />
-                <stop offset="100%" stopColor="#8B50E8" stopOpacity="0.35" />
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-
-        {/* Top-Left 3D Molecular Structure (Matching Reference Screenshot) */}
-        <div className="absolute top-2 left-2 sm:left-4 lg:left-6 pointer-events-none opacity-80 hidden md:block z-0">
-          <svg width="150" height="150" viewBox="0 0 180 180" fill="none">
-            <defs>
-              <radialGradient id="nodeBallCyanPart5" cx="35%" cy="35%" r="65%">
-                <stop offset="0%" stopColor="#FFFFFF" />
-                <stop offset="35%" stopColor="#7DD3FC" />
-                <stop offset="100%" stopColor="#0284C7" />
-              </radialGradient>
-              <radialGradient id="nodeBallVioletPart5" cx="35%" cy="35%" r="65%">
-                <stop offset="0%" stopColor="#FFFFFF" />
-                <stop offset="35%" stopColor="#C084FC" />
-                <stop offset="100%" stopColor="#7E22CE" />
-              </radialGradient>
-            </defs>
-            <circle cx="35" cy="80" r="12" fill="url(#nodeBallCyanPart5)" filter="drop-shadow(0 3px 6px rgba(2,132,199,0.3))" />
-            <circle cx="90" cy="50" r="15" fill="url(#nodeBallVioletPart5)" filter="drop-shadow(0 4px 8px rgba(126,34,206,0.35))" />
-            <circle cx="140" cy="85" r="10" fill="url(#nodeBallCyanPart5)" filter="drop-shadow(0 3px 6px rgba(2,132,199,0.3))" />
-            <circle cx="80" cy="130" r="13" fill="url(#nodeBallVioletPart5)" filter="drop-shadow(0 4px 8px rgba(126,34,206,0.3))" />
-            <circle cx="28" cy="140" r="8" fill="url(#nodeBallCyanPart5)" />
-            <line x1="35" y1="80" x2="90" y2="50" stroke="#7DD3FC" strokeWidth="2.5" strokeOpacity="0.75" />
-            <line x1="90" y1="50" x2="140" y2="85" stroke="#C084FC" strokeWidth="2.5" strokeOpacity="0.75" />
-            <line x1="90" y1="50" x2="80" y2="130" stroke="#818CF8" strokeWidth="2.5" strokeOpacity="0.75" />
-            <line x1="35" y1="80" x2="28" y2="140" stroke="#7DD3FC" strokeWidth="2.5" strokeOpacity="0.65" />
-            <line x1="80" y1="130" x2="28" y2="140" stroke="#818CF8" strokeWidth="2.5" strokeOpacity="0.65" />
-          </svg>
-        </div>
-
-        {/* Lower-Left Dual 3D Pharmaceutical Capsules on Wave */}
-        <div className="absolute -bottom-4 left-2 sm:left-4 lg:left-6 pointer-events-none opacity-90 hidden md:block z-0">
-          <svg width="160" height="130" viewBox="0 0 170 140" fill="none">
-            <defs>
-              <linearGradient id="pillCyanWavePart5" x1="0" y1="0" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#67E8F9" />
-                <stop offset="50%" stopColor="#38BDF8" />
-                <stop offset="100%" stopColor="#0284C7" />
-              </linearGradient>
-              <linearGradient id="pillPurpleWavePart5" x1="0" y1="0" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#E9D5FF" />
-                <stop offset="50%" stopColor="#A855F7" />
-                <stop offset="100%" stopColor="#6B21A8" />
-              </linearGradient>
-            </defs>
-            <ellipse cx="85" cy="118" rx="65" ry="12" fill="#7554D9" fillOpacity="0.18" filter="blur(6px)" />
-            {/* Cyan/White Pill */}
-            <g transform="translate(52, 72) rotate(-38)">
-              <rect x="-14" y="-32" width="28" height="64" rx="14" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="1" />
-              <path d="M-14 0 L14 0 L14 -18 C14 -25.7 7.7 -32 0 -32 C-7.7 -32 -14 -25.7 -14 -18 Z" fill="url(#pillCyanWavePart5)" />
-              <path d="M-9 -24 C-9 -8 -9 12 -9 24" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
-            </g>
-            {/* Purple/White Pill */}
-            <g transform="translate(108, 88) rotate(-22)">
-              <rect x="-14" y="-32" width="28" height="64" rx="14" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="1" />
-              <path d="M-14 0 L14 0 L14 18 C14 25.7 7.7 32 0 32 C-7.7 32 -14 25.7 -14 18 Z" fill="url(#pillPurpleWavePart5)" />
-              <path d="M-9 -24 C-9 -8 -9 12 -9 24" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
-            </g>
-          </svg>
-        </div>
-
-        {/* Lower-Right 3D DNA Double Helix Strand (Matching Reference Screenshot) */}
-        <div className="absolute -bottom-6 -right-4 w-48 sm:w-56 md:w-64 lg:w-72 h-48 sm:h-56 md:h-64 lg:h-72 pointer-events-none opacity-85 hidden md:block z-0">
-          <svg viewBox="0 0 240 240" className="w-full h-full" fill="none">
-            <defs>
-              <linearGradient id="dnaStrand1_5" x1="0%" y1="100%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#22C5D9" />
-                <stop offset="50%" stopColor="#38BDF8" />
-                <stop offset="100%" stopColor="#818CF8" />
-              </linearGradient>
-              <linearGradient id="dnaStrand2_5" x1="0%" y1="100%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#8B50E8" />
-                <stop offset="50%" stopColor="#A855F7" />
-                <stop offset="100%" stopColor="#38BDF8" />
-              </linearGradient>
-              <radialGradient id="dnaNodeGlow5" cx="40%" cy="40%" r="60%">
-                <stop offset="0%" stopColor="#FFFFFF" />
-                <stop offset="50%" stopColor="#38BDF8" />
-                <stop offset="100%" stopColor="#0284C7" />
-              </radialGradient>
-              <radialGradient id="dnaNodePurple5" cx="40%" cy="40%" r="60%">
-                <stop offset="0%" stopColor="#FFFFFF" />
-                <stop offset="50%" stopColor="#C084FC" />
-                <stop offset="100%" stopColor="#7C3AED" />
-              </radialGradient>
-            </defs>
-            {/* Helical Rungs */}
-            {[
-              { x1: 50, y1: 210, x2: 90, y2: 195, c1: '#38BDF8', c2: '#A855F7' },
-              { x1: 75, y1: 180, x2: 115, y2: 165, c1: '#818CF8', c2: '#38BDF8' },
-              { x1: 100, y1: 150, x2: 140, y2: 135, c1: '#A855F7', c2: '#22C5D9' },
-              { x1: 125, y1: 120, x2: 165, y2: 105, c1: '#22C5D9', c2: '#8B50E8' },
-              { x1: 150, y1: 90, x2: 190, y2: 75, c1: '#38BDF8', c2: '#A855F7' },
-              { x1: 175, y1: 60, x2: 215, y2: 45, c1: '#818CF8', c2: '#22C5D9' },
-            ].map((rung, i) => (
-              <g key={i}>
-                <line
-                  x1={rung.x1}
-                  y1={rung.y1}
-                  x2={rung.x2}
-                  y2={rung.y2}
-                  stroke={rung.c1}
-                  strokeWidth="2.5"
-                  strokeOpacity="0.75"
-                />
-                <circle cx={rung.x1} cy={rung.y1} r="4.5" fill="url(#dnaNodeGlow5)" />
-                <circle cx={rung.x2} cy={rung.y2} r="4.5" fill="url(#dnaNodePurple5)" />
-              </g>
-            ))}
-            {/* Strand 1 (Sine Wave) */}
-            <path
-              d="M30,225 C60,205 70,170 100,155 C130,140 140,105 170,90 C200,75 210,40 235,25"
-              stroke="url(#dnaStrand1_5)"
-              strokeWidth="4"
-              strokeLinecap="round"
-              fill="none"
-              opacity="0.9"
-            />
-            {/* Strand 2 (Opposing Sine Wave) */}
-            <path
-              d="M70,230 C90,195 105,175 130,145 C155,115 175,95 200,65 C215,45 225,35 240,15"
-              stroke="url(#dnaStrand2_5)"
-              strokeWidth="4"
-              strokeLinecap="round"
-              fill="none"
-              opacity="0.85"
-            />
-          </svg>
-        </div>
-
+      <section
+        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#FAF8FF] bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: `url(${IMAGES.whoShouldParticipateBg})`,
+        }}
+      >
         {/* Main Foreground Content */}
         <div className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-center space-y-4 sm:space-y-5">
           {/* 1. SECTION HEADING & IDENTITY */}
@@ -1617,56 +1466,74 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             })}
           </div>
 
-          {/* 3. Abstract Submission Process Strip */}
-          <div className="mt-6 lg:mt-7 bg-white/95 backdrop-blur-md rounded-2xl sm:rounded-3xl border border-[#E2E8F0] shadow-sm p-4 sm:p-5 lg:p-6 flex flex-col lg:flex-row items-center justify-between gap-5 lg:gap-6">
-            {/* Left Header */}
-            <div className="flex items-center gap-3 shrink-0 self-start lg:self-center">
-              <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#6366F1] shrink-0">
-                <ClipboardList className="w-5 h-5 text-[#6366F1]" />
+          {/* 3. Abstract Submission Process Workflow Panel */}
+          <div className="mt-6 lg:mt-7 bg-gradient-to-r from-[#ECE8FF]/85 via-[#F4F4FF]/88 to-[#E5F4FF]/85 backdrop-blur-md rounded-2xl sm:rounded-[26px] border border-[#C4B5FD]/85 shadow-[0_12px_32px_-12px_rgba(99,102,241,0.2)] px-5 py-5 sm:px-6 sm:py-6 lg:px-7 lg:py-6 flex flex-col lg:flex-row lg:items-center gap-5 lg:gap-6">
+            {/* Left Title Area (~25% width on desktop) */}
+            <div className="flex items-center gap-3.5 sm:gap-4 lg:w-[24%] xl:w-[25%] shrink-0">
+              <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-[#EDE9FE] to-[#E0E7FF] border border-[#DDD6FE] flex items-center justify-center text-[#6D28D9] shrink-0 shadow-xs">
+                <svg
+                  viewBox="0 0 32 32"
+                  className="w-7 h-7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="7" y="6" width="18" height="22" rx="3" />
+                  <path d="M12 6V4.5A1.5 1.5 0 0 1 13.5 3h5A1.5 1.5 0 0 1 20 4.5V6" />
+                  <path d="M11 6h10" />
+                  <path d="M11 13.5l1.6 1.6 2.9-3" />
+                  <path d="M18 14h4" />
+                  <path d="M11 20.5l1.6 1.6 2.9-3" />
+                  <path d="M18 21h4" />
+                </svg>
               </div>
-              <div>
-                <div className="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-sm sm:text-base text-[#082746] leading-snug">
-                  Abstract<br className="hidden sm:inline" /> Submission Process
-                </div>
-              </div>
+              <h3 className="font-['Plus_Jakarta_Sans',sans-serif] font-extrabold text-[17px] sm:text-[19px] lg:text-[20px] text-[#082746] leading-[1.2] tracking-tight">
+                Abstract
+                <br />
+                Submission Process
+              </h3>
             </div>
 
-            {/* Subtle Divider */}
-            <div className="hidden lg:block w-px h-12 bg-[#E2E8F0] shrink-0" />
+            {/* Thin Divider (horizontal on mobile/tablet, vertical on desktop) */}
+            <div className="h-px w-full bg-[#C4B5FD]/60 lg:hidden" aria-hidden="true" />
+            <div className="hidden lg:block w-px self-stretch my-0.5 bg-[#A78BFA]/65 shrink-0" aria-hidden="true" />
 
-            {/* Four Steps Horizontal Flow */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 sm:gap-4 flex-1 w-full">
+            {/* Four Workflow Steps (vertical on mobile, 2x2 on tablet, single row on desktop) */}
+            <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-row lg:items-start lg:justify-between gap-4 sm:gap-5 lg:gap-2 xl:gap-3">
               {SUBMISSION_STEPS.map((step, idx) => {
-                const badgeColor =
-                  step.number === '01'
-                    ? 'bg-[#7C3AED]'
-                    : step.number === '02'
-                    ? 'bg-[#06B6D4]'
-                    : step.number === '03'
-                    ? 'bg-[#6366F1]'
-                    : 'bg-[#0D9488]';
+                const isVioletStep = idx % 2 === 0;
+                const capsuleGradient = isVioletStep
+                  ? 'bg-gradient-to-r from-[#8B5CF6] to-[#6366F1]'
+                  : 'bg-gradient-to-r from-[#06B6D4] to-[#0D9488]';
 
                 return (
-                  <div key={step.number} className="flex items-center justify-between gap-2">
-                    <div className="flex items-start gap-2.5 min-w-0">
+                  <React.Fragment key={step.number}>
+                    <div className="flex items-start gap-2.5 sm:gap-3 flex-1 min-w-0">
                       <span
-                        className={`w-7 h-7 rounded-full ${badgeColor} text-white text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5 shadow-xs font-['Inter',sans-serif]`}
+                        className={`inline-flex items-center justify-center min-w-[40px] sm:min-w-[42px] h-7 px-3 rounded-full ${capsuleGradient} text-white text-xs font-extrabold tracking-wide tabular-nums shrink-0 shadow-xs font-['Plus_Jakarta_Sans',sans-serif]`}
                       >
                         {step.number}
                       </span>
-                      <div className="min-w-0">
-                        <h4 className="font-['Plus_Jakarta_Sans',sans-serif] font-bold text-xs sm:text-[13px] text-[#082746] leading-tight">
+                      <div className="min-w-0 pt-0.5">
+                        <h4 className="font-['Plus_Jakarta_Sans',sans-serif] font-extrabold text-[14px] sm:text-[15px] text-[#082746] leading-tight">
                           {step.title}
                         </h4>
-                        <p className="font-['Inter',sans-serif] text-[11px] sm:text-xs text-[#64748B] leading-tight mt-0.5">
+                        <p className="font-['Inter',sans-serif] text-xs sm:text-[12.5px] text-[#334155] leading-[1.45] mt-1">
                           {step.description}
                         </p>
                       </div>
                     </div>
                     {idx < SUBMISSION_STEPS.length - 1 && (
-                      <ChevronRight className="w-4 h-4 text-[#CBD5E1] shrink-0 hidden xl:block ml-1" />
+                      <ChevronRight
+                        className="hidden lg:block w-4 h-4 xl:w-[18px] xl:h-[18px] text-[#6D28D9]/80 shrink-0 self-center"
+                        strokeWidth={1.9}
+                        aria-hidden="true"
+                      />
                     )}
-                  </div>
+                  </React.Fragment>
                 );
               })}
             </div>

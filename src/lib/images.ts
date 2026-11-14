@@ -41,14 +41,23 @@ export const IMAGES = {
   // Section 3: About the Conference Background Artwork
   aboutSectionBg: '/assets/aistudio/Futuristic_AI_Science_Conference_Banner_723bfcec.png',
 
+  // About Page Full-Section Background Artwork
+  aboutConferencePageBg: '/assets/aistudio/Modern_Molecular_Research_Waves_00da54e1.png',
+
   // Section 4: Home Page Scientific Tracks Background Artwork
   scientificTracksBg: '/assets/aistudio/Glowing_AI_Pharmaceutical_Waves_e0bf85aa.png',
 
   // Scientific Tracks Page Full-Section Background Artwork
   tracksPageBg: '/assets/aistudio/Pastel_AI_Pharmacy_Conference_Background_9e247e1a.png',
 
+  // Section 5: Who Should Participate Section Background Artwork
+  whoShouldParticipateBg: '/assets/aistudio/Minimalist_Medical_Science_Conference_Background_7dd22d0c.png',
+
   // Section 7: Conference Venue & Host Section Background Artwork
   venueSectionBg: '/assets/aistudio/Lavender_SRM_Campus_Conference_Background_9d3f0288.png',
+
+  // Conference Committees Page Full-Section Background Artwork
+  committeesPageBg: '/assets/aistudio/Scientific_Conference_Committees_Background_985f496a.png',
 
   // Section 6.5: Important Dates & Deadlines Background Artwork
   importantDatesBg: '/assets/aistudio/Futuristic_Biotech_Dates_and_Deadlines_66c87718.png',
@@ -61,6 +70,9 @@ export const IMAGES = {
 
   // Abstract Submission Portal Full-Page Background Artwork
   abstractSubmissionBg: '/assets/aistudio/Luminous_Pharma_Waves_and_DNA_Canvas_c999607f.png',
+
+  // Registration Portal Full-Page Background Artwork
+  registrationPageBg: '/assets/aistudio/Science_Conference_Registration_Background_91d96182.png',
 
   // Scientific Track Illustrations (Transparent PNGs)
   track01Pharmaceutics: '/images/tracks/pharmaceutics-transparent.png',

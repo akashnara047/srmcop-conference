@@ -38,6 +38,7 @@ import {
   generateRegistrationReceiptPDF,
   type RegistrationRecord,
 } from '../lib/managementService';
+import { IMAGES } from '../lib/images';
 import confetti from 'canvas-confetti';
 
 // Available categories
@@ -511,7 +512,12 @@ export const RegistrationView: React.FC = () => {
   };
 
   return (
-    <div className="w-full bg-gradient-to-b from-[#EBF2FF] via-[#F4F1FD] to-[#E9F3FF] min-h-screen py-7 sm:py-9 relative overflow-hidden font-['Inter',sans-serif]">
+    <div
+      className="w-full bg-[#F4F1FD] bg-cover bg-center bg-no-repeat min-h-screen py-7 sm:py-9 relative overflow-x-hidden font-['Inter',sans-serif]"
+      style={{
+        backgroundImage: `url(${IMAGES.registrationPageBg})`,
+      }}
+    >
       {/* =====================================================================
           REGISTRATION CONFIRMATION DIALOG MODAL (Requirement 3)
          ===================================================================== */}
@@ -607,51 +613,6 @@ export const RegistrationView: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* Upper-Right 3D Pill/Molecular Artwork matching mockup */}
-      <div className="absolute right-2 sm:right-6 lg:right-10 top-1 w-44 sm:w-52 lg:w-60 h-auto pointer-events-none opacity-90 hidden sm:block z-0">
-        <svg viewBox="0 0 240 200" className="w-full h-auto drop-shadow-[0_12px_24px_rgba(113,60,224,0.22)]" fill="none">
-          <defs>
-            <radialGradient id="mockupMolPurple" cx="35%" cy="30%" r="70%">
-              <stop offset="0%" stopColor="#FFFFFF" />
-              <stop offset="35%" stopColor="#C084FC" />
-              <stop offset="80%" stopColor="#8B50E8" />
-              <stop offset="100%" stopColor="#581C87" />
-            </radialGradient>
-            <radialGradient id="mockupMolCyan" cx="35%" cy="30%" r="70%">
-              <stop offset="0%" stopColor="#FFFFFF" />
-              <stop offset="35%" stopColor="#67E8F9" />
-              <stop offset="80%" stopColor="#0891B2" />
-              <stop offset="100%" stopColor="#0E7490" />
-            </radialGradient>
-            <linearGradient id="mockupCapGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#C084FC" />
-              <stop offset="45%" stopColor="#713CE0" />
-              <stop offset="100%" stopColor="#12B8D6" />
-            </linearGradient>
-          </defs>
-
-          {/* Molecular bonds */}
-          <line x1="45" y1="35" x2="85" y2="72" stroke="#DDD6FE" strokeWidth="4" strokeLinecap="round" />
-          <line x1="85" y1="72" x2="35" y2="115" stroke="#BAE6FD" strokeWidth="4" strokeLinecap="round" />
-          <circle cx="45" cy="35" r="14" fill="url(#mockupMolPurple)" />
-          <circle cx="35" cy="115" r="15" fill="url(#mockupMolPurple)" />
-          <circle cx="85" cy="72" r="18" fill="url(#mockupMolPurple)" />
-
-          {/* 3D Glass Pill Capsule */}
-          <g transform="translate(150, 90) rotate(-35)">
-            <rect x="-22" y="-50" width="44" height="100" rx="22" fill="#FFFFFF" fillOpacity="0.45" stroke="#DDD6FE" strokeWidth="3" />
-            <path d="M-22,0 L22,0 L22,28 C22,40.1 12.1,50 0,50 C-12.1,50 -22,40.1 -22,28 Z" fill="url(#mockupCapGrad)" fillOpacity="0.92" />
-            <circle cx="0" cy="20" r="11" fill="#FFFFFF" fillOpacity="0.9" />
-            <text x="0" y="24" textAnchor="middle" fontSize="11" fontWeight="800" fill="#713CE0" fontFamily="sans-serif">
-              AI
-            </text>
-          </g>
-
-          <circle cx="195" cy="40" r="13" fill="url(#mockupMolCyan)" />
-          <circle cx="175" cy="165" r="12" fill="url(#mockupMolCyan)" />
-        </svg>
-      </div>
 
       <div className="w-[94%] sm:w-[95%] max-w-[1240px] mx-auto relative z-10 space-y-4 sm:space-y-5">
         {/* =====================================================================

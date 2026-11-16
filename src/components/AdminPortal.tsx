@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   collection,
   onSnapshot,
@@ -34,6 +34,7 @@ import {
   LayoutDashboard,
   Users,
   FileText,
+  FileCheck2,
   UserCheck,
   Settings,
   Trash2,
@@ -47,8 +48,15 @@ import {
   Sparkles,
   Layers,
   ChevronRight,
+  ChevronDown,
   Printer,
+  Mic,
+  Presentation,
+  Monitor,
+  RotateCcw,
+  Building2,
 } from 'lucide-react';
+import { AdminHospitalityManager } from './AdminHospitalityManager';
 import {
   RegistrationRecord,
   AbstractRecord,
@@ -60,6 +68,22 @@ import {
   exportMasterParticipantsToExcel,
   generateAcceptanceLetterPDF,
 } from '../lib/managementService';
+import {
+  exportAllAbstractsToWord,
+  ABSTRACT_WORD_FILENAME,
+} from '../lib/abstractWordExport';
+import {
+  InstitutionCategoryValue,
+  InstitutionFilterValue,
+  PresentationDashboardFilter,
+  computePresentationDashboardMetrics,
+  computeRegistrationInstitutionStats,
+  formatInstitutionCategoryLabel,
+  formatRegistrationPresentationPlan,
+  getLinkedRegistrationForAbstractRecord,
+  normalizeInstitutionCategory,
+  normalizeRegKey,
+} from '../lib/presentationDashboardStats';
 import { SCIENTIFIC_TRACKS } from '../data/conferenceData';
 
 // Authorized administrator emails
@@ -78,6 +102,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     | 'abstracts'
     | 'search'
     | 'reports'
+    | 'hospitality'
     | 'settings';
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
@@ -103,11 +128,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [regSearchQuery, setRegSearchQuery] = useState('');
   const [regStatusFilter, setRegStatusFilter] = useState<string>('all');
   const [regCategoryFilter, setRegCategoryFilter] = useState<string>('all');
+  const [regInstitutionFilter, setRegInstitutionFilter] = useState<InstitutionFilterValue>('all');
+  const [updatingInstCatId, setUpdatingInstCatId] = useState<string | null>(null);
 
   // Abstract Filter & Search states
   const [absSearchQuery, setAbsSearchQuery] = useState('');
   const [absStatusFilter, setAbsStatusFilter] = useState<string>('all');
   const [absTrackFilter, setAbsTrackFilter] = useState<string>('all');
+  const [absInstitutionFilter, setAbsInstitutionFilter] = useState<InstitutionFilterValue>('all');
+  const [presentationDashboardFilter, setPresentationDashboardFilter] =
+    useState<PresentationDashboardFilter>('all');
+  const [showPendingBreakdown, setShowPendingBreakdown] = useState(false);
 
   // Unified Participant Search state
   const [unifiedSearchQuery, setUnifiedSearchQuery] = useState('');
@@ -119,6 +150,13 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [actionRemarks, setActionRemarks] = useState('');
   const [processingAction, setProcessingAction] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [exportingWord, setExportingWord] = useState(false);
+  const [wordExportFeedback, setWordExportFeedback] = useState<{
+    type: 'success' | 'warning' | 'error';
+    title: string;
+    message: string;
+    flaggedIds?: string[];
+  } | null>(null);
 
   // Presentation Format Allocation state
   const [allottedFormatSelection, setAllottedFormatSelection] = useState<string>('');
@@ -288,7 +326,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       );
 
       setActionSuccessMsg(
-        `Successfully verified payment for ${reg.fullName}! Allocated Registration ID: ${allocatedId}`
+        `Payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).`
       );
       setSelectedReg(null);
       setActionRemarks('');
@@ -527,6 +565,105 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     }
   };
 
+  // Safely classify or update a registration's Institution Category (without altering other fields)
+  const handleUpdateRegistrationInstitutionCategory = async (
+    reg: RegistrationRecord,
+    category: InstitutionCategoryValue
+  ) => {
+    if (updatingInstCatId) return;
+    setUpdatingInstCatId(reg.id);
+    setActionSuccessMsg(null);
+    try {
+      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
+      const timestamp = new Date().toISOString();
+
+      await updateDoc(doc(db, 'registrations', reg.id), {
+        institutionCategory: category,
+        updatedBy: adminIdentity,
+        updatedAt: timestamp,
+      });
+
+      setSelectedReg((prev) =>
+        prev && prev.id === reg.id
+          ? { ...prev, institutionCategory: category, updatedAt: timestamp }
+          : prev
+      );
+
+      setActionSuccessMsg(
+        `Institution category for ${reg.fullName} (${reg.registrationId || reg.id}) set to ${
+          category === 'internal' ? 'Internal' : 'External'
+        }.`
+      );
+    } catch (err: any) {
+      console.error('Failed to update institution category:', err);
+      handleFirestoreError(err, OperationType.UPDATE, `registrations/${reg.id}`);
+    } finally {
+      setUpdatingInstCatId(null);
+    }
+  };
+
+  // Download submitted abstracts compiled into a single Word (.docx) document
+  const handleDownloadAllAbstractsWord = async (forceAll = false) => {
+    if (exportingWord) return;
+    setExportingWord(true);
+    setWordExportFeedback(null);
+
+    const effectiveFilter: InstitutionFilterValue = forceAll ? 'all' : absInstitutionFilter;
+    const targetFilename =
+      effectiveFilter === 'internal'
+        ? 'SRM_Conference_2027_Internal_Abstracts.docx'
+        : effectiveFilter === 'external'
+        ? 'SRM_Conference_2027_External_Abstracts.docx'
+        : ABSTRACT_WORD_FILENAME;
+
+    try {
+      const result = await exportAllAbstractsToWord(visibleAbstracts, targetFilename, {
+        registrations,
+        institutionFilter: effectiveFilter,
+      });
+
+      if (result.empty) {
+        setWordExportFeedback({
+          type: 'warning',
+          title: 'No Matching Abstracts Available',
+          message:
+            effectiveFilter === 'all'
+              ? 'There are currently no submitted abstract records available in Abstract Management to compile into a Word document.'
+              : `No submitted abstracts currently match the ${
+                  effectiveFilter === 'internal' ? 'Internal Participants' : 'External Participants'
+                } institution filter.`,
+        });
+        return;
+      }
+
+      if (result.flaggedOverflowIds.length > 0) {
+        setWordExportFeedback({
+          type: 'warning',
+          title: 'Word Document Downloaded (Long Abstract Notice)',
+          message: `Compiled ${result.totalAbstracts} abstracts across ${result.totalPages} pages into ${result.filename}. However, ${result.flaggedOverflowIds.length} abstract(s) contain unusually long text that may exceed one A4 page in Word.`,
+          flaggedIds: result.flaggedOverflowIds,
+        });
+      } else {
+        setWordExportFeedback({
+          type: 'success',
+          title: 'Word Compilation Complete',
+          message: `Successfully compiled ${result.totalAbstracts} submitted abstract(s) (${result.totalPages} pages, 1 abstract per A4 page) and downloaded ${result.filename}.`,
+        });
+      }
+    } catch (err: any) {
+      console.error('Error compiling abstracts to Word:', err);
+      setWordExportFeedback({
+        type: 'error',
+        title: 'Word Compilation Failed',
+        message:
+          err?.message ||
+          'Unable to compile abstracts into a Word document at this moment. No database records were altered.',
+      });
+    } finally {
+      setExportingWord(false);
+    }
+  };
+
   // Filtered Datasets based on record type
   const filterByRecordType = <T extends { recordType?: string }>(items: T[]) => {
     if (recordTypeFilter === 'all') return items;
@@ -535,6 +672,12 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
   const visibleRegistrations = filterByRecordType(registrations);
   const visibleAbstracts = filterByRecordType(abstracts);
+
+  // Real-time Registration Institution Breakdown (across ALL registrants including non-presenting delegates)
+  const regInstitutionStats = useMemo(
+    () => computeRegistrationInstitutionStats(visibleRegistrations),
+    [visibleRegistrations]
+  );
 
   // Filtered Registrations Table
   const filteredRegistrations = visibleRegistrations.filter((r) => {
@@ -555,10 +698,74 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     const matchesCategory =
       regCategoryFilter === 'all' || r.category === regCategoryFilter;
 
-    return matchesSearch && matchesStatus && matchesCategory;
+    const matchesInstitution =
+      regInstitutionFilter === 'all' ||
+      normalizeInstitutionCategory(r.institutionCategory) === regInstitutionFilter;
+
+    return matchesSearch && matchesStatus && matchesCategory && matchesInstitution;
   });
 
-  // Filtered Abstracts Table
+  // Real-time Scientific Presentation Dashboard metrics (recalculates on any Firestore snapshot change or institution filter change)
+  const presentationMetrics = useMemo(
+    () => computePresentationDashboardMetrics(visibleRegistrations, visibleAbstracts, absInstitutionFilter),
+    [visibleRegistrations, visibleAbstracts, absInstitutionFilter]
+  );
+
+  // Dashboard card click handlers
+  const handleSelectPresentationCardFilter = (
+    target: Exclude<PresentationDashboardFilter, 'all' | 'pending_all' | 'not_submitted' | 'awaiting_decision'>
+  ) => {
+    if (presentationDashboardFilter === target) {
+      setPresentationDashboardFilter('all');
+    } else {
+      setPresentationDashboardFilter(target);
+      setAbsStatusFilter('all');
+    }
+    setShowPendingBreakdown(false);
+  };
+
+  const handleTogglePendingCard = () => {
+    const isPendingFilterActive =
+      presentationDashboardFilter === 'pending_all' ||
+      presentationDashboardFilter === 'not_submitted' ||
+      presentationDashboardFilter === 'awaiting_decision';
+
+    if (!showPendingBreakdown) {
+      setShowPendingBreakdown(true);
+      setPresentationDashboardFilter('pending_all');
+      setAbsStatusFilter('all');
+    } else if (
+      presentationDashboardFilter === 'not_submitted' ||
+      presentationDashboardFilter === 'awaiting_decision'
+    ) {
+      setPresentationDashboardFilter('pending_all');
+    } else if (isPendingFilterActive) {
+      setShowPendingBreakdown(false);
+      setPresentationDashboardFilter('all');
+    } else {
+      setShowPendingBreakdown(false);
+    }
+  };
+
+  const handleSelectPendingSubFilter = (
+    subFilter: 'not_submitted' | 'awaiting_decision' | 'pending_all'
+  ) => {
+    setShowPendingBreakdown(true);
+    setAbsStatusFilter('all');
+    if (presentationDashboardFilter === subFilter && subFilter !== 'pending_all') {
+      setPresentationDashboardFilter('pending_all');
+    } else {
+      setPresentationDashboardFilter(subFilter);
+    }
+  };
+
+  const handleClearPresentationFilter = () => {
+    setPresentationDashboardFilter('all');
+    setShowPendingBreakdown(false);
+    setAbsStatusFilter('all');
+  };
+
+  // Filtered Abstracts Table (supports both normal table & dashboard abstract-scoped filters)
   const filteredAbstracts = visibleAbstracts.filter((a) => {
     const q = absSearchQuery.toLowerCase();
     const author = a.presentingAuthor || {};
@@ -573,8 +780,110 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     const matchesStatus = absStatusFilter === 'all' || a.status === absStatusFilter;
     const matchesTrack = absTrackFilter === 'all' || a.trackId === absTrackFilter;
 
-    return matchesSearch && matchesStatus && matchesTrack;
+    // Resolve institution classification strictly via linked Registration ID (never author affiliation)
+    const linkedReg = getLinkedRegistrationForAbstractRecord(a, registrations);
+    const linkedInstitutionCat = normalizeInstitutionCategory(linkedReg?.institutionCategory);
+    const matchesInstitution =
+      absInstitutionFilter === 'all' || linkedInstitutionCat === absInstitutionFilter;
+
+    let matchesDashboardCard = true;
+    if (presentationDashboardFilter === 'submitted') {
+      matchesDashboardCard = presentationMetrics.submittedAbstractIdSet.has(a.id);
+    } else if (presentationDashboardFilter === 'awaiting_decision') {
+      matchesDashboardCard = presentationMetrics.awaitingDecisionAbstractIdSet.has(a.id);
+    } else if (presentationDashboardFilter === 'accepted') {
+      matchesDashboardCard = presentationMetrics.acceptedAbstractIdSet.has(a.id);
+    } else if (presentationDashboardFilter === 'rejected') {
+      matchesDashboardCard = presentationMetrics.rejectedAbstractIdSet.has(a.id);
+    } else if (presentationDashboardFilter === 'oral_allotted') {
+      matchesDashboardCard = presentationMetrics.oralAllottedAbstractIdSet.has(a.id);
+    } else if (presentationDashboardFilter === 'poster_allotted') {
+      matchesDashboardCard = presentationMetrics.posterAllottedAbstractIdSet.has(a.id);
+    } else if (presentationDashboardFilter === 'eposter_allotted') {
+      matchesDashboardCard = presentationMetrics.eposterAllottedAbstractIdSet.has(a.id);
+    }
+
+    return matchesSearch && matchesStatus && matchesTrack && matchesInstitution && matchesDashboardCard;
   });
+
+  // Roster rows used when a registration-inclusive presentation filter is active
+  // ('registered', 'not_submitted', or 'pending_all')
+  const isRegistrationRosterFilterActive =
+    presentationDashboardFilter === 'registered' ||
+    presentationDashboardFilter === 'not_submitted' ||
+    presentationDashboardFilter === 'pending_all';
+
+  const filteredPresentationRosterRows = useMemo(() => {
+    if (!isRegistrationRosterFilterActive) return [];
+
+    let sourceRegs: RegistrationRecord[] = [];
+    if (presentationDashboardFilter === 'registered') {
+      sourceRegs = presentationMetrics.eligibleRegistrations;
+    } else if (presentationDashboardFilter === 'not_submitted') {
+      sourceRegs = presentationMetrics.notSubmittedRegistrations;
+    } else if (presentationDashboardFilter === 'pending_all') {
+      const pendingRegMap = new Map<string, RegistrationRecord>();
+      for (const reg of presentationMetrics.notSubmittedRegistrations) {
+        const key = normalizeRegKey(reg.registrationId) || normalizeRegKey(reg.id);
+        if (key) pendingRegMap.set(key, reg);
+      }
+      for (const abs of presentationMetrics.awaitingDecisionAbstracts) {
+        const linkedReg = presentationMetrics.registrationByAbstractId.get(abs.id);
+        if (linkedReg) {
+          const key = normalizeRegKey(linkedReg.registrationId) || normalizeRegKey(linkedReg.id);
+          if (key) pendingRegMap.set(key, linkedReg);
+        }
+      }
+      sourceRegs = Array.from(pendingRegMap.values());
+    }
+
+    const q = absSearchQuery.trim().toLowerCase();
+
+    return sourceRegs
+      .map((reg) => {
+        const canonicalKey = normalizeRegKey(reg.registrationId) || normalizeRegKey(reg.id);
+        const linkedAbs = presentationMetrics.abstractByCanonicalRegKey.get(canonicalKey);
+        return { reg, linkedAbs };
+      })
+      .filter(({ reg, linkedAbs }) => {
+        if (absTrackFilter !== 'all') {
+          if (!linkedAbs || linkedAbs.trackId !== absTrackFilter) return false;
+        }
+        if (absStatusFilter !== 'all') {
+          if (!linkedAbs || linkedAbs.status !== absStatusFilter) return false;
+        }
+        if (!q) return true;
+
+        const regIdMatch = (reg.registrationId || reg.id || '').toLowerCase().includes(q);
+        const nameMatch = (reg.fullName || '').toLowerCase().includes(q);
+        const emailMatch = (reg.email || '').toLowerCase().includes(q);
+        const instMatch = (reg.institution || '').toLowerCase().includes(q);
+        const absIdMatch = linkedAbs ? linkedAbs.id.toLowerCase().includes(q) : false;
+        const absTitleMatch = linkedAbs ? (linkedAbs.title || '').toLowerCase().includes(q) : false;
+        return regIdMatch || nameMatch || emailMatch || instMatch || absIdMatch || absTitleMatch;
+      });
+  }, [
+    isRegistrationRosterFilterActive,
+    presentationDashboardFilter,
+    presentationMetrics,
+    absSearchQuery,
+    absTrackFilter,
+    absStatusFilter,
+  ]);
+
+  const activeDashboardFilterLabel: Record<PresentationDashboardFilter, string> = {
+    all: 'All Abstracts',
+    registered: 'Registered for Presentation',
+    submitted: 'Abstracts Submitted',
+    pending_all: 'Abstracts Pending (All)',
+    not_submitted: 'Pending · Not Submitted',
+    awaiting_decision: 'Pending · Awaiting Acceptance Decision',
+    accepted: 'Accepted Abstracts',
+    rejected: 'Rejected Abstracts',
+    oral_allotted: 'Oral Allotted',
+    poster_allotted: 'Poster Allotted',
+    eposter_allotted: 'E-Poster Allotted',
+  };
 
   // Unified Participant Search Matching
   const unifiedSearchResults = registrations.filter((r) => {
@@ -604,6 +913,11 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
   const testCount = registrations.filter((r) => r.recordType === 'test').length +
     abstracts.filter((a) => a.recordType === 'test').length;
+
+  // Lookup linked registration for an abstract strictly via Registration ID
+  const getLinkedRegistrationForAbstract = (abs: AbstractRecord): RegistrationRecord | undefined => {
+    return getLinkedRegistrationForAbstractRecord(abs, registrations);
+  };
 
   // -------------------------------------------------------------------------
   // LOGIN SCREEN
@@ -843,6 +1157,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               { id: 'abstracts', label: 'Abstract Management', icon: FileText, badge: underReviewAbs > 0 ? `${underReviewAbs}` : null },
               { id: 'search', label: 'Participant Search', icon: Search },
               { id: 'reports', label: 'Reports & Excel Export', icon: FileSpreadsheet },
+              { id: 'hospitality', label: 'Accommodation & Places', icon: Building2 },
               { id: 'settings', label: 'Account Settings', icon: Settings },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -928,9 +1243,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   </div>
 
                   <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-200 shadow-2xs">
-                    <div className="text-[11px] font-semibold text-emerald-800">Verified & Allocated</div>
+                    <div className="text-[11px] font-semibold text-emerald-800">Payment Verified</div>
                     <div className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-emerald-900 mt-1">{verifiedRegs}</div>
-                    <div className="text-[10px] text-emerald-700 mt-0.5">Official AICONDD IDs</div>
+                    <div className="text-[10px] text-emerald-700 mt-0.5">Approved & UTR confirmed</div>
                   </div>
 
                   <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 shadow-2xs">
@@ -986,7 +1301,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     Pending Action: {pendingRegs} Registrations awaiting payment verification
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Verifying a registration atomically assigns the official sequential Registration ID (e.g., AICONDD001) required for abstract submission.
+                    Review participant UTR references and payment proofs to verify payments and approve registrations. Participants receive their Registration ID immediately upon registration and may submit abstracts independently.
                   </p>
                 </div>
                 <button
@@ -1013,17 +1328,164 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     Registration Management
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Verify participant UTR payments, assign official AICONDD IDs, or manage records.
+                    Verify participant UTR payments, inspect payment proofs, or manage registration records.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => exportRegistrationsToExcel(filteredRegistrations)}
+                    onClick={() =>
+                      exportRegistrationsToExcel(
+                        filteredRegistrations,
+                        regInstitutionFilter === 'internal'
+                          ? 'AICONDD_Internal_Registrations_2027.xlsx'
+                          : regInstitutionFilter === 'external'
+                          ? 'AICONDD_External_Registrations_2027.xlsx'
+                          : 'AICONDD_Registrations_2027.xlsx'
+                      )
+                    }
                     className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export Registrations (.xlsx)</span>
+                    <span>
+                      {regInstitutionFilter === 'all'
+                        ? 'Export Registrations (.xlsx)'
+                        : `Export ${regInstitutionFilter === 'internal' ? 'Internal' : 'External'} (.xlsx)`}
+                    </span>
+                  </button>
+                  {regInstitutionFilter !== 'all' && (
+                    <button
+                      onClick={() =>
+                        exportRegistrationsToExcel(
+                          visibleRegistrations,
+                          'AICONDD_All_Registrations_2027.xlsx'
+                        )
+                      }
+                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>All (.xlsx)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Institution Classification Summary Cards & Segmented Filter */}
+              <div className="bg-white/80 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">
+                      Institution Classification Overview
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Counts include all registered delegates and presenters.
+                      {regInstitutionStats.unclassifiedRegistrations > 0 && (
+                        <span className="ml-1.5 text-amber-700 font-semibold">
+                          · {regInstitutionStats.unclassifiedRegistrations} legacy record(s) unclassified
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Segmented Institution Filter */}
+                  <div
+                    role="group"
+                    aria-label="Filter registrations by institution category"
+                    className="inline-flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/90 text-[11px] font-semibold self-start sm:self-auto"
+                  >
+                    {(
+                      [
+                        { id: 'all', label: 'All Registrations' },
+                        { id: 'internal', label: 'Internal' },
+                        { id: 'external', label: 'External' },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        aria-pressed={regInstitutionFilter === opt.id}
+                        onClick={() => setRegInstitutionFilter(opt.id)}
+                        className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                          regInstitutionFilter === opt.id
+                            ? 'bg-white text-purple-900 shadow-xs border border-slate-200/80'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setRegInstitutionFilter('all')}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between bg-gradient-to-br from-slate-50/90 via-white/90 to-indigo-50/70 ${
+                      regInstitutionFilter === 'all'
+                        ? 'border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs'
+                        : 'border-slate-200/90 hover:border-indigo-300'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-[11px] font-semibold text-slate-600">
+                        Total Registrations
+                      </div>
+                      <div className="text-2xl font-extrabold text-slate-900 font-heading tabular-nums mt-0.5">
+                        {regInstitutionStats.totalRegistrations}
+                      </div>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100/80 text-indigo-700 flex items-center justify-center">
+                      <Users className="w-4 h-4" />
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRegInstitutionFilter((prev) => (prev === 'internal' ? 'all' : 'internal'))
+                    }
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between bg-gradient-to-br from-purple-50/90 via-white/90 to-violet-50/70 ${
+                      regInstitutionFilter === 'internal'
+                        ? 'border-purple-500 ring-2 ring-purple-500/20 shadow-xs'
+                        : 'border-purple-200/80 hover:border-purple-300'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-[11px] font-semibold text-slate-600">
+                        Internal Registrations
+                      </div>
+                      <div className="text-2xl font-extrabold text-purple-950 font-heading tabular-nums mt-0.5">
+                        {regInstitutionStats.internalRegistrations}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-semibold text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md">
+                      SRMIST
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRegInstitutionFilter((prev) => (prev === 'external' ? 'all' : 'external'))
+                    }
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between bg-gradient-to-br from-cyan-50/90 via-white/90 to-sky-50/70 ${
+                      regInstitutionFilter === 'external'
+                        ? 'border-cyan-500 ring-2 ring-cyan-500/20 shadow-xs'
+                        : 'border-cyan-200/80 hover:border-cyan-300'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-[11px] font-semibold text-slate-600">
+                        External Registrations
+                      </div>
+                      <div className="text-2xl font-extrabold text-cyan-950 font-heading tabular-nums mt-0.5">
+                        {regInstitutionStats.externalRegistrations}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-semibold text-cyan-700 bg-cyan-100/80 px-2 py-0.5 rounded-md">
+                      Other Inst.
+                    </span>
                   </button>
                 </div>
               </div>
@@ -1049,7 +1511,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <option value="all">All Payment Statuses</option>
                   <option value="Pending Verification">Pending Verification</option>
                   <option value="Under Verification">Under Verification</option>
-                  <option value="Verified">Verified (AICONDD Allocated)</option>
+                  <option value="Verified">Verified</option>
                   <option value="Rejected">Rejected</option>
                 </select>
 
@@ -1121,6 +1583,36 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               <div className="text-[11px] text-slate-500 truncate max-w-xs">
                                 {reg.email} · {reg.institution}
                               </div>
+                              <div className="mt-1 flex items-center gap-1.5">
+                                {normalizeInstitutionCategory(reg.institutionCategory) ? (
+                                  <span
+                                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                                      normalizeInstitutionCategory(reg.institutionCategory) === 'internal'
+                                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                        : 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                                    }`}
+                                  >
+                                    {formatInstitutionCategoryLabel(reg.institutionCategory)}
+                                  </span>
+                                ) : (
+                                  <select
+                                    aria-label={`Classify institution for ${reg.fullName}`}
+                                    value=""
+                                    disabled={updatingInstCatId === reg.id}
+                                    onChange={(e) => {
+                                      const val = e.target.value as InstitutionCategoryValue | '';
+                                      if (val === 'internal' || val === 'external') {
+                                        handleUpdateRegistrationInstitutionCategory(reg, val);
+                                      }
+                                    }}
+                                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 outline-none cursor-pointer"
+                                  >
+                                    <option value="">Unclassified · Assign...</option>
+                                    <option value="internal">Internal (SRM)</option>
+                                    <option value="external">External</option>
+                                  </select>
+                                )}
+                              </div>
                             </td>
 
                             {/* Category */}
@@ -1132,7 +1624,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             {/* UTR / Fee */}
                             <td className="p-3.5 whitespace-nowrap font-mono">
                               <div className="font-semibold text-slate-800">
-                                ₹{reg.paymentAmount || reg.amount || 2500}
+                                ₹{reg.paymentAmount || reg.amount || 2000}
                               </div>
                               <div className="text-[11px] text-slate-500 truncate max-w-[120px]">
                                 {reg.transactionReference}
@@ -1196,7 +1688,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                   onClick={() => handleVerifyPayment(reg)}
                                   disabled={processingAction}
                                   className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer shadow-2xs"
-                                  title="Verify payment and allocate official AICONDD ID"
+                                  title="Verify payment and approve registration"
                                 >
                                   Verify
                                 </button>
@@ -1245,15 +1737,536 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => exportAbstractsToExcel(filteredAbstracts)}
+                    type="button"
+                    onClick={() => handleDownloadAllAbstractsWord(false)}
+                    disabled={exportingWord}
+                    className="px-3 py-1.5 rounded-lg bg-[#0F1B4B] hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                    title="Compile matching abstracts into one formatted A4 Word document (.docx)"
+                  >
+                    {exportingWord ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Compiling Word...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="w-3.5 h-3.5 text-cyan-300" />
+                        <span>
+                          {absInstitutionFilter === 'all'
+                            ? 'Download All Abstracts (Word)'
+                            : `Download ${
+                                absInstitutionFilter === 'internal' ? 'Internal' : 'External'
+                              } Abstracts (Word)`}
+                        </span>
+                      </>
+                    )}
+                  </button>
+
+                  {absInstitutionFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadAllAbstractsWord(true)}
+                      disabled={exportingWord}
+                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 disabled:opacity-60 text-slate-700 border border-slate-200 text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="Download all abstracts regardless of institution filter"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-[#0F1B4B]" />
+                      <span>All (Word)</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() =>
+                      exportAbstractsToExcel(
+                        filteredAbstracts,
+                        absInstitutionFilter === 'internal'
+                          ? 'AICONDD_Internal_Abstract_Submissions_2027.xlsx'
+                          : absInstitutionFilter === 'external'
+                          ? 'AICONDD_External_Abstract_Submissions_2027.xlsx'
+                          : 'AICONDD_Abstract_Submissions_2027.xlsx',
+                        registrations
+                      )
+                    }
                     className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export Abstracts (.xlsx)</span>
+                    <span>
+                      {absInstitutionFilter === 'all'
+                        ? 'Export Abstracts (.xlsx)'
+                        : `Export ${absInstitutionFilter === 'internal' ? 'Internal' : 'External'} (.xlsx)`}
+                    </span>
+                  </button>
+
+                  {absInstitutionFilter !== 'all' && (
+                    <button
+                      onClick={() =>
+                        exportAbstractsToExcel(
+                          visibleAbstracts,
+                          'AICONDD_All_Abstract_Submissions_2027.xlsx',
+                          registrations
+                        )
+                      }
+                      className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                      title="Export all abstracts regardless of institution filter"
+                    >
+                      <Download className="w-3.5 h-3.5 text-purple-600" />
+                      <span>All (.xlsx)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {wordExportFeedback && (
+                <div
+                  className={`p-3.5 rounded-xl border text-xs flex items-start justify-between gap-3 ${
+                    wordExportFeedback.type === 'success'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : wordExportFeedback.type === 'warning'
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-red-50 border-red-200 text-red-900'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {wordExportFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle
+                        className={`w-4 h-4 shrink-0 mt-0.5 ${
+                          wordExportFeedback.type === 'warning'
+                            ? 'text-amber-600'
+                            : 'text-red-600'
+                        }`}
+                      />
+                    )}
+                    <div className="space-y-1">
+                      <div className="font-bold">{wordExportFeedback.title}</div>
+                      <div>{wordExportFeedback.message}</div>
+                      {wordExportFeedback.flaggedIds &&
+                        wordExportFeedback.flaggedIds.length > 0 && (
+                          <div className="font-mono text-[11px] pt-0.5">
+                            Flagged Abstract ID(s):{' '}
+                            {wordExportFeedback.flaggedIds.join(', ')}
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setWordExportFeedback(null)}
+                    className="p-0.5 rounded hover:bg-black/5 cursor-pointer shrink-0"
+                    aria-label="Dismiss notification"
+                  >
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
+              )}
+
+              {/* ================================================================= */}
+              {/* SCIENTIFIC PRESENTATION DASHBOARD */}
+              {/* ================================================================= */}
+              <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-xs p-4 space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900 font-heading tracking-tight">
+                      Scientific Presentation Dashboard
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Real-time presentation opt-in &amp; abstract metrics
+                      {absInstitutionFilter === 'internal'
+                        ? ' · Internal Participants (SRMIST)'
+                        : absInstitutionFilter === 'external'
+                        ? ' · External Participants'
+                        : ' · All Institutions'}{' '}
+                      (click any metric to filter).
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Segmented Institution Filter for Abstract Management */}
+                    <div
+                      role="group"
+                      aria-label="Filter abstracts and dashboard by institution category"
+                      className="inline-flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/90 text-[11px] font-semibold"
+                    >
+                      {(
+                        [
+                          { id: 'all', label: 'All Abstracts' },
+                          { id: 'internal', label: 'Internal Participants' },
+                          { id: 'external', label: 'External Participants' },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          aria-pressed={absInstitutionFilter === opt.id}
+                          onClick={() => setAbsInstitutionFilter(opt.id)}
+                          className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                            absInstitutionFilter === opt.id
+                              ? 'bg-white text-purple-900 shadow-xs border border-slate-200/80'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {presentationDashboardFilter !== 'all' && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-semibold text-purple-900 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">
+                          Filter: {activeDashboardFilterLabel[presentationDashboardFilter]}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleClearPresentationFilter}
+                          className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Clear Filter / Show All</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Six Compact Glassmorphic Statistic Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+                  {/* Card 1: Registered for Presentation */}
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'registered'}
+                    onClick={() => handleSelectPresentationCardFilter('registered')}
+                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-indigo-50/90 via-white/80 to-blue-50/80 ${
+                      presentationDashboardFilter === 'registered'
+                        ? 'border-indigo-500 ring-2 ring-indigo-500/25 shadow-sm'
+                        : 'border-indigo-200/80 hover:border-indigo-300 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                        Registered for Presentation
+                      </span>
+                      <div className="w-7 h-7 rounded-lg bg-indigo-100/90 text-indigo-700 flex items-center justify-center shrink-0">
+                        <Users className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div className="pt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-extrabold text-indigo-950 font-heading tabular-nums">
+                        {presentationMetrics.counts.registeredForPresentation}
+                      </span>
+                      <span className="text-[10px] font-medium text-indigo-600">
+                        Opted-in
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Card 2: Abstracts Submitted */}
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'submitted'}
+                    onClick={() => handleSelectPresentationCardFilter('submitted')}
+                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-purple-50/90 via-white/80 to-violet-50/80 ${
+                      presentationDashboardFilter === 'submitted'
+                        ? 'border-purple-500 ring-2 ring-purple-500/25 shadow-sm'
+                        : 'border-purple-200/80 hover:border-purple-300 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                        Abstracts Submitted
+                      </span>
+                      <div className="w-7 h-7 rounded-lg bg-purple-100/90 text-purple-700 flex items-center justify-center shrink-0">
+                        <FileCheck2 className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div className="pt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-extrabold text-purple-950 font-heading tabular-nums">
+                        {presentationMetrics.counts.abstractsSubmitted}
+                      </span>
+                      <span className="text-[10px] font-medium text-purple-600">
+                        Received
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Card 3: Abstracts Pending */}
+                  <button
+                    type="button"
+                    aria-expanded={showPendingBreakdown}
+                    aria-pressed={
+                      presentationDashboardFilter === 'pending_all' ||
+                      presentationDashboardFilter === 'not_submitted' ||
+                      presentationDashboardFilter === 'awaiting_decision'
+                    }
+                    onClick={handleTogglePendingCard}
+                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-amber-50/90 via-white/80 to-orange-50/80 ${
+                      presentationDashboardFilter === 'pending_all' ||
+                      presentationDashboardFilter === 'not_submitted' ||
+                      presentationDashboardFilter === 'awaiting_decision'
+                        ? 'border-amber-500 ring-2 ring-amber-500/25 shadow-sm'
+                        : 'border-amber-200/80 hover:border-amber-300 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                        Abstracts Pending
+                      </span>
+                      <div className="w-7 h-7 rounded-lg bg-amber-100/90 text-amber-700 flex items-center justify-center shrink-0">
+                        <Clock className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div className="pt-2 flex items-baseline justify-between gap-1">
+                      <span className="text-2xl font-extrabold text-amber-950 font-heading tabular-nums">
+                        {presentationMetrics.counts.abstractsPendingTotal}
+                      </span>
+                      <span className="text-[10px] font-semibold text-amber-700 inline-flex items-center gap-0.5">
+                        <span>Breakdown</span>
+                        <ChevronDown
+                          className={`w-3 h-3 transition-transform ${
+                            showPendingBreakdown ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Card 4: Oral Allotted */}
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'oral_allotted'}
+                    onClick={() => handleSelectPresentationCardFilter('oral_allotted')}
+                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-emerald-50/90 via-white/80 to-teal-50/80 ${
+                      presentationDashboardFilter === 'oral_allotted'
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/25 shadow-sm'
+                        : 'border-emerald-200/80 hover:border-emerald-300 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                        Oral Allotted
+                      </span>
+                      <div className="w-7 h-7 rounded-lg bg-emerald-100/90 text-emerald-700 flex items-center justify-center shrink-0">
+                        <Mic className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div className="pt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-extrabold text-emerald-950 font-heading tabular-nums">
+                        {presentationMetrics.counts.oralAllotted}
+                      </span>
+                      <span className="text-[10px] font-medium text-emerald-700">
+                        Allocated
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Card 5: Poster Allotted */}
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'poster_allotted'}
+                    onClick={() => handleSelectPresentationCardFilter('poster_allotted')}
+                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-cyan-50/90 via-white/80 to-sky-50/80 ${
+                      presentationDashboardFilter === 'poster_allotted'
+                        ? 'border-cyan-500 ring-2 ring-cyan-500/25 shadow-sm'
+                        : 'border-cyan-200/80 hover:border-cyan-300 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                        Poster Allotted
+                      </span>
+                      <div className="w-7 h-7 rounded-lg bg-cyan-100/90 text-cyan-700 flex items-center justify-center shrink-0">
+                        <Presentation className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div className="pt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-extrabold text-cyan-950 font-heading tabular-nums">
+                        {presentationMetrics.counts.posterAllotted}
+                      </span>
+                      <span className="text-[10px] font-medium text-cyan-700">
+                        Allocated
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Card 6: E-Poster Allotted */}
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'eposter_allotted'}
+                    onClick={() => handleSelectPresentationCardFilter('eposter_allotted')}
+                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-fuchsia-50/90 via-white/80 to-pink-50/80 ${
+                      presentationDashboardFilter === 'eposter_allotted'
+                        ? 'border-fuchsia-500 ring-2 ring-fuchsia-500/25 shadow-sm'
+                        : 'border-fuchsia-200/80 hover:border-fuchsia-300 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 w-full">
+                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                        E-Poster Allotted
+                      </span>
+                      <div className="w-7 h-7 rounded-lg bg-fuchsia-100/90 text-fuchsia-700 flex items-center justify-center shrink-0">
+                        <Monitor className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div className="pt-2 flex items-baseline justify-between">
+                      <span className="text-2xl font-extrabold text-fuchsia-950 font-heading tabular-nums">
+                        {presentationMetrics.counts.eposterAllotted}
+                      </span>
+                      <span className="text-[10px] font-medium text-fuchsia-700">
+                        Allocated
+                      </span>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Compact Abstract Pipeline & Review Outcome Strip (completes all 8 segregated metrics) */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'not_submitted'}
+                    onClick={() => handleSelectPendingSubFilter('not_submitted')}
+                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      presentationDashboardFilter === 'not_submitted'
+                        ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                        : 'bg-slate-50/90 hover:bg-amber-50/70 text-slate-800 border-slate-200/90'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold">Abstracts Not Submitted</span>
+                    <span className="text-sm font-extrabold font-heading tabular-nums">
+                      {presentationMetrics.counts.notSubmitted}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'awaiting_decision'}
+                    onClick={() => handleSelectPendingSubFilter('awaiting_decision')}
+                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      presentationDashboardFilter === 'awaiting_decision'
+                        ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                        : 'bg-slate-50/90 hover:bg-amber-50/70 text-slate-800 border-slate-200/90'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold">Awaiting Acceptance</span>
+                    <span className="text-sm font-extrabold font-heading tabular-nums">
+                      {presentationMetrics.counts.awaitingAcceptanceDecision}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'accepted'}
+                    onClick={() => handleSelectPresentationCardFilter('accepted')}
+                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      presentationDashboardFilter === 'accepted'
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                        : 'bg-emerald-50/60 hover:bg-emerald-100/70 text-emerald-950 border-emerald-200/80'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold">Accepted Abstracts</span>
+                    <span className="text-sm font-extrabold font-heading tabular-nums">
+                      {presentationMetrics.counts.acceptedAbstracts}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-pressed={presentationDashboardFilter === 'rejected'}
+                    onClick={() => handleSelectPresentationCardFilter('rejected')}
+                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                      presentationDashboardFilter === 'rejected'
+                        ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
+                        : 'bg-rose-50/60 hover:bg-rose-100/70 text-rose-950 border-rose-200/80'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold">Rejected Abstracts</span>
+                    <span className="text-sm font-extrabold font-heading tabular-nums">
+                      {presentationMetrics.counts.rejectedAbstracts}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Expandable Pending Breakdown Strip */}
+                {showPendingBreakdown && (
+                  <div className="pt-1 animate-in fade-in duration-150">
+                    <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-bold text-amber-950">
+                          Abstracts Pending Breakdown
+                        </div>
+                        <p className="text-[11px] text-amber-800/90">
+                          Click a sub-category below to filter either unsubmitted presentation registrants or submitted abstracts awaiting review decision.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
+                        <button
+                          type="button"
+                          aria-pressed={presentationDashboardFilter === 'not_submitted'}
+                          onClick={() => handleSelectPendingSubFilter('not_submitted')}
+                          className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            presentationDashboardFilter === 'not_submitted'
+                              ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                              : 'bg-white hover:bg-amber-100/60 text-slate-800 border-amber-200'
+                          }`}
+                        >
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
+                              Not Submitted
+                            </div>
+                            <div className="text-base font-extrabold tabular-nums">
+                              {presentationMetrics.counts.notSubmitted}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-pressed={presentationDashboardFilter === 'awaiting_decision'}
+                          onClick={() => handleSelectPendingSubFilter('awaiting_decision')}
+                          className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            presentationDashboardFilter === 'awaiting_decision'
+                              ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                              : 'bg-white hover:bg-amber-100/60 text-slate-800 border-amber-200'
+                          }`}
+                        >
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
+                              Awaiting Acceptance Decision
+                            </div>
+                            <div className="text-base font-extrabold tabular-nums">
+                              {presentationMetrics.counts.awaitingAcceptanceDecision}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-pressed={presentationDashboardFilter === 'pending_all'}
+                          onClick={() => handleSelectPendingSubFilter('pending_all')}
+                          className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            presentationDashboardFilter === 'pending_all'
+                              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                              : 'bg-white/90 hover:bg-slate-100 text-slate-900 border-amber-200'
+                          }`}
+                        >
+                          <div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
+                              Total Pending
+                            </div>
+                            <div className="text-base font-extrabold tabular-nums">
+                              {presentationMetrics.counts.abstractsPendingTotal}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Filter and Search Bar */}
@@ -1295,7 +2308,167 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </select>
               </div>
 
-              {/* Abstracts Table */}
+              {/* Conditional View: Registration-Inclusive Roster (for Registered / Not Submitted / Pending All) OR Standard Abstracts Table */}
+              {isRegistrationRosterFilterActive ? (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                  <div className="px-4 py-2.5 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold text-slate-700">
+                      Showing {filteredPresentationRosterRows.length} matching presentation{' '}
+                      {filteredPresentationRosterRows.length === 1 ? 'participant' : 'participants'} ({activeDashboardFilterLabel[presentationDashboardFilter]})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleClearPresentationFilter}
+                      className="text-purple-700 hover:text-purple-900 font-semibold hover:underline cursor-pointer"
+                    >
+                      Show All Abstracts Table
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200">
+                        <tr>
+                          <th className="p-3.5">Registration ID</th>
+                          <th className="p-3.5">Participant</th>
+                          <th className="p-3.5">Registration Opt-In</th>
+                          <th className="p-3.5">Payment Status</th>
+                          <th className="p-3.5">Abstract Status</th>
+                          <th className="p-3.5">Allotted Format</th>
+                          <th className="p-3.5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {loadingData ? (
+                          <tr>
+                            <td colSpan={7} className="p-8 text-center text-slate-400">
+                              Loading presentation participants...
+                            </td>
+                          </tr>
+                        ) : filteredPresentationRosterRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-8 text-center text-slate-400">
+                              No participants match the selected presentation filter.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredPresentationRosterRows.map(({ reg, linkedAbs }) => (
+                            <tr key={reg.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="p-3.5 whitespace-nowrap font-mono font-bold text-purple-700">
+                                {reg.registrationId || reg.id}
+                              </td>
+                              <td className="p-3.5">
+                                <div className="font-bold text-slate-900">{reg.fullName}</div>
+                                <div className="text-[11px] text-slate-500 truncate max-w-xs">
+                                  {reg.email} · {reg.institution}
+                                </div>
+                                <div className="mt-0.5 text-[10px] font-semibold text-slate-600">
+                                  {formatInstitutionCategoryLabel(reg.institutionCategory)}
+                                </div>
+                              </td>
+                              <td className="p-3.5 whitespace-nowrap text-slate-700">
+                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200">
+                                  {formatRegistrationPresentationPlan(reg)}
+                                </span>
+                              </td>
+                              <td className="p-3.5 whitespace-nowrap">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                    reg.paymentStatus === 'Verified'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : reg.paymentStatus === 'Rejected'
+                                      ? 'bg-red-100 text-red-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {reg.paymentStatus}
+                                </span>
+                              </td>
+                              <td className="p-3.5 max-w-xs">
+                                {linkedAbs ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono font-bold text-purple-700 text-[11px]">
+                                        {linkedAbs.id}
+                                      </span>
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                          linkedAbs.status === 'Accepted'
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : linkedAbs.status === 'Rejected'
+                                            ? 'bg-red-100 text-red-800'
+                                            : linkedAbs.status === 'Under Review'
+                                            ? 'bg-blue-100 text-blue-800'
+                                            : 'bg-amber-100 text-amber-800'
+                                        }`}
+                                      >
+                                        {linkedAbs.status}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-600 line-clamp-1">
+                                      {linkedAbs.title}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-100 text-amber-800">
+                                    Not Submitted
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3.5 whitespace-nowrap">
+                                {linkedAbs ? (
+                                  linkedAbs.allottedPresentationFormat ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">
+                                      {linkedAbs.allottedPresentationFormat}
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                      Pending Allocation
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className="text-slate-400 text-[11px]">—</span>
+                                )}
+                              </td>
+                              <td className="p-3.5 text-right whitespace-nowrap space-x-1.5">
+                                {linkedAbs ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedAbs(linkedAbs);
+                                      setActionRemarks(linkedAbs.reviewNotes || '');
+                                      setAllottedFormatSelection(
+                                        linkedAbs.allottedPresentationFormat ||
+                                          linkedAbs.finalPresentationFormat ||
+                                          ''
+                                      );
+                                      setAllocationSavedSuccess(false);
+                                    }}
+                                    className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-md text-[11px] cursor-pointer"
+                                  >
+                                    Review Abstract
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedReg(reg);
+                                      setActionRemarks(reg.adminRemarks || '');
+                                    }}
+                                    className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-md text-[11px] cursor-pointer"
+                                  >
+                                    View Reg
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+              /* Abstracts Table */
               <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
@@ -1303,6 +2476,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       <tr>
                         <th className="p-3.5">Abstract ID</th>
                         <th className="p-3.5">Linked Reg ID</th>
+                        <th className="p-3.5">Payment Status</th>
                         <th className="p-3.5">Title of Abstract</th>
                         <th className="p-3.5">Scientific Track</th>
                         <th className="p-3.5">Preferred Format</th>
@@ -1316,19 +2490,21 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     <tbody className="divide-y divide-slate-100">
                       {loadingData ? (
                         <tr>
-                          <td colSpan={10} className="p-8 text-center text-slate-400">
+                          <td colSpan={11} className="p-8 text-center text-slate-400">
                             Loading abstracts...
                           </td>
                         </tr>
                       ) : filteredAbstracts.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="p-8 text-center text-slate-400">
+                          <td colSpan={11} className="p-8 text-center text-slate-400">
                             No matching abstracts found.
                           </td>
                         </tr>
                       ) : (
                         filteredAbstracts.map((abs) => {
                           const author = abs.presentingAuthor || {};
+                          const linkedReg = getLinkedRegistrationForAbstract(abs);
+                          const paymentStatus = linkedReg?.paymentStatus;
                           return (
                             <tr key={abs.id} className="hover:bg-slate-50/80 transition-colors">
                               {/* Abstract ID */}
@@ -1336,9 +2512,45 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 {abs.id}
                               </td>
 
-                              {/* Registration ID */}
-                              <td className="p-3.5 whitespace-nowrap font-mono font-semibold text-slate-800">
-                                {abs.registrationId}
+                              {/* Registration ID & Linked Institution Classification */}
+                              <td className="p-3.5 whitespace-nowrap">
+                                <div className="font-mono font-semibold text-slate-800">
+                                  {abs.registrationId}
+                                </div>
+                                <div
+                                  className={`text-[10px] font-semibold mt-0.5 ${
+                                    normalizeInstitutionCategory(linkedReg?.institutionCategory) === 'internal'
+                                      ? 'text-purple-700'
+                                      : normalizeInstitutionCategory(linkedReg?.institutionCategory) === 'external'
+                                      ? 'text-cyan-700'
+                                      : 'text-amber-700'
+                                  }`}
+                                  title="Institution category sourced strictly from linked registration"
+                                >
+                                  {formatInstitutionCategoryLabel(linkedReg?.institutionCategory)}
+                                </div>
+                              </td>
+
+                              {/* Associated Payment Status (Informational Reference Only) */}
+                              <td className="p-3.5 whitespace-nowrap">
+                                {paymentStatus ? (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                      paymentStatus === 'Verified'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : paymentStatus === 'Rejected'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-amber-100 text-amber-800'
+                                    }`}
+                                    title="Associated registration payment status (informational)"
+                                  >
+                                    {paymentStatus}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
+                                    Unknown
+                                  </span>
+                                )}
                               </td>
 
                               {/* Title */}
@@ -1452,6 +2664,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   </table>
                 </div>
               </div>
+              )}
             </div>
           )}
 
@@ -1520,7 +2733,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-sm text-purple-700 bg-purple-50 px-2.5 py-1 rounded-md border border-purple-200">
-                              {reg.registrationId || 'Pending Verification'}
+                              {reg.registrationId || reg.id}
                             </span>
                             <span className="text-xs text-slate-400 font-mono">
                               Doc Ref: {reg.id}
@@ -1530,6 +2743,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase self-start sm:self-auto ${
                               reg.paymentStatus === 'Verified'
                                 ? 'bg-emerald-100 text-emerald-800'
+                                : reg.paymentStatus === 'Rejected'
+                                ? 'bg-red-100 text-red-800'
                                 : 'bg-amber-100 text-amber-800'
                             }`}
                           >
@@ -1549,7 +2764,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             </div>
                             <div className="text-slate-500 flex flex-wrap items-center justify-between gap-1">
                               <div>
-                                <strong>Fee:</strong> ₹{reg.paymentAmount || reg.amount || 2500} | <strong>UTR:</strong> {reg.transactionReference}
+                                <strong>Fee:</strong> ₹{reg.paymentAmount || reg.amount || 2000} | <strong>UTR:</strong> {reg.transactionReference}
                               </div>
                               <button
                                 type="button"
@@ -1681,7 +2896,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     </p>
                   </div>
                   <button
-                    onClick={() => exportAbstractsToExcel(visibleAbstracts)}
+                    onClick={() => exportAbstractsToExcel(visibleAbstracts, 'AICONDD_Abstract_Submissions_2027.xlsx', registrations)}
                     className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                   >
                     <Download className="w-4 h-4" />
@@ -1699,7 +2914,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       Master Participant List (.xlsx)
                     </h3>
                     <p className="text-xs text-slate-500 leading-relaxed">
-                      Unified workbook mapping each verified Registration ID to its corresponding Abstract ID and review outcome.
+                      Unified workbook mapping each Registration ID to its payment verification status, corresponding Abstract ID, and review outcome.
                     </p>
                   </div>
                   <button
@@ -1715,7 +2930,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           )}
 
           {/* ================================================================= */}
-          {/* MODULE 6: ACCOUNT SETTINGS */}
+          {/* MODULE 6: ACCOMMODATION & PLACES TO VISIT MANAGEMENT */}
+          {/* ================================================================= */}
+          {activeTab === 'hospitality' && (
+            <AdminHospitalityManager
+              adminEmail={user?.email || 'org.secy.cp@srmist.edu.in'}
+              onStatusMessage={(msg) => setActionSuccessMsg(msg)}
+            />
+          )}
+
+          {/* ================================================================= */}
+          {/* MODULE 7: ACCOUNT SETTINGS */}
           {/* ================================================================= */}
           {activeTab === 'settings' && (
             <div className="max-w-xl space-y-6 animate-in fade-in duration-150">
@@ -1844,7 +3069,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     Official Registration ID
                   </span>
                   <span className="font-mono font-bold text-sm text-purple-900">
-                    {selectedReg.registrationId || 'Will be allocated upon payment verification (AICONDDxxx)'}
+                    {selectedReg.registrationId || 'Pending ID (Legacy record)'}
                   </span>
                 </div>
                 <span className="font-mono text-[11px] text-slate-500">
@@ -1865,6 +3090,34 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 <div>
                   <span className="text-[10px] uppercase text-slate-400 font-semibold block">Institution</span>
                   <strong className="text-slate-800">{selectedReg.institution}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                    Institution Category
+                  </span>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <strong className="text-slate-800">
+                      {formatInstitutionCategoryLabel(selectedReg.institutionCategory)}
+                    </strong>
+                    <select
+                      aria-label="Update institution category"
+                      value={normalizeInstitutionCategory(selectedReg.institutionCategory) || ''}
+                      disabled={updatingInstCatId === selectedReg.id}
+                      onChange={(e) => {
+                        const val = e.target.value as InstitutionCategoryValue | '';
+                        if (val === 'internal' || val === 'external') {
+                          handleUpdateRegistrationInstitutionCategory(selectedReg, val);
+                        }
+                      }}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-700 font-semibold outline-none cursor-pointer"
+                    >
+                      {!normalizeInstitutionCategory(selectedReg.institutionCategory) && (
+                        <option value="">Assign...</option>
+                      )}
+                      <option value="internal">Internal</option>
+                      <option value="external">External</option>
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase text-slate-400 font-semibold block">Category</span>
@@ -1888,7 +3141,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div>
                     <span className="text-[10px] uppercase text-slate-500 block">Fee Amount</span>
-                    <strong className="font-mono text-sm text-slate-900">₹{selectedReg.paymentAmount || selectedReg.amount || 2500}</strong>
+                    <strong className="font-mono text-sm text-slate-900">₹{selectedReg.paymentAmount || selectedReg.amount || 2000}</strong>
                   </div>
                   <div>
                     <span className="text-[10px] uppercase text-slate-500 block">Transaction Reference (UTR)</span>
@@ -1936,7 +3189,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Verify & Allocate AICONDD ID</span>
+                    <span>{selectedReg.registrationId?.startsWith('AICONDD') ? 'Verify Payment' : 'Verify & Allocate AICONDD ID'}</span>
                   </button>
 
                   <button
@@ -2009,6 +3262,51 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 <div>
                   <span className="text-[10px] uppercase text-slate-400 font-semibold block">Current Status</span>
                   <span className="font-bold text-purple-700">{selectedAbs.status}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                    Institution Category (via Reg ID)
+                  </span>
+                  {(() => {
+                    const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                    const instCat = normalizeInstitutionCategory(linkedReg?.institutionCategory);
+                    return (
+                      <strong
+                        className={
+                          instCat === 'internal'
+                            ? 'text-purple-700'
+                            : instCat === 'external'
+                            ? 'text-cyan-700'
+                            : 'text-amber-700'
+                        }
+                      >
+                        {formatInstitutionCategoryLabel(linkedReg?.institutionCategory)}
+                      </strong>
+                    );
+                  })()}
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Associated Payment Status</span>
+                  {(() => {
+                    const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                    const pStatus = linkedReg?.paymentStatus;
+                    if (!pStatus) {
+                      return <span className="text-slate-500 font-semibold">Unknown</span>;
+                    }
+                    return (
+                      <span
+                        className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          pStatus === 'Verified'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : pStatus === 'Rejected'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {pStatus}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -2210,7 +3508,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               </div>
               <div>
                 <span className="text-[10px] uppercase text-slate-400 font-semibold block">Registration Fee</span>
-                <strong className="font-mono text-slate-900 text-xs">₹{previewProofReg.paymentAmount || previewProofReg.amount || 2500}</strong>
+                <strong className="font-mono text-slate-900 text-xs">₹{previewProofReg.paymentAmount || previewProofReg.amount || 2000}</strong>
               </div>
               <div>
                 <span className="text-[10px] uppercase text-slate-400 font-semibold block">Attachment Name</span>
@@ -2261,7 +3559,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       <div className="p-3 bg-white/90 rounded-lg border border-amber-200/70 text-left text-xs space-y-1 text-slate-600">
                         <div><strong>Participant:</strong> {previewProofReg.fullName} ({previewProofReg.email})</div>
                         <div><strong>Transaction UTR:</strong> <span className="font-mono text-purple-900 font-bold">{previewProofReg.transactionReference}</span></div>
-                        <div><strong>Fee Amount:</strong> ₹{previewProofReg.paymentAmount || previewProofReg.amount || 2500}</div>
+                        <div><strong>Fee Amount:</strong> ₹{previewProofReg.paymentAmount || previewProofReg.amount || 2000}</div>
                         <div><strong>File Reference:</strong> {previewProofReg.paymentProofName || 'None recorded'}</div>
                       </div>
                       <p className="text-[11px] text-slate-500 italic">

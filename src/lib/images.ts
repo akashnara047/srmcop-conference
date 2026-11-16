@@ -16,6 +16,9 @@ export const IMAGES = {
   // SRM Tech Park architectural photograph
   srmTechParkBuilding: '/assets/aistudio/SRM_Tech_Park_Under_Blue_Skies_b2448a97.png',
 
+  // INTI International University, Malaysia verified campus photograph
+  intiCampusPhoto: '/images/inti-international-university-campus.jpg',
+
   // Official Institutional Logos
   srmistLogo: '/assets/aistudio/srm-institute-of-science-and-technology-vector-logo-removebg-preview-removebg-preview_33a5200c.png',
   srmistLogoBlueBg: '/assets/aistudio/SRm_Logo_blue_background_17b4fbe7.png',
@@ -41,8 +44,9 @@ export const IMAGES = {
   // Section 3: About the Conference Background Artwork
   aboutSectionBg: '/assets/aistudio/Futuristic_AI_Science_Conference_Banner_723bfcec.png',
 
-  // About Page Full-Section Background Artwork
+  // About Page Full-Section Background Artwork & Standalone Editorial Visual
   aboutConferencePageBg: '/assets/aistudio/Modern_Molecular_Research_Waves_00da54e1.png',
+  aboutConferenceAiVisual: '/images/about-conference-ai-visual.png',
 
   // Section 4: Home Page Scientific Tracks Background Artwork
   scientificTracksBg: '/assets/aistudio/Glowing_AI_Pharmaceutical_Waves_e0bf85aa.png',
@@ -74,6 +78,13 @@ export const IMAGES = {
   // Registration Portal Full-Page Background Artwork
   registrationPageBg: '/assets/aistudio/Science_Conference_Registration_Background_91d96182.png',
 
+  // Conference Schedule Page Full-Page Background Artwork
+  schedulePageBg: '/assets/aistudio/SRM_Pharmacy_Pastel_Wave_Background_5cdfbd71.png',
+
+  // Official CUB Registration Fee Payment QR Code (rendered from official PDF & original PDF link)
+  paymentQrImage: '/images/srm-payment-qr.png',
+  paymentQrPdf: '/assets/aistudio/SRM_College_of_Pharamcy_-_QR_Code__1__8e9766d9.pdf',
+
   // Scientific Track Illustrations (Transparent PNGs)
   track01Pharmaceutics: '/images/tracks/pharmaceutics-transparent.png',
   track02Pharmacology: '/images/tracks/track-02-pharmacology.png',
@@ -85,6 +96,7 @@ export const IMAGES = {
 
   // Official Accreditations & Rankings Logos
   nirfLogo: '/assets/aistudio/NIRF_logo_7a7c6967.jpg',
+  qciLogo: '/assets/aistudio/QCI_logo_d01d7906.png',
   naacLogo: '/assets/aistudio/naac_a___Logo-removebg-preview_f1269f70.png',
   nbaLogo: '/assets/aistudio/NBA_Logo-removebg-preview_4dd1b919.png',
   qsWorldRankingLogo: '/assets/aistudio/QS_World_University_Logo_33f940e2.png',

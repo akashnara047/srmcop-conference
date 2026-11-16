@@ -22,7 +22,6 @@ import {
   AlertCircle,
   Copy,
   Check,
-  BookOpen,
   List,
   Monitor,
   Layout,
@@ -85,7 +84,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
   const [verifyingReg, setVerifyingReg] = useState(false);
   const [verifiedRegistration, setVerifiedRegistration] = useState<RegistrationRecord | null>(null);
   const [regVerificationError, setRegVerificationError] = useState<string | null>(null);
-  const [errorType, setErrorType] = useState<'not_found' | 'payment_pending' | 'already_submitted' | 'general' | null>(null);
+  const [errorType, setErrorType] = useState<'not_found' | 'already_submitted' | 'general' | null>(null);
   const [linkedExistingAbstractId, setLinkedExistingAbstractId] = useState<string | null>(null);
 
   // Presenting Author Details (Pre-filled from verified registration)
@@ -109,12 +108,8 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
   // Abstract text (Max 300 words)
   const [abstractText, setAbstractText] = useState('');
 
-  // Keywords (3 to 5 keywords required)
-  const [keywords, setKeywords] = useState<string[]>([
-    'Drug Discovery',
-    'HDAC Inhibition',
-    'Computational Pharmacology',
-  ]);
+  // Keywords (initially empty; participants enter 3 to 5 keywords)
+  const [keywords, setKeywords] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
 
   // =========================================================================
@@ -163,14 +158,11 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     }
   }, [initialTrackId]);
 
-  // Word count computation
-  const computeWordCount = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return 0;
-    return trimmed.split(/\s+/).filter(Boolean).length;
-  };
-
-  const wordCount = computeWordCount(abstractText);
+  // Live whitespace-based word count derived directly from controlled abstractText state
+  const trimmedAbstractText = abstractText.trim();
+  const wordCount = trimmedAbstractText ? trimmedAbstractText.split(/\s+/).length : 0;
+  const isWordCountBelowMin = wordCount < 250;
+  const isWordCountValidRange = wordCount >= 250 && wordCount <= 300;
   const isWordCountExceeded = wordCount > 300;
 
   // Verify Registration ID handler
@@ -219,8 +211,6 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
 
       if (msg.includes('not found')) {
         setErrorType('not_found');
-      } else if (msg.includes('Payment verification is pending')) {
-        setErrorType('payment_pending');
       } else if (msg.includes('already been submitted')) {
         setErrorType('already_submitted');
         const match = msg.match(/AICONDD-ABS-\d+/);
@@ -264,32 +254,76 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
   };
 
   // Keywords handlers
-  const handleAddKeyword = () => {
-    const cleaned = keywordInput.trim().replace(/^,+|,+$/g, '');
-    if (!cleaned) return;
-    if (keywords.length >= 5) {
+  const commitKeywordsFromString = (rawInput: string) => {
+    const candidates = rawInput
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (candidates.length === 0) {
+      setKeywordInput('');
+      return;
+    }
+
+    let exceededLimit = false;
+    const nextKeywords = [...keywords];
+
+    for (const candidate of candidates) {
+      if (nextKeywords.some((k) => k.toLowerCase() === candidate.toLowerCase())) {
+        continue;
+      }
+      if (nextKeywords.length >= 5) {
+        exceededLimit = true;
+        break;
+      }
+      nextKeywords.push(candidate);
+    }
+
+    setKeywords(nextKeywords);
+    setKeywordInput('');
+
+    if (exceededLimit) {
       setFormErrors((prev) => ({
         ...prev,
         keywords: 'Maximum 5 keywords permitted.',
       }));
-      return;
-    }
-
-    if (!keywords.includes(cleaned)) {
-      setKeywords((prev) => [...prev, cleaned]);
-      setKeywordInput('');
+    } else {
       setFormErrors((prev) => {
+        if (!prev.keywords) return prev;
         const copy = { ...prev };
         delete copy.keywords;
         return copy;
       });
-    } else {
-      setKeywordInput('');
     }
+  };
+
+  const handleAddKeyword = () => {
+    commitKeywordsFromString(keywordInput);
+  };
+
+  const handleKeywordInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val.includes(',')) {
+      const segments = val.split(',');
+      const trailing = segments.pop() ?? '';
+      const completed = segments.join(',');
+      if (completed.trim()) {
+        commitKeywordsFromString(completed);
+      }
+      setKeywordInput(trailing);
+      return;
+    }
+    setKeywordInput(val);
   };
 
   const handleRemoveKeyword = (keywordToRemove: string) => {
     setKeywords((prev) => prev.filter((k) => k !== keywordToRemove));
+    setFormErrors((prev) => {
+      if (!prev.keywords) return prev;
+      const copy = { ...prev };
+      delete copy.keywords;
+      return copy;
+    });
   };
 
   const handleKeywordKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -371,7 +405,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
 
     if (!title.trim()) errors.title = 'Title of the Abstract is required.';
 
-    if (!abstractText.trim()) {
+    if (!trimmedAbstractText) {
       errors.abstract = 'Abstract content is required.';
     } else if (wordCount > 300) {
       errors.abstract = `Abstract exceeds 300 words limit (current: ${wordCount} words). Please reduce your text to within 300 words.`;
@@ -537,7 +571,8 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       { id: '1', name: '', affiliation: '' },
       { id: '2', name: '', affiliation: '' },
     ]);
-    setKeywords(['Drug Discovery', 'HDAC Inhibition', 'Computational Pharmacology']);
+    setKeywords([]);
+    setKeywordInput('');
     setSupportingDocFile(null);
     setSupportingDocData('');
     setSupportingDocError(null);
@@ -562,19 +597,21 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       />
 
       {/* =====================================================================
-          HERO SECTION: Centered badge, heading & action buttons over page background
+          HERO SECTION: Centered heading, underline & action buttons over page background
          ===================================================================== */}
       <section className="relative z-10 w-full pt-10 pb-8 sm:pt-14 sm:pb-10">
         {/* Centered Hero Header & Actions */}
         <div className="w-[94%] sm:w-[93%] lg:w-[92%] max-w-[1440px] mx-auto relative z-10 text-center space-y-4">
-          <div className="inline-flex items-center gap-2.5 px-5 py-2 rounded-full bg-white/85 backdrop-blur-md border border-[#D8CEFA] text-[#3B219B] text-xs sm:text-[13px] font-extrabold tracking-[0.1em] uppercase shadow-xs">
-            <BookOpen className="w-4 h-4 text-[#6366F1]" />
-            <span>PEER-REVIEWED SCIENTIFIC PROCEEDINGS</span>
-          </div>
+          <div className="space-y-2.5 max-w-3xl mx-auto">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.18]">
+              Abstract Submission Portal
+            </h1>
 
-          <h1 className="text-3xl sm:text-5xl lg:text-[52px] xl:text-[56px] font-black text-[#101B4B] font-heading tracking-tight leading-[1.1]">
-            Abstract Submission Portal
-          </h1>
+            <div
+              aria-hidden="true"
+              className="mx-auto w-24 sm:w-28 h-[3.5px] rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9]"
+            />
+          </div>
 
           {/* Mode Toggle Buttons: Submit Abstract & Track Status */}
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
@@ -785,7 +822,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                       Verify Your Conference Registration
                     </h2>
                     <p className="text-xs sm:text-sm text-[#4B557A]">
-                      Enter the official Registration ID allocated to you after successful conference registration.
+                      Enter the Registration ID issued after registration (no prior payment verification required).
                     </p>
                   </div>
                 </div>
@@ -793,7 +830,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                 {verifiedRegistration && (
                   <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-100 text-emerald-800 text-xs sm:text-sm font-bold border border-emerald-300">
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Registration Verified</span>
+                    <span>Registration Validated</span>
                   </span>
                 )}
               </div>
@@ -861,13 +898,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
 
                             {errorType === 'not_found' && (
                               <p className="text-xs sm:text-sm text-red-700 leading-relaxed">
-                                Haven't registered for the conference yet? Complete conference registration first to receive your official Registration ID and submit your abstract.
-                              </p>
-                            )}
-
-                            {errorType === 'payment_pending' && (
-                              <p className="text-xs sm:text-sm text-red-700 leading-relaxed">
-                                The organising secretariat is actively validating transaction references against bank accounts. Once approved by the Organising Secretary, abstract submission will automatically unlock.
+                                Haven't registered for the conference yet? Complete conference registration first to receive your official Registration ID and submit your abstract immediately.
                               </p>
                             )}
 
@@ -907,7 +938,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                     <div className="p-4 sm:p-5 bg-[#F6F3FE] border border-[#E2DAF8] rounded-2xl text-xs sm:text-sm text-[#384162] flex items-start gap-3 leading-relaxed">
                       <Info className="w-5 h-5 text-[#7C3AED] shrink-0 mt-0.5" />
                       <div>
-                        <strong className="text-[#101B4B]">Delegate Verification Notice:</strong> Abstract submission is strictly restricted to verified registered conference delegates (one abstract per Registration ID). Do not enter an Abstract ID here — your official sequential Abstract ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDD-ABS-xxx</span>) will be generated automatically upon submission.
+                        <strong className="text-[#101B4B]">Delegate Registration Notice:</strong> Any participant with a valid conference Registration ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDDxxx</span>) may submit one abstract immediately, even while payment verification is pending. Do not enter an Abstract ID here — your sequential Abstract ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDD-ABS-xxx</span>) will be generated automatically upon submission.
                       </div>
                     </div>
                   </div>
@@ -922,10 +953,21 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs uppercase font-extrabold text-emerald-800 tracking-wider">
-                              Registration Verified
+                              Registration Found
                             </span>
                             <span className="px-2.5 py-0.5 rounded-md bg-emerald-200 text-emerald-950 font-mono text-xs sm:text-sm font-bold">
                               {verifiedRegistration.registrationId || registrationIdInput}
+                            </span>
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                                verifiedRegistration.paymentStatus === 'Verified'
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : verifiedRegistration.paymentStatus === 'Rejected'
+                                  ? 'bg-red-100 text-red-800 border-red-300'
+                                  : 'bg-amber-100 text-amber-800 border-amber-300'
+                              }`}
+                            >
+                              Payment: {verifiedRegistration.paymentStatus || 'Pending Verification'}
                             </span>
                           </div>
                           <div className="font-bold text-slate-900 text-base sm:text-lg">
@@ -983,10 +1025,10 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                   <div className="p-5 bg-[#FAF8FF] rounded-2xl border border-[#E2DAF8] space-y-1.5">
                     <span className="font-bold text-sm text-[#6D28D9] flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4" />
-                      <span>1. Verify Registration ID</span>
+                      <span>1. Enter Registration ID</span>
                     </span>
                     <p className="text-slate-600 text-xs sm:text-sm leading-relaxed">
-                      Enter your verified conference ID (e.g. AICONDD001) to validate delegate eligibility.
+                      Enter your conference Registration ID (e.g. AICONDD001) to validate your delegate registration immediately.
                     </p>
                   </div>
 
@@ -996,7 +1038,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                       <span>2. Auto-Populated Details</span>
                     </span>
                     <p className="text-slate-600 text-xs sm:text-sm leading-relaxed">
-                      Presenting author fields pre-fill automatically from your verified registration record.
+                      Presenting author fields pre-fill automatically from your registration record.
                     </p>
                   </div>
 
@@ -1038,7 +1080,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                           Presenting Author Details
                         </h3>
                         <p className="text-xs sm:text-sm text-[#4B557A]">
-                          Pre-populated from your verified registration record (one abstract per Registration ID).
+                          Pre-populated from your registration record (one abstract per Registration ID).
                         </p>
                       </div>
                     </div>
@@ -1187,7 +1229,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                         Abstract Details & Author Information
                       </h3>
                       <p className="text-xs sm:text-sm text-[#4B557A]">
-                        Provide the complete abstract title, author listing, structured text, and keywords.
+                        Provide the complete abstract title, author listing, single-paragraph unstructured abstract, and keywords.
                       </p>
                     </div>
                   </div>
@@ -1295,48 +1337,72 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Abstract Text Area + Live Word Counter */}
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block pt-2">
-                        Abstract Content <span className="text-red-500">*</span> <span className="text-xs sm:text-sm font-medium text-slate-500">(Maximum 300 words)</span>
+                    {/* Unstructured Abstract Writing Instructions & Single Continuous Text Area + Live Word Counter */}
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <label
+                        htmlFor="abstract-unstructured-textarea"
+                        className="text-sm sm:text-[15px] font-bold text-[#101B4B] block pt-2"
+                      >
+                        Abstract (250–300 words) <span className="text-red-500">*</span>
                       </label>
+
+                      <div className="p-3.5 sm:p-4 rounded-xl bg-[#F6F3FE] border border-[#E2DAF8] text-xs sm:text-[13px] text-[#2E3659] flex items-start gap-2.5 leading-relaxed">
+                        <Info className="w-4 h-4 text-[#7C3AED] shrink-0 mt-0.5" />
+                        <p>
+                          Write the abstract as a single, continuous paragraph without subheadings. Begin with a brief introduction to the research topic, establishing its scientific relevance and identifying the research problem or existing knowledge gap. Clearly state the objective of the study, followed by a concise description of the materials, methodology, experimental approaches, or analytical techniques employed. Present the major findings, highlighting significant results, novel observations, and the contribution of the research. Conclude by emphasizing the scientific significance, practical implications, potential applications, and future relevance of the findings. The abstract should be scientifically accurate, coherent, concise, and written in formal academic English.
+                        </p>
+                      </div>
+
                       <textarea
-                        rows={7}
+                        id="abstract-unstructured-textarea"
+                        rows={8}
                         required
                         value={abstractText}
                         onChange={(e) => {
                           setAbstractText(e.target.value);
                           if (formErrors.abstract) setFormErrors((prev) => ({ ...prev, abstract: '' }));
                         }}
-                        placeholder="Enter structured abstract text covering Background, Objectives, Methodology, Results, and Conclusion..."
+                        placeholder="Write your abstract here as a single, continuous paragraph without subheadings (250–300 words)..."
                         className={`w-full p-4 sm:p-5 rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition leading-relaxed ${
                           formErrors.abstract || isWordCountExceeded
                             ? 'border-red-400'
+                            : isWordCountValidRange
+                            ? 'border-emerald-400 focus:border-emerald-500'
                             : 'border-[#D4D9EC] focus:border-[#7C3AED]'
                         }`}
                       />
 
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
-                        <div
-                          className={`text-sm font-semibold flex items-center gap-2.5 ${
-                            isWordCountExceeded
-                              ? 'text-red-600 font-bold'
-                              : wordCount > 0
-                              ? 'text-[#6D28D9]'
-                              : 'text-slate-600'
-                          }`}
-                        >
-                          <span className="font-mono tabular-nums px-3 py-1 rounded-lg bg-[#F4F0FE] border border-[#E2DAF8]">
+                        <div className="flex flex-wrap items-center gap-2.5 text-sm font-semibold">
+                          <span
+                            data-testid="abstract-word-count"
+                            className={`font-mono tabular-nums px-3 py-1 rounded-lg border ${
+                              isWordCountExceeded
+                                ? 'bg-red-50 border-red-200 text-red-700 font-bold'
+                                : isWordCountValidRange
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-bold'
+                                : 'bg-[#F4F0FE] border-[#E2DAF8] text-[#6D28D9]'
+                            }`}
+                          >
                             Word Count: {wordCount} / 300
                           </span>
-                          {isWordCountExceeded && (
-                            <span className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200">
-                              Exceeded by {wordCount - 300} words
+
+                          {isWordCountExceeded ? (
+                            <span className="text-xs font-bold text-red-700 bg-red-50 px-2.5 py-1 rounded-lg border border-red-200">
+                              Maximum limit exceeded by {wordCount - 300} word{wordCount - 300 === 1 ? '' : 's'}
+                            </span>
+                          ) : isWordCountBelowMin ? (
+                            <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                              Minimum 250 words required ({250 - wordCount} more word{250 - wordCount === 1 ? '' : 's'} needed)
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                              Meets 250–300 word requirement
                             </span>
                           )}
                         </div>
                         <span className="text-xs text-slate-500">
-                          Updates in real time as you type, paste, or edit text
+                          Single continuous paragraph · No subheadings
                         </span>
                       </div>
 
@@ -1348,11 +1414,14 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                     {/* Keywords */}
                     <div className="space-y-2.5 pt-2 border-t border-slate-100">
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                        <label className="text-sm sm:text-[15px] font-bold text-[#101B4B] block">
-                          Keywords <span className="text-red-500">*</span> <span className="text-xs sm:text-sm font-medium text-slate-500">(Specify 3 to 5 keywords)</span>
+                        <label
+                          htmlFor="abstract-keywords-input"
+                          className="text-sm sm:text-[15px] font-bold text-[#101B4B] block"
+                        >
+                          Keywords (Maximum 5) <span className="text-red-500">*</span>
                         </label>
                         <span className="text-xs font-semibold text-[#5B21B6]">
-                          {keywords.length} of 5 keywords added
+                          {keywords.length} of 5 keywords added (minimum 3)
                         </span>
                       </div>
 
@@ -1361,11 +1430,17 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                           <div className="relative flex-1 flex items-center">
                             <Tag className="w-4 h-4 text-[#7C3AED] absolute left-4 pointer-events-none" />
                             <input
+                              id="abstract-keywords-input"
                               type="text"
                               value={keywordInput}
-                              onChange={(e) => setKeywordInput(e.target.value)}
+                              onChange={handleKeywordInputChange}
+                              onBlur={() => {
+                                if (keywordInput.trim()) {
+                                  commitKeywordsFromString(keywordInput);
+                                }
+                              }}
                               onKeyDown={handleKeywordKeyDown}
-                              placeholder="Type a keyword and press Enter or click Add"
+                              placeholder="Enter keywords separated by commas"
                               className="h-12 pl-11 pr-4 w-full rounded-xl border border-[#D4D9EC] bg-white text-sm text-slate-800 focus:outline-none focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/15 transition"
                             />
                           </div>

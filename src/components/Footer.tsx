@@ -14,6 +14,7 @@ import {
   ChevronRight,
   ShieldCheck,
   ArrowUpRight,
+  Compass,
 } from 'lucide-react';
 import { IMAGES } from '../lib/images';
 
@@ -206,10 +207,11 @@ export const Footer: React.FC<FooterProps> = ({ onSelectTab, onOpenAdmin }) => {
               {/* Sub-column 2 */}
               <div className="space-y-2">
                 {[
-                  { id: 'abstracts', label: 'Abstract Portal', icon: FileText },
                   { id: 'registration', label: 'Registration', icon: UserPlus },
+                  { id: 'abstracts', label: 'Abstract Portal', icon: FileText },
                   { id: 'committees', label: 'Committees', icon: Users },
                   { id: 'venue', label: 'Venue & Accessibility', icon: MapPin },
+                  { id: 'accommodation', label: 'Accommodation & Places to Visit', icon: Compass },
                 ].map((item) => {
                   const Icon = item.icon;
                   return (

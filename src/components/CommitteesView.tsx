@@ -75,27 +75,31 @@ export const CommitteesView: React.FC = () => {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 space-y-5 sm:space-y-6">
         {/* =====================================================================
-            1. PAGE HEADING & INTRODUCTION (Compact for 100% zoom)
+            1. PAGE HEADING
            ===================================================================== */}
-        <div className="text-center max-w-3xl mx-auto space-y-1.5">
+        <div className="text-center max-w-3xl mx-auto space-y-2.5 pb-1">
           {/* Eyebrow Pill: CONFERENCE LEADERSHIP & ORGANISATION */}
-          <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white text-[10.5px] sm:text-[11px] font-bold tracking-wider uppercase shadow-xs">
-            <Users className="w-3 h-3" />
-            <span>CONFERENCE LEADERSHIP & ORGANISATION</span>
+          <div className="flex items-center justify-center gap-3 sm:gap-4">
+            <div className="hidden sm:block w-12 md:w-20 h-[1.5px] bg-[#7554D9]/40" />
+            <div className="inline-flex items-center gap-2 px-4 sm:px-5 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+              <Users className="w-3.5 h-3.5 text-white shrink-0" />
+              <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase">
+                CONFERENCE LEADERSHIP &amp; ORGANISATION
+              </span>
+            </div>
+            <div className="hidden sm:block w-12 md:w-20 h-[1.5px] bg-[#22C5D9]/50" />
           </div>
 
           {/* Main Heading */}
-          <h1 className="text-2xl sm:text-3xl lg:text-[36px] font-black text-[#082746] font-heading tracking-tight leading-tight">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.18]">
             Conference Committees
           </h1>
 
-          {/* Subtitle */}
-          <div className="space-y-1.5">
-            <h2 className="text-sm sm:text-base lg:text-[17px] font-bold text-[#087E8B] tracking-wide">
-              AI-Powered Innovations in Drug Discovery and Development
-            </h2>
-            <div className="w-12 h-0.5 bg-[#22C5D9] rounded-full mx-auto" />
-          </div>
+          {/* Short Centered Purple-to-Cyan Gradient Underline */}
+          <div
+            aria-hidden="true"
+            className="mx-auto w-24 sm:w-28 h-[3.5px] rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9]"
+          />
         </div>
 
         {/* =====================================================================
@@ -139,7 +143,7 @@ export const CommitteesView: React.FC = () => {
           </div>
 
           {/* -------------------------------------------------------------------
-              LEVEL 2: PATRONS (Light Lavender Panel, 3 Columns)
+              LEVEL 2: PATRONS (Light Lavender Panel, 4 Columns on Desktop)
              ------------------------------------------------------------------- */}
           <div className="relative pt-2.5">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 z-20">
@@ -150,13 +154,13 @@ export const CommitteesView: React.FC = () => {
             </div>
 
             <div className="bg-gradient-to-r from-[#F5F2FE] via-[#FAF8FF] to-[#EDE9FA] border border-[#DDD6FE] rounded-2xl shadow-xs px-4 py-3.5 sm:px-6 sm:py-4 pt-5 sm:pt-5 text-[#082746]">
-              <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#DDD6FE] text-center gap-2.5 md:gap-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 lg:divide-x divide-[#DDD6FE] text-center gap-3 lg:gap-0">
                 {PATRONS.map((patron, idx) => (
-                  <div key={idx} className="px-2 sm:px-3.5 pt-2.5 md:pt-0 first:pt-0 space-y-0.5">
-                    <h3 className="text-[15.5px] sm:text-[17px] font-extrabold text-[#082746] font-heading leading-snug">
+                  <div key={idx} className="px-2 sm:px-3 pt-2.5 sm:pt-0 first:pt-0 space-y-0.5">
+                    <h3 className="text-[15px] sm:text-[16px] font-extrabold text-[#082746] font-heading leading-snug">
                       {patron.name}
                     </h3>
-                    <p className="text-xs sm:text-[12.5px] text-[#45536B] font-medium leading-snug">
+                    <p className="text-xs sm:text-[12px] text-[#45536B] font-medium leading-snug whitespace-pre-line">
                       {patron.title}
                     </p>
                   </div>
@@ -198,6 +202,9 @@ export const CommitteesView: React.FC = () => {
                   <p className="text-xs sm:text-[13px] font-semibold text-[#087E8B] leading-snug">
                     {CONFERENCE_LEADERSHIP.convenor.designation}
                   </p>
+                  <p className="text-[11.5px] sm:text-xs font-medium text-[#45536B] leading-snug">
+                    {CONFERENCE_LEADERSHIP.convenor.institution}
+                  </p>
                 </div>
               </div>
             </div>
@@ -221,6 +228,9 @@ export const CommitteesView: React.FC = () => {
                   </h3>
                   <p className="text-xs sm:text-[13px] font-semibold text-[#7554D9] leading-snug">
                     {CONFERENCE_LEADERSHIP.organisingSecretary.designation}
+                  </p>
+                  <p className="text-[11.5px] sm:text-xs font-medium text-[#45536B] leading-snug">
+                    {CONFERENCE_LEADERSHIP.organisingSecretary.institution}
                   </p>
                 </div>
               </div>

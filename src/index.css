@@ -127,3 +127,82 @@ html.snap-page {
 ::-webkit-scrollbar-thumb:hover {
   background: #8B50E8;
 }
+
+/* Homepage Hero: Subtle Coastal Camera Pan & Zoom + Ocean Wave/Shimmer Animation */
+@keyframes heroCoastalZoom {
+  0% {
+    transform: scale(1.02) translate3d(0%, 0%, 0);
+  }
+  33% {
+    transform: scale(1.055) translate3d(-1%, -0.5%, 0);
+  }
+  66% {
+    transform: scale(1.04) translate3d(0.9%, 0.5%, 0);
+  }
+  100% {
+    transform: scale(1.02) translate3d(0%, 0%, 0);
+  }
+}
+
+@keyframes heroOceanShimmer {
+  0%, 100% {
+    opacity: 0.22;
+    transform: translate3d(0%, 0%, 0) scaleX(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: translate3d(1.2%, -2px, 0) scaleX(1.06);
+  }
+}
+
+@keyframes heroWaveCrest {
+  0%, 100% {
+    opacity: 0.16;
+    transform: translate3d(-1.2%, 3px, 0);
+  }
+  50% {
+    opacity: 0.34;
+    transform: translate3d(1.2%, -3px, 0);
+  }
+}
+
+@keyframes heroWaveCrestSecondary {
+  0%, 100% {
+    opacity: 0.28;
+    transform: translate3d(1%, -2px, 0);
+  }
+  50% {
+    opacity: 0.14;
+    transform: translate3d(-1%, 3px, 0);
+  }
+}
+
+.hero-coastal-zoom {
+  animation: heroCoastalZoom 30s ease-in-out infinite;
+  will-change: transform;
+}
+
+.hero-ocean-shimmer {
+  animation: heroOceanShimmer 8.5s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.hero-wave-crest {
+  animation: heroWaveCrest 11s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.hero-wave-crest-secondary {
+  animation: heroWaveCrestSecondary 14s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-coastal-zoom,
+  .hero-ocean-shimmer,
+  .hero-wave-crest,
+  .hero-wave-crest-secondary {
+    animation: none !important;
+    transform: none !important;
+  }
+}

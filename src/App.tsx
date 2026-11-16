@@ -10,28 +10,80 @@ import { AbstractsView } from './components/AbstractsView';
 import { RegistrationView } from './components/RegistrationView';
 import { CommitteesView } from './components/CommitteesView';
 import { VenueView } from './components/VenueView';
+import { AccommodationView } from './components/AccommodationView';
 import { AdminPortal } from './components/AdminPortal';
 import { FloatingBackToTop } from './components/BackToTop';
 import { testConnection } from './lib/firebase';
 
+const TAB_PATHS: Record<string, string> = {
+  home: '/',
+  about: '/about',
+  tracks: '/tracks',
+  speakers: '/speakers',
+  programme: '/programme',
+  abstracts: '/abstracts',
+  registration: '/registration',
+  committees: '/committees',
+  venue: '/venue',
+  accommodation: '/accommodation',
+};
+
+const getRouteStateFromLocation = (): { tab: string; isAdmin: boolean } => {
+  if (typeof window === 'undefined') {
+    return { tab: 'home', isAdmin: false };
+  }
+  const path = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+  const hash = window.location.hash.toLowerCase();
+
+  if (hash === '#admin' || path === '/admin/login' || path === '/admin') {
+    return { tab: 'home', isAdmin: true };
+  }
+
+  if (
+    path === '/accommodation' ||
+    path === '/accommodation-and-places-to-visit' ||
+    hash === '#accommodation'
+  ) {
+    return { tab: 'accommodation', isAdmin: false };
+  }
+
+  const matchedPath = Object.entries(TAB_PATHS).find(([, routePath]) => routePath === path);
+  if (matchedPath) {
+    return { tab: matchedPath[0], isAdmin: false };
+  }
+
+  const hashKey = hash.replace(/^#/, '');
+  if (hashKey && TAB_PATHS[hashKey]) {
+    return { tab: hashKey, isAdmin: false };
+  }
+
+  return { tab: 'home', isAdmin: false };
+};
+
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<string>('home');
-  const [isAdminView, setIsAdminView] = useState<boolean>(false);
+  const initialRoute = getRouteStateFromLocation();
+  const [currentTab, setCurrentTab] = useState<string>(initialRoute.tab);
+  const [isAdminView, setIsAdminView] = useState<boolean>(initialRoute.isAdmin);
   const [selectedTrackForAbstract, setSelectedTrackForAbstract] = useState<string | undefined>(undefined);
 
   // Initialize and test connection on mount as mandated by Firebase skill
   useEffect(() => {
     testConnection().catch((err) => console.warn('Firebase init connection test:', err));
 
-    // Handle hash routing if URL contains #admin
-    const handleHash = () => {
-      if (window.location.hash === '#admin' || window.location.pathname === '/admin/login') {
-        setIsAdminView(true);
+    const syncRouteFromLocation = () => {
+      const next = getRouteStateFromLocation();
+      setIsAdminView(next.isAdmin);
+      if (!next.isAdmin) {
+        setCurrentTab(next.tab);
       }
     };
-    handleHash();
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
+
+    window.addEventListener('hashchange', syncRouteFromLocation);
+    window.addEventListener('popstate', syncRouteFromLocation);
+    return () => {
+      window.removeEventListener('hashchange', syncRouteFromLocation);
+      window.removeEventListener('popstate', syncRouteFromLocation);
+    };
   }, []);
 
   // Dynamically activate CSS scroll-snap only on presentation tabs, not long forms or admin
@@ -43,6 +95,7 @@ export default function App() {
       'speakers',
       'programme',
       'venue',
+      'accommodation',
       'committees',
     ].includes(currentTab);
 
@@ -63,6 +116,16 @@ export default function App() {
     }
     setCurrentTab(tab);
     setIsAdminView(false);
+
+    const targetPath = TAB_PATHS[tab] || '/';
+    try {
+      if (window.location.pathname !== targetPath || window.location.hash) {
+        window.history.pushState(null, '', targetPath);
+      }
+    } catch {
+      // Ignore history errors in restricted environments
+    }
+
     window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
@@ -100,6 +163,7 @@ export default function App() {
         {currentTab === 'registration' && <RegistrationView />}
         {currentTab === 'committees' && <CommitteesView />}
         {currentTab === 'venue' && <VenueView />}
+        {currentTab === 'accommodation' && <AccommodationView onNavigate={handleSelectTab} />}
       </main>
 
       {/* Institutional Footer */}

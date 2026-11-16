@@ -76,35 +76,45 @@ export const ConferenceCountdown: React.FC = () => {
   ];
 
   return (
-    <div className="relative rounded-2xl bg-gradient-to-r from-[#F0F5FE]/90 via-white/95 to-[#F4F1FE]/90 backdrop-blur-md border border-[#22C5D9]/30 shadow-md shadow-[#0a2342]/5 px-3.5 sm:px-6 py-2.5 sm:py-3 overflow-hidden">
-      {/* Subtle decorative glow accents */}
-      <div className="absolute -top-10 -left-10 w-28 h-28 bg-[#22C5D9]/15 rounded-full blur-xl pointer-events-none" />
-      <div className="absolute -bottom-10 -right-10 w-28 h-28 bg-[#7554D9]/15 rounded-full blur-xl pointer-events-none" />
-
+    <div
+      className="relative rounded-2xl sm:rounded-full px-4 sm:px-7 py-2.5 sm:py-3 overflow-hidden border border-white/25"
+      style={{
+        backgroundColor: 'rgba(15, 35, 75, 0.32)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        boxShadow:
+          '0 10px 28px rgba(5, 16, 42, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
+      }}
+    >
       {timeLeft.status === 'upcoming' && (
         <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-2.5 sm:gap-4">
-          {/* Left: Heading and small caption */}
-          <div className="text-center md:text-left shrink-0">
-            <div className="inline-flex items-center gap-2 text-xs sm:text-[13.5px] font-extrabold tracking-wider text-[#061d36] font-heading uppercase">
-              <Clock className="w-4 h-4 text-[#22C5D9] shrink-0" />
-              <span>THE COUNTDOWN BEGINS</span>
-            </div>
-            <div className="text-[11px] sm:text-[12.5px] font-bold text-[#7554D9] tracking-wider uppercase mt-0.5">
-              COUNTDOWN TO 15 FEBRUARY 2027
-            </div>
+          {/* Left: Countdown label */}
+          <div className="flex items-center justify-center md:justify-start gap-2 shrink-0">
+            <Clock className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-[#67E8F9] shrink-0" />
+            <span className="text-xs sm:text-[13px] font-bold tracking-[0.14em] text-white font-heading uppercase [text-shadow:0_1px_6px_rgba(4,12,34,0.75)]">
+              THE COUNTDOWN BEGINS
+            </span>
           </div>
 
-          {/* Right / Center: 4 Horizontal Countdown Units */}
-          <div className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-3.5 w-full md:w-auto md:min-w-[360px] max-w-lg">
+          {/* Subtle vertical divider on md+ */}
+          <div className="hidden md:block h-8 w-px bg-white/25 shrink-0" />
+
+          {/* Right: 4 Translucent Number Tiles */}
+          <div className="grid grid-cols-4 gap-2 sm:gap-2.5 w-full md:w-auto">
             {units.map((unit) => (
               <div
                 key={unit.label}
-                className="flex flex-col items-center justify-center py-2 px-2.5 sm:py-2.5 sm:px-3.5 rounded-xl bg-white/95 border border-indigo-100/90 shadow-2xs hover:border-[#22C5D9]/60 transition-colors"
+                className="flex flex-col items-center justify-center py-1.5 px-2.5 sm:py-2 sm:px-3.5 min-w-[60px] sm:min-w-[70px] rounded-xl border border-white/20 transition-colors"
+                style={{
+                  backgroundColor: 'rgba(12, 30, 68, 0.36)',
+                  boxShadow:
+                    '0 4px 12px rgba(4, 12, 34, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.14)',
+                }}
               >
-                <span className="text-2xl sm:text-3xl md:text-[34px] lg:text-[36px] font-black text-[#061d36] tabular-nums leading-none">
+                <span className="text-xl sm:text-2xl md:text-[26px] font-black text-white tabular-nums leading-none [text-shadow:0_1px_6px_rgba(4,12,34,0.75)]">
                   {unit.value}
                 </span>
-                <span className="text-[10px] sm:text-[11px] font-bold tracking-wider text-[#7554D9] uppercase mt-1">
+                <span className="text-[8.5px] sm:text-[9.5px] font-bold tracking-[0.14em] text-[#38BDF8] uppercase mt-1">
                   {unit.label}
                 </span>
               </div>
@@ -114,42 +124,42 @@ export const ConferenceCountdown: React.FC = () => {
       )}
 
       {timeLeft.status === 'live' && (
-        <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-2.5 py-1 text-center sm:text-left">
+        <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-2.5 py-0.5 text-center sm:text-left">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600">
+            <div className="p-1.5 rounded-lg bg-[#22D3EE]/15 text-[#67E8F9] border border-white/15">
               <Radio className="w-4 h-4 animate-pulse" />
             </div>
             <div>
-              <div className="text-xs sm:text-sm font-black text-emerald-700 tracking-wider uppercase font-heading">
+              <div className="text-xs sm:text-sm font-black text-white tracking-wider uppercase font-heading">
                 THE CONFERENCE IS NOW LIVE
               </div>
-              <div className="text-[10px] sm:text-[11px] font-semibold text-slate-600">
+              <div className="text-[10px] sm:text-[11px] font-medium text-slate-200">
                 15–16 February 2027 · SRM College of Pharmacy, Kattankulathur
               </div>
             </div>
           </div>
-          <div className="text-[11px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-3 py-1 rounded-full">
+          <div className="text-[11px] font-medium text-[#CFFAFE] bg-white/10 border border-white/20 px-3 py-1 rounded-full">
             In Collaboration with INTI International University, Malaysia
           </div>
         </div>
       )}
 
       {timeLeft.status === 'ended' && (
-        <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-2.5 py-1 text-center sm:text-left">
+        <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-2.5 py-0.5 text-center sm:text-left">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-indigo-500/10 text-[#7554D9]">
+            <div className="p-1.5 rounded-lg bg-white/10 text-[#67E8F9] border border-white/15">
               <CheckCircle2 className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xs sm:text-sm font-black text-[#061d36] tracking-wider uppercase font-heading">
+              <div className="text-xs sm:text-sm font-black text-white tracking-wider uppercase font-heading">
                 THANK YOU FOR BEING PART OF AICONDD 2027
               </div>
-              <div className="text-[10px] sm:text-[11px] font-semibold text-slate-600">
+              <div className="text-[10px] sm:text-[11px] font-medium text-slate-200">
                 15–16 February 2027 · SRM College of Pharmacy, SRMIST
               </div>
             </div>
           </div>
-          <div className="text-[11px] font-medium text-indigo-900 bg-indigo-50 border border-indigo-200/80 px-3 py-1 rounded-full">
+          <div className="text-[11px] font-medium text-white bg-white/10 border border-white/20 px-3 py-1 rounded-full">
             Proceedings & Certificates Available
           </div>
         </div>

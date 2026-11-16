@@ -90,5 +90,59 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
+
+    // Validation helpers for Hospitality Directory (Accommodation & Places to Visit)
+    function isValidAccommodationProperty(data) {
+      return data.keys().hasAll(['id', 'name', 'category', 'locality', 'address', 'phone', 'distanceKm', 'mapsQuery', 'isActive', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'category', 'locality', 'address', 'phone', 'secondaryPhone', 'phoneTypeNote', 'distanceKm', 'driveMinutes', 'mapsQuery', 'isActive', 'updatedAt', 'updatedBy']) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 150 &&
+        data.category in ['Hotel', 'Guest House', 'Residency', 'Homestay'] &&
+        data.locality is string && data.locality.size() >= 2 && data.locality.size() <= 100 &&
+        data.address is string && data.address.size() >= 5 && data.address.size() <= 400 &&
+        data.phone is string && data.phone.size() >= 6 && data.phone.size() <= 50 &&
+        (!('secondaryPhone' in data) || data.secondaryPhone == null || (data.secondaryPhone is string && data.secondaryPhone.size() <= 50)) &&
+        (!('phoneTypeNote' in data) || data.phoneTypeNote == null || (data.phoneTypeNote is string && data.phoneTypeNote.size() <= 120)) &&
+        data.distanceKm is number && data.distanceKm >= 0 && data.distanceKm <= 500 &&
+        (!('driveMinutes' in data) || data.driveMinutes == null || (data.driveMinutes is number && data.driveMinutes >= 0 && data.driveMinutes <= 1000)) &&
+        data.mapsQuery is string && data.mapsQuery.size() >= 3 && data.mapsQuery.size() <= 300 &&
+        data.isActive is bool &&
+        data.updatedAt is string && data.updatedAt.size() <= 50 &&
+        (!('updatedBy' in data) || data.updatedBy == null || (data.updatedBy is string && data.updatedBy.size() <= 150));
+    }
+
+    function isValidTouristAttraction(data) {
+      return data.keys().hasAll(['id', 'name', 'locality', 'description', 'distanceKm', 'mapsQuery', 'isActive', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'locality', 'description', 'distanceKm', 'driveMinutes', 'image', 'mapsQuery', 'isActive', 'updatedAt', 'updatedBy']) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 150 &&
+        data.locality is string && data.locality.size() >= 2 && data.locality.size() <= 120 &&
+        data.description is string && data.description.size() >= 5 && data.description.size() <= 400 &&
+        data.distanceKm is number && data.distanceKm >= 0 && data.distanceKm <= 500 &&
+        (!('driveMinutes' in data) || data.driveMinutes == null || (data.driveMinutes is number && data.driveMinutes >= 0 && data.driveMinutes <= 1000)) &&
+        (!('image' in data) || data.image == null || (data.image is string && data.image.size() <= 500)) &&
+        data.mapsQuery is string && data.mapsQuery.size() >= 3 && data.mapsQuery.size() <= 300 &&
+        data.isActive is bool &&
+        data.updatedAt is string && data.updatedAt.size() <= 50 &&
+        (!('updatedBy' in data) || data.updatedBy == null || (data.updatedBy is string && data.updatedBy.size() <= 150));
+    }
+
+    // Conference Accommodation Directory (public read-only, admin-managed write)
+    match /accommodationProperties/{propertyId} {
+      allow get: if isValidId(propertyId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(propertyId) && isValidAccommodationProperty(request.resource.data) && request.resource.data.id == propertyId;
+      allow update: if isAdmin() && isValidId(propertyId) && isValidAccommodationProperty(request.resource.data) && request.resource.data.id == propertyId;
+      allow delete: if isAdmin() && isValidId(propertyId);
+    }
+
+    // Tourist Attractions Directory (public read-only, admin-managed write)
+    match /touristAttractions/{attractionId} {
+      allow get: if isValidId(attractionId);
+      allow list: if true;
+      allow create: if isAdmin() && isValidId(attractionId) && isValidTouristAttraction(request.resource.data) && request.resource.data.id == attractionId;
+      allow update: if isAdmin() && isValidId(attractionId) && isValidTouristAttraction(request.resource.data) && request.resource.data.id == attractionId;
+      allow delete: if isAdmin() && isValidId(attractionId);
+    }
   }
 }

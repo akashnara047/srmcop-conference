@@ -23,6 +23,7 @@ export interface RegistrationRecord {
   mobile: string;
   courseOrDesignation?: string;
   institution: string;
+  institutionCategory?: 'internal' | 'external' | null;
   city?: string;
   country?: string;
   category: string;
@@ -259,19 +260,7 @@ export async function verifyRegistrationForAbstractSubmission(
     const regData = directSnap.data() as RegistrationRecord;
     regData.id = directSnap.id;
 
-    // Validation Check 2: Payment verification status
-    if (regData.paymentStatus !== 'Verified') {
-      if (regData.paymentStatus === 'Rejected') {
-        throw new Error(
-          'Registration payment was marked as rejected. Please contact the conference secretariat (org.secy.cp@srmist.edu.in) to update your payment details.'
-        );
-      }
-      throw new Error(
-        'Payment verification is pending. Only delegates with verified payments can submit an abstract. Your payment is currently awaiting verification by the secretariat. Please allow time for processing or check your registration status.'
-      );
-    }
-
-    // Validation Check 3: Email match (if email is provided)
+    // Validation Check 2: Email match (if email is provided)
     if (enteredEmail && enteredEmail.trim()) {
       const cleanEmail = enteredEmail.trim().toLowerCase();
       if (regData.email.trim().toLowerCase() !== cleanEmail) {
@@ -281,7 +270,7 @@ export async function verifyRegistrationForAbstractSubmission(
       }
     }
 
-    // Validation Check 4: Strict 1:1 check (Already submitted)
+    // Validation Check 3: Strict 1:1 check (Already submitted)
     if (regData.linkedAbstractId || regData.abstractSubmitted) {
       const linkedId = regData.linkedAbstractId || 'on record';
       throw new Error(
@@ -298,8 +287,6 @@ export async function verifyRegistrationForAbstractSubmission(
     if (
       error.message &&
       (error.message.includes('not found') ||
-        error.message.includes('Payment verification is pending') ||
-        error.message.includes('rejected') ||
         error.message.includes('does not match') ||
         error.message.includes('already been submitted') ||
         error.message.includes('Registration ID'))
@@ -520,6 +507,14 @@ export async function deleteRegistrationRecord(
 // ---------------------------------------------------------------------------
 // 5. EXCEL EXPORT HELPERS (XLSX)
 // ---------------------------------------------------------------------------
+function formatExcelInstitutionCategory(value?: string | null): string {
+  if (typeof value !== 'string') return 'Unclassified';
+  const cleaned = value.trim().toLowerCase();
+  if (cleaned === 'internal') return 'Internal';
+  if (cleaned === 'external') return 'External';
+  return 'Unclassified';
+}
+
 export function exportRegistrationsToExcel(registrations: RegistrationRecord[], filename = 'AICONDD_Registrations_2027.xlsx') {
   const data = registrations.map((r) => ({
     'Official Reg ID': r.registrationId || 'Pending Verification',
@@ -529,13 +524,14 @@ export function exportRegistrationsToExcel(registrations: RegistrationRecord[], 
     'Mobile Number': r.mobile,
     'Category': r.category + (r.otherCategoryDescription ? ` (${r.otherCategoryDescription})` : ''),
     'Course / Designation': r.courseOrDesignation || '',
+    'Institution Category': formatExcelInstitutionCategory(r.institutionCategory),
     'Institution / University': r.institution || '',
     'City': r.city || '',
     'Country': r.country || '',
     'Participation Mode': r.participationMode || '',
     'PharmaQuest Participation': r.participatePharmaQuest || 'No',
     'Dietary Preference': r.dietaryPreference || 'Not Specified',
-    'Payment Fee (INR)': r.paymentAmount || r.amount || 2500,
+    'Payment Fee (INR)': r.paymentAmount || r.amount || 2000,
     'Payment Mode': r.paymentMode || '',
     'Transaction Reference (UTR)': r.transactionReference || '',
     'Payment Status': r.paymentStatus,
@@ -554,17 +550,34 @@ export function exportRegistrationsToExcel(registrations: RegistrationRecord[], 
   XLSX.writeFile(workbook, filename);
 }
 
-export function exportAbstractsToExcel(abstracts: AbstractRecord[], filename = 'AICONDD_Abstract_Submissions_2027.xlsx') {
+export function exportAbstractsToExcel(
+  abstracts: AbstractRecord[],
+  filename = 'AICONDD_Abstract_Submissions_2027.xlsx',
+  registrations?: RegistrationRecord[]
+) {
+  const regMap = new Map<string, RegistrationRecord>();
+  if (registrations) {
+    registrations.forEach((r) => {
+      if (r.registrationId) regMap.set(r.registrationId.trim().toUpperCase(), r);
+      regMap.set(r.id.trim().toUpperCase(), r);
+    });
+  }
+
   const data = abstracts.map((a) => {
     const author = a.presentingAuthor || {};
     const coAuthorStr = (a.coAuthors || []).map((c) => `${c.name} (${c.affiliation})`).join('; ');
     const abstractBody = typeof a.abstractContent === 'string'
       ? a.abstractContent
       : a.abstractContent?.text || '';
+    const regKey = (a.registrationId || '').trim().toUpperCase();
+    const docKey = (a.registrationDocId || '').trim().toUpperCase();
+    const linkedReg = (regKey ? regMap.get(regKey) : undefined) || (docKey ? regMap.get(docKey) : undefined);
 
     return {
       'Abstract ID': a.id,
       'Linked Registration ID': a.registrationId,
+      'Institution Category': linkedReg ? formatExcelInstitutionCategory(linkedReg.institutionCategory) : 'Unclassified',
+      ...(registrations ? { 'Associated Payment Status': linkedReg?.paymentStatus || 'Unknown' } : {}),
       'Title': a.title,
       'Scientific Track': a.trackId,
       'Preferred Presentation Format': a.presentationPreference || a.presentationType || '',
@@ -601,17 +614,19 @@ export function exportMasterParticipantsToExcel(
   const abstractMap = new Map<string, AbstractRecord>();
   abstracts.forEach((abs) => {
     if (abs.registrationId) {
-      abstractMap.set(abs.registrationId, abs);
+      abstractMap.set(abs.registrationId.trim().toUpperCase(), abs);
     }
   });
 
   const masterRows = registrations.map((reg) => {
-    const linkedAbs = reg.registrationId ? abstractMap.get(reg.registrationId) : null;
+    const regKey = (reg.registrationId || reg.id || '').trim().toUpperCase();
+    const linkedAbs = regKey ? abstractMap.get(regKey) : null;
     return {
       'Registration ID': reg.registrationId || 'Pending Verification',
       'Delegate Name': reg.fullName,
       'Email': reg.email,
       'Mobile': reg.mobile,
+      'Institution Category': formatExcelInstitutionCategory(reg.institutionCategory),
       'Institution': reg.institution,
       'Category': reg.category,
       'Payment Status': reg.paymentStatus,
@@ -767,7 +782,7 @@ export function generateAcceptanceLetterPDF(abstract: AbstractRecord, registrati
   const instructionsText = `Important Guidelines for Presenting Authors:
 1. Your presentation schedule, session timing, and hall allocation will be published on the conference website prior to the event.
 2. Please ensure your presentation slides (16:9 widescreen) or poster (36" x 48") strictly adhere to the presentation format guidelines.
-3. As your registration is verified under ${abstract.registrationId}, your delegate kit, presentation certificate, and conference banquet pass will be issued at the registration desk.`;
+3. Present your Registration ID (${abstract.registrationId}) and official registration receipt at the registration desk for delegate kit and certificate issuance (subject to payment verification).`;
 
   const splitInstr = doc.splitTextToSize(instructionsText, 170);
   doc.text(splitInstr, 20, instructionsY);
@@ -1223,7 +1238,7 @@ export function generateRegistrationReceiptPDF(reg: RegistrationRecord) {
   drawRow('PharmaQuest:', reg.participatePharmaQuest || reg.pharmaQuest || 'No', 115, 142, currentY + 54, 46);
 
   drawRow('Dietary Preference:', reg.dietaryPreference || 'Not Specified', 26, 58, currentY + 64, 54);
-  drawRow('Abstract Eligibility:', `Permitted (Use ID: ${regIdDisplay})`, 115, 142, currentY + 64, 46);
+  drawRow('Abstract Eligibility:', `Immediate (Use ID: ${regIdDisplay})`, 115, 142, currentY + 64, 46);
 
   // Section 2: Payment & Fee Particulars Box
   currentY = 135;

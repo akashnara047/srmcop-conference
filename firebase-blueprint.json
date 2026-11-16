@@ -40,7 +40,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "description": "Internal document ID (e.g. REG-1741...)" },
-        "registrationId": { "type": "string", "description": "Official Verified Registration ID (e.g. AICONDD001), assigned only upon payment verification" },
+        "registrationId": { "type": "string", "description": "Official Registration ID (e.g. AICONDD001), generated sequentially upon registration submission" },
         "fullName": { "type": "string", "maxLength": 150 },
         "email": { "type": "string", "format": "email" },
         "mobile": { "type": "string", "maxLength": 25 },
@@ -49,6 +49,7 @@
         "country": { "type": "string", "maxLength": 100 },
         "category": { "type": "string" },
         "courseOrDesignation": { "type": "string", "maxLength": 150 },
+        "institutionCategory": { "type": "string", "enum": ["internal", "external"], "description": "Participant institution classification (internal or external)" },
         "modeOfParticipation": { "type": "string" },
         "presentationPlan": { "type": "string" },
         "pharmaQuest": { "type": "string" },
@@ -111,6 +112,47 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "adminEmail", "action", "targetId", "timestamp"]
+    },
+    "AccommodationPropertyRecord": {
+      "title": "AccommodationPropertyRecord",
+      "description": "Verified conference accommodation listing near SRMIST managed by Org. Secretary",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "enum": ["Hotel", "Guest House", "Residency", "Homestay"] },
+        "locality": { "type": "string", "maxLength": 100 },
+        "address": { "type": "string", "maxLength": 400 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "secondaryPhone": { "type": "string", "maxLength": 50 },
+        "phoneTypeNote": { "type": "string", "maxLength": 120 },
+        "distanceKm": { "type": "number" },
+        "driveMinutes": { "type": "number" },
+        "mapsQuery": { "type": "string", "maxLength": 300 },
+        "isActive": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "updatedBy": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["id", "name", "category", "locality", "address", "phone", "distanceKm", "mapsQuery", "isActive", "updatedAt"]
+    },
+    "TouristAttractionRecord": {
+      "title": "TouristAttractionRecord",
+      "description": "Verified regional tourist attraction near SRMIST managed by Org. Secretary",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 150 },
+        "locality": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 400 },
+        "distanceKm": { "type": "number" },
+        "driveMinutes": { "type": "number" },
+        "image": { "type": "string", "maxLength": 500 },
+        "mapsQuery": { "type": "string", "maxLength": 300 },
+        "isActive": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "updatedBy": { "type": "string", "maxLength": 150 }
+      },
+      "required": ["id", "name", "locality", "description", "distanceKm", "mapsQuery", "isActive", "updatedAt"]
     }
   },
   "firestore": {
@@ -133,6 +175,14 @@
     "/adminAuditLogs/{logId}": {
       "schema": "AdminAuditLog",
       "description": "Administrator actions and payment verification logs"
+    },
+    "/accommodationProperties/{propertyId}": {
+      "schema": "AccommodationPropertyRecord",
+      "description": "Publicly readable, admin-managed conference accommodation directory entries"
+    },
+    "/touristAttractions/{attractionId}": {
+      "schema": "TouristAttractionRecord",
+      "description": "Publicly readable, admin-managed tourist attraction entries"
     }
   }
 }

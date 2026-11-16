@@ -27,6 +27,110 @@ export interface ProgrammeSession {
   description: string;
 }
 
+export interface RegistrationFeeItem {
+  id: 'students' | 'research-scholars' | 'faculty' | 'industrial' | 'spot';
+  category: string;
+  fee: number;
+  formattedFee: string;
+  tier: 'standard' | 'premium';
+}
+
+export const REGISTRATION_DEADLINE = '15 January 2027';
+export const SPOT_REGISTRATION_FEE = 3000;
+export const SPOT_REGISTRATION_FEE_FORMATTED = '₹3,000';
+
+export const REGISTRATION_FEE_SCHEDULE: RegistrationFeeItem[] = [
+  {
+    id: 'students',
+    category: 'Students',
+    fee: 2000,
+    formattedFee: '₹2,000',
+    tier: 'standard',
+  },
+  {
+    id: 'research-scholars',
+    category: 'Research Scholars',
+    fee: 2000,
+    formattedFee: '₹2,000',
+    tier: 'standard',
+  },
+  {
+    id: 'faculty',
+    category: 'Faculty',
+    fee: 2000,
+    formattedFee: '₹2,000',
+    tier: 'standard',
+  },
+  {
+    id: 'industrial',
+    category: 'Industrial Participants',
+    fee: 3000,
+    formattedFee: '₹3,000',
+    tier: 'premium',
+  },
+  {
+    id: 'spot',
+    category: 'Spot Registration',
+    fee: 3000,
+    formattedFee: '₹3,000',
+    tier: 'premium',
+  },
+];
+
+export const REGISTRATION_FEES_CONFIG = {
+  deadline: REGISTRATION_DEADLINE,
+  spotFee: SPOT_REGISTRATION_FEE,
+  spotFeeFormatted: SPOT_REGISTRATION_FEE_FORMATTED,
+  startingFee: 2000,
+  startingFeeFormatted: '₹2,000',
+  schedule: REGISTRATION_FEE_SCHEDULE,
+} as const;
+
+export function getApplicableRegistrationFee(category: string): {
+  amount: number | null;
+  formatted: string;
+  label: string;
+  note: string;
+} {
+  switch (category) {
+    case 'Student / Scholar':
+      return {
+        amount: 2000,
+        formatted: '₹2,000',
+        label: 'Students / Research Scholars',
+        note: `Applicable fee for Students and Research Scholars (Last date: ${REGISTRATION_DEADLINE}).`,
+      };
+    case 'Faculty':
+      return {
+        amount: 2000,
+        formatted: '₹2,000',
+        label: 'Faculty',
+        note: `Applicable fee for Faculty members (Last date: ${REGISTRATION_DEADLINE}).`,
+      };
+    case 'Researcher':
+      return {
+        amount: 2000,
+        formatted: '₹2,000',
+        label: 'Research Scholars / Researchers',
+        note: `Applicable fee for Research Scholars & Academic Researchers (Last date: ${REGISTRATION_DEADLINE}).`,
+      };
+    case 'Industry Professional':
+      return {
+        amount: 3000,
+        formatted: '₹3,000',
+        label: 'Industrial Participants',
+        note: `Applicable fee for Industrial Participants (Last date: ${REGISTRATION_DEADLINE}).`,
+      };
+    default:
+      return {
+        amount: null,
+        formatted: '₹2,000 / ₹3,000',
+        label: 'Other Participants',
+        note: `Students, Research Scholars & Faculty: ₹2,000 · Industrial Participants / Spot Registration: ₹3,000.`,
+      };
+  }
+}
+
 export const CONFERENCE_INFO = {
   title: 'AI-Powered Innovations in Drug Discovery and Development',
   shortTitle: 'AI-DD2027',
@@ -49,6 +153,7 @@ export const CONFERENCE_INFO = {
     'narayanj@srmist.edu.in',
   ],
   registrationFee: 2000,
+  registrationDeadline: REGISTRATION_DEADLINE,
 };
 
 export const SCIENTIFIC_TRACKS: Track[] = [
@@ -319,6 +424,7 @@ export const CHIEF_PATRONS = [
 export const PATRONS = [
   { name: 'Prof. C. Muthamizhchelvan', title: 'Vice Chancellor, SRM Institute of Science and Technology' },
   { name: 'Prof. S. Ponnusamy', title: 'Registrar, SRM Institute of Science and Technology' },
+  { name: 'Dr. T. Mythili', title: 'Additional Registrar (MHS),\nSRM Institute of Science and Technology' },
   { name: 'INTI International University Leadership', title: 'Malaysia' },
 ];
 
@@ -331,7 +437,7 @@ export const CONFERENCE_LEADERSHIP = {
   },
   organisingSecretary: {
     title: 'Organising Secretary',
-    name: 'Dr. V. Damodharan',
+    name: 'Dr. N. Damodharan',
     designation: 'Vice Principal, SRM College of Pharmacy',
     institution: 'SRM Institute of Science and Technology (SRMIST)',
   },
@@ -343,9 +449,10 @@ export const ORGANISING_COMMITTEES_DIRECTORY: CommitteeDirectoryItem[] = [
     number: '01',
     name: 'Registration Committee',
     iconName: 'clipboard',
-    convenor: 'Dr. J. Kavitha',
-    displayMemberCount: 4,
+    convenor: 'Dr. M. K. Kathiravan',
+    displayMemberCount: 5,
     members: [
+      'Dr. J. Kavitha',
       'Dr. G.P. Pazhani',
       'Dr. R. Kavitha',
       'Dr. N. Krishna Prabha',
@@ -402,7 +509,7 @@ export const ORGANISING_COMMITTEES_DIRECTORY: CommitteeDirectoryItem[] = [
     number: '05',
     name: 'Inauguration Committee',
     iconName: 'calendar',
-    convenor: 'Prof. S. Sangeetha',
+    convenor: 'Dr. S. Sangeetha',
     displayMemberCount: 3,
     members: [
       'Dr. P.N. Remya',
@@ -441,7 +548,7 @@ export const ORGANISING_COMMITTEES_DIRECTORY: CommitteeDirectoryItem[] = [
     name: 'Sponsorship Committee',
     iconName: 'trophy',
     members: [
-      'Prof. M. S. Umashankar',
+      'Dr. M. S. Umashankar',
     ],
   },
   {

@@ -8,7 +8,6 @@ import {
   Building,
   Navigation,
   ExternalLink,
-  Camera,
 } from 'lucide-react';
 import { IMAGES } from '../lib/images';
 
@@ -382,95 +381,6 @@ export const VenueView: React.FC = () => {
                 </li>
               </ul>
             </div>
-          </div>
-        </section>
-
-        {/* =====================================================================
-            4. EXPLORE CHENNAI – Tourist Attractions (5 Cards in a Row)
-           ===================================================================== */}
-        <section className="space-y-4">
-          {/* Section Heading Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#713CE0] text-white flex items-center justify-center shrink-0 shadow-2xs">
-                <Camera className="w-4 h-4" />
-              </div>
-              <h2 className="text-2xl sm:text-[28px] font-bold text-[#101B4B] font-heading tracking-tight">
-                Explore Chennai
-              </h2>
-            </div>
-            <p className="text-[12px] sm:text-[13px] text-[#713CE0] font-medium">
-              Make the most of your visit by exploring some popular attractions around Chennai.
-            </p>
-          </div>
-
-          {/* 5 Attraction Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 sm:gap-4 items-stretch">
-            {[
-              {
-                id: 'kapaleeshwarar',
-                name: 'Kapaleeshwarar Temple',
-                locationSubtitle: 'Chennai',
-                distance: '≈ 40 km',
-                image: '/assets/attractions/kapaleeshwarar_temple.png',
-              },
-              {
-                id: 'mahabalipuram',
-                name: 'Mahabalipuram',
-                locationSubtitle: 'UNESCO World Heritage Site',
-                distance: '≈ 60 km',
-                image: '/assets/attractions/mahabalipuram.png',
-              },
-              {
-                id: 'marina_beach',
-                name: 'Marina Beach',
-                locationSubtitle: 'Chennai',
-                distance: '≈ 42 km',
-                image: '/assets/attractions/marina_beach.png',
-              },
-              {
-                id: 'fort_st_george',
-                name: 'Fort St. George',
-                locationSubtitle: 'Chennai',
-                distance: '≈ 43 km',
-                image: '/assets/attractions/fort_st_george.png',
-              },
-              {
-                id: 'vgp_marine',
-                name: 'VGP Marine Kingdom',
-                locationSubtitle: 'Chennai',
-                distance: '≈ 48 km',
-                image: '/assets/attractions/vgp_marine_kingdom.png',
-              },
-            ].map((attraction) => (
-              <div
-                key={attraction.id}
-                className="bg-white/85 backdrop-blur-md border border-[#D9D3F9] rounded-2xl overflow-hidden shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between h-full"
-              >
-                {/* Fixed 16:9 Aspect Ratio Image Container */}
-                <div className="w-full aspect-video overflow-hidden bg-slate-100 rounded-t-2xl">
-                  <img
-                    src={attraction.image}
-                    alt={attraction.name}
-                    className="w-full h-full object-cover object-center block"
-                  />
-                </div>
-
-                {/* Attraction Details */}
-                <div className="p-3 sm:p-3.5 space-y-1.5 flex flex-col justify-between flex-1">
-                  <div>
-                    <h3 className="text-sm sm:text-[15px] font-bold text-[#101B4B] font-heading leading-tight truncate">
-                      {attraction.name}
-                    </h3>
-                  </div>
-
-                  <div className="flex items-center gap-1 text-[11px] sm:text-[12px] font-semibold text-[#713CE0]">
-                    <MapPin className="w-3.5 h-3.5 shrink-0" />
-                    <span>{attraction.distance}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
           </div>
         </section>
       </div>

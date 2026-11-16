@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { IMAGES } from '../lib/images';
-import { CONFERENCE_INFO, SCIENTIFIC_TRACKS, INVITED_SPEAKERS, PRESENTATION_FORMATS } from '../data/conferenceData';
 import {
-  Calendar, MapPin, Globe, ArrowRight, FileText, CheckCircle2, Check, User, Monitor,
+  CONFERENCE_INFO,
+  SCIENTIFIC_TRACKS,
+  INVITED_SPEAKERS,
+  PRESENTATION_FORMATS,
+  REGISTRATION_DEADLINE,
+} from '../data/conferenceData';
+import {
+  Calendar, MapPin, ArrowRight, FileText, CheckCircle2, Check, User, Monitor,
   Award, ChevronRight, Sparkles, Building2, Cpu, Dna, Activity, Brain, Users,
   Mic, Presentation, Handshake, Star, ArrowUp, ExternalLink, Shield, Clock,
   Trophy, Lightbulb, Target, X, Mail, FlaskConical, TrendingUp, Info,
@@ -11,7 +17,7 @@ import {
 } from 'lucide-react';
 import {
   SRMISTLogo, SRMPharmacyLogo, INTILogo, IPALogo,
-  NIRFLogo, NAACLogo, NBALogo, QSWorldRankingLogo, QSIGaugeLogo
+  NIRFLogo, QCILogo, NAACLogo, NBALogo, QSWorldRankingLogo, QSIGaugeLogo
 } from './Logos';
 import { LabFlaskArtwork } from './LabFlaskArtwork';
 import { AboutCapsuleIllustration } from './AboutCapsuleIllustration';
@@ -71,174 +77,268 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
     <div className="w-full">
       {/* =========================================================================
           SECTION 1: UNIFIED INSTITUTIONAL IDENTITY & CONFERENCE HERO
-          Exact reproduction of AI-Driven_Pharmacy_Conference_2027_52e2345a.png:
-          - Full-width SRMIST campus aerial photograph background with balanced translucent overlay
+          - Full-width Mahabalipuram Shore Temple coastal sunset photograph
+          - Preserves original photograph vibrancy without overlays, tints, or blur
+          - Subtle CSS ambient coastal zoom (2%, 26s) & localized ocean water shimmer
           - Top: Institutional Masthead (SRMIST logo, SRM College of Pharmacy, IN COLLABORATION WITH, INTI & IPA, Crest)
-          - Center: Prominent floating dark navy-to-blue/teal conference hero panel with AI capsule graphic,
-            conference title, tagline, dates & venue glass card, and glowing molecular network
-          - Bottom: Horizontal white accreditation strip (NIRF 10th, NAAC A++, NBA, QS World Rankings, QS I-GAUGE)
+          - Center: Prominent floating dark navy-to-blue/teal conference hero panel
+          - Bottom: Live Conference Countdown & Horizontal white accreditation strip
          ========================================================================= */}
-      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-5 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#E6F4F8]">
-        {/* Full-Width Authentic SRMIST Campus Aerial Background Photograph */}
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <img
-            src={IMAGES.srmistCampusAerial}
-            alt="SRMIST Campus Landscape and Reflective Lake Panorama"
-            className="w-full h-full object-cover object-[center_32%] filter saturate-105"
-            loading="eager"
+      <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-5 sm:py-6 lg:py-8 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#081B38]">
+        {/* Layer 1: Full-Width Original Mahabalipuram Shore Temple Sunset Photograph (Animated <img>) */}
+        <img
+          src="/images/mahabalipuram-shore-temple.png"
+          alt="Mahabalipuram Shore Temple coastal sunset"
+          aria-hidden="true"
+          className="hero-coastal-zoom object-cover object-[66%_56%] sm:object-[62%_54%] lg:object-center select-none pointer-events-none"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            zIndex: 0,
+          }}
+          loading="eager"
+          decoding="async"
+        />
+
+        {/* Layer 2: Ocean-Wave & Sunlight-Reflection Animation (Strictly Restricted to Lower Ocean Band) */}
+        <div
+          aria-hidden="true"
+          className="absolute bottom-0 inset-x-0 h-[44%] z-0 pointer-events-none overflow-hidden"
+        >
+          {/* Sunlight reflection shimmer on water (left-center horizon to shore) */}
+          <div
+            className="hero-ocean-shimmer absolute bottom-[6%] left-[2%] sm:left-[6%] w-[44%] sm:w-[34%] h-[82%] mix-blend-screen"
+            style={{
+              background:
+                'radial-gradient(ellipse 46% 58% at 42% 56%, rgba(255, 222, 130, 0.55) 0%, rgba(255, 198, 95, 0.22) 45%, transparent 78%)',
+            }}
           />
-        </div>
 
-        {/* Carefully Balanced Translucent White & Ice-Blue Overlay */}
-        <div className="absolute inset-0 z-0 bg-gradient-to-b from-white/80 via-white/68 to-white/78 backdrop-blur-[0.5px] pointer-events-none" />
+          {/* Subtle incoming & receding ocean wave edge highlights */}
+          <svg
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+            className="hero-wave-crest absolute bottom-[18%] inset-x-0 w-[104%] -left-[2%] h-[46%] mix-blend-screen"
+            fill="none"
+          >
+            <path
+              d="M0 155 Q 240 138, 480 154 T 960 148 T 1440 158"
+              stroke="url(#oceanWaveHighlight1)"
+              strokeWidth="4"
+              strokeLinecap="round"
+            />
+            <defs>
+              <linearGradient id="oceanWaveHighlight1" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="rgba(255, 232, 179, 0.1)" />
+                <stop offset="20%" stopColor="rgba(255, 240, 200, 0.55)" />
+                <stop offset="55%" stopColor="rgba(255, 255, 255, 0.35)" />
+                <stop offset="85%" stopColor="rgba(224, 242, 254, 0.2)" />
+                <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
+              </linearGradient>
+            </defs>
+          </svg>
 
-        {/* Subtle Violet & Cyan Curved Decorative Accents near Edges */}
-        <div className="absolute -top-24 -left-24 w-80 h-80 bg-[#22C5D9]/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-[#7554D9]/18 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden opacity-35">
-          <svg className="w-full h-full" viewBox="0 0 1440 900" fill="none" preserveAspectRatio="none">
+          <svg
+            viewBox="0 0 1440 320"
+            preserveAspectRatio="none"
+            className="hero-wave-crest-secondary absolute bottom-[3%] inset-x-0 w-[104%] -left-[2%] h-[42%] mix-blend-screen"
+            fill="none"
+          >
             <path
-              d="M-60,120 C280,220 540,60 900,160 C1200,240 1380,120 1500,160"
-              stroke="#22C5D9"
-              strokeWidth="2.5"
+              d="M0 175 Q 300 160, 620 176 T 1180 165 T 1440 172"
+              stroke="url(#oceanWaveHighlight2)"
+              strokeWidth="5"
+              strokeLinecap="round"
             />
-            <path
-              d="M-60,780 C320,700 640,840 1000,740 C1260,670 1420,780 1500,750"
-              stroke="#7554D9"
-              strokeWidth="2.5"
-              strokeDasharray="6 6"
-            />
+            <defs>
+              <linearGradient id="oceanWaveHighlight2" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="rgba(255, 224, 150, 0.15)" />
+                <stop offset="22%" stopColor="rgba(255, 245, 214, 0.6)" />
+                <stop offset="65%" stopColor="rgba(255, 255, 255, 0.42)" />
+                <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
+              </linearGradient>
+            </defs>
           </svg>
         </div>
 
-        {/* FOREGROUND CONTENT: Sits cleanly over campus aerial backdrop */}
-        <div className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-between space-y-4 sm:space-y-5">
+        {/* FOREGROUND CONTENT: Sits cleanly over the vibrant coastal photograph */}
+        <div className="w-full max-w-[1440px] mx-auto relative z-10 flex-1 flex flex-col justify-between space-y-3 sm:space-y-4">
           {/* ---------------------------------------------------------------------
-              TOP AREA: INSTITUTIONAL IDENTITY & COLLABORATION PARTNERS
+              TOP AREA: UPPER-CORNER LOGOS & CENTRAL INSTITUTIONAL IDENTITY
              --------------------------------------------------------------------- */}
-          <div className="flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4 pt-1">
-            {/* Left: Authentic SRMIST Logo */}
-            <div className="w-full md:w-1/4 flex justify-center md:justify-start">
-              <div className="p-2 sm:p-2.5 bg-white/95 backdrop-blur-md rounded-2xl border border-white/90 shadow-md hover:shadow-lg transition-all">
+          <div className="w-full pt-0.5 space-y-2.5 sm:space-y-3">
+            {/* Mobile (<768px): Upper-left and upper-right logos row */}
+            <div className="flex md:hidden items-center justify-between w-full">
+              <img
+                src={IMAGES.srmistLogo}
+                alt="SRM Institute of Science and Technology"
+                className="h-10 sm:h-12 w-auto object-contain [filter:drop-shadow(0_0_5px_rgba(255,255,255,0.92))_drop-shadow(0_1px_5px_rgba(255,255,255,0.65))]"
+                loading="eager"
+              />
+              <img
+                src={IMAGES.srmPharmacyLogo}
+                alt="SRM College of Pharmacy Official Crest"
+                className="h-12 w-12 sm:h-14 sm:w-14 object-contain [filter:drop-shadow(0_0_5px_rgba(255,255,255,0.9))_drop-shadow(0_1px_5px_rgba(255,255,255,0.6))]"
+                loading="eager"
+              />
+            </div>
+
+            {/* Desktop (md+): Extreme upper-left SRMIST, centered heading, extreme upper-right Pharmacy Crest */}
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-start md:gap-4 lg:gap-8">
+              {/* Extreme Upper-Left: Authentic Transparent SRMIST Logo */}
+              <div className="hidden md:flex items-center justify-start">
                 <img
                   src={IMAGES.srmistLogo}
                   alt="SRM Institute of Science and Technology"
-                  className="h-11 sm:h-13 md:h-15 w-auto object-contain"
+                  className="h-14 lg:h-[66px] w-auto object-contain [filter:drop-shadow(0_0_6px_rgba(255,255,255,0.92))_drop-shadow(0_1px_6px_rgba(255,255,255,0.65))]"
                   loading="eager"
                 />
               </div>
-            </div>
 
-            {/* Center: Institutional Typography & Collaborators */}
-            <div className="w-full md:w-2/4 text-center">
-              <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-[2.5rem] font-black text-[#082746] font-heading tracking-tight uppercase leading-none">
-                SRM COLLEGE OF PHARMACY
-              </h1>
-              <h2 className="text-xs sm:text-sm md:text-base font-extrabold text-[#082746] font-heading tracking-normal uppercase mt-1">
-                SRM INSTITUTE OF SCIENCE AND TECHNOLOGY
-              </h2>
+              {/* Center: Institutional Typography */}
+              <div className="text-center px-1 pt-0.5">
+                <h1 className="text-xl sm:text-2xl md:text-[1.85rem] lg:text-[2.3rem] xl:text-[2.5rem] font-black text-white font-heading tracking-tight uppercase leading-none [text-shadow:0_2px_12px_rgba(8,18,44,0.82),0_1px_3px_rgba(0,0,0,0.85)]">
+                  SRM COLLEGE OF PHARMACY
+                </h1>
 
-              {/* Location with Purple Accent Lines */}
-              <div className="flex items-center justify-center gap-3 pt-1">
-                <div className="h-0.5 w-10 sm:w-16 bg-gradient-to-r from-transparent to-[#7554D9]" />
-                <span className="text-[11px] sm:text-xs md:text-sm font-semibold text-[#082746] tracking-wide">
-                  Kattankulathur, Tamil Nadu, India
-                </span>
-                <div className="h-0.5 w-10 sm:w-16 bg-gradient-to-l from-transparent to-[#7554D9]" />
-              </div>
-
-              {/* IN COLLABORATION WITH */}
-              <div className="pt-2 flex flex-col items-center">
-                <div className="inline-block px-3.5 py-0.5 bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white text-[9px] sm:text-[10px] font-bold tracking-widest uppercase rounded-full shadow-xs mb-1.5">
-                  IN COLLABORATION WITH
+                <div className="flex items-center justify-center gap-2.5 sm:gap-3 mt-1.5">
+                  <div className="hidden sm:block h-px w-8 md:w-12 bg-gradient-to-r from-transparent to-white/80" />
+                  <h2 className="text-xs sm:text-sm md:text-[15px] lg:text-base font-extrabold text-white/95 font-heading tracking-normal uppercase [text-shadow:0_2px_10px_rgba(8,18,44,0.85),0_1px_2px_rgba(0,0,0,0.85)]">
+                    SRM INSTITUTE OF SCIENCE AND TECHNOLOGY
+                  </h2>
+                  <div className="hidden sm:block h-px w-8 md:w-12 bg-gradient-to-l from-transparent to-white/80" />
                 </div>
-                <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 bg-white/95 backdrop-blur-md px-4 sm:px-6 py-1.5 rounded-2xl border border-slate-200/80 shadow-xs">
-                  <INTILogo className="h-6 sm:h-7" />
-                  <div className="h-5 w-px bg-slate-300 hidden sm:block" />
-                  <IPALogo imgClassName="h-7 sm:h-8 md:h-9 w-auto max-w-[170px] sm:max-w-[210px]" />
+
+                {/* Location with Clean Accent Lines */}
+                <div className="flex items-center justify-center gap-2.5 sm:gap-3 pt-1">
+                  <div className="h-px w-8 sm:w-14 bg-gradient-to-r from-transparent to-white/85" />
+                  <span className="text-[11px] sm:text-xs md:text-sm font-bold text-white tracking-wide [text-shadow:0_1px_8px_rgba(8,18,44,0.9),0_1px_2px_rgba(0,0,0,0.85)]">
+                    Kattankulathur, Tamil Nadu, India
+                  </span>
+                  <div className="h-px w-8 sm:w-14 bg-gradient-to-l from-transparent to-white/85" />
                 </div>
               </div>
-            </div>
 
-            {/* Right: Authentic SRM College of Pharmacy Crest */}
-            <div className="w-full md:w-1/4 flex justify-center md:justify-end">
-              <div className="p-2 sm:p-2.5 bg-white/95 backdrop-blur-md rounded-full border border-white/90 shadow-md hover:scale-105 transition-transform">
+              {/* Extreme Upper-Right: Authentic Transparent SRM College of Pharmacy Crest */}
+              <div className="hidden md:flex items-center justify-end">
                 <img
                   src={IMAGES.srmPharmacyLogo}
                   alt="SRM College of Pharmacy Official Crest"
-                  className="h-13 w-13 sm:h-15 sm:w-15 md:h-18 md:w-18 object-contain"
+                  className="h-[64px] w-[64px] lg:h-[76px] lg:w-[76px] object-contain hover:scale-105 transition-transform [filter:drop-shadow(0_0_6px_rgba(255,255,255,0.9))_drop-shadow(0_1px_6px_rgba(255,255,255,0.6))]"
                   loading="eager"
                 />
+              </div>
+            </div>
+
+            {/* IN COLLABORATION WITH + Neutral Transparent Frosted Glass Partner Panel */}
+            <div className="flex flex-col items-center">
+              <div className="inline-block px-3.5 py-0.5 bg-gradient-to-r from-[#7554D9] via-[#6D62E5] to-[#22C5D9] text-white text-[9px] sm:text-[10px] font-bold tracking-widest uppercase rounded-full shadow-xs mb-1.5">
+                IN COLLABORATION WITH
+              </div>
+              <div
+                className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 px-5 sm:px-7 py-2 rounded-2xl sm:rounded-full border border-white/45"
+                style={{
+                  background:
+                    'linear-gradient(135deg, rgba(255, 255, 255, 0.56) 0%, rgba(244, 246, 255, 0.46) 100%)',
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                  boxShadow:
+                    '0 8px 24px rgba(10, 22, 52, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.55)',
+                }}
+              >
+                <INTILogo className="h-6 sm:h-7" />
+                <div className="h-5 w-px bg-slate-700/25 hidden sm:block" />
+                <IPALogo imgClassName="h-7 sm:h-8 md:h-9 w-auto max-w-[175px] sm:max-w-[220px]" />
               </div>
             </div>
           </div>
 
           {/* ---------------------------------------------------------------------
-              CENTRAL PROMINENT PANEL: DARK NAVY-TO-TEAL CONFERENCE HERO PANEL
+              CENTER: OPEN CONFERENCE HERO INFORMATION OVER COASTAL SCENERY
              --------------------------------------------------------------------- */}
-          <div className="max-w-6xl mx-auto w-full my-1 sm:my-2">
-            <div
-              className="relative rounded-[26px] sm:rounded-[34px] text-white p-5 sm:p-7 md:p-9 lg:py-10 shadow-2xl border border-[#22C5D9]/35 overflow-hidden bg-cover bg-center bg-no-repeat min-h-[360px] sm:min-h-[390px] flex items-center justify-center"
-              style={{ backgroundImage: `url(${IMAGES.neonHeroLabscape})` }}
-            >
-              {/* Subtle Ambient Vignette / Central Readability Overlay */}
-              <div className="absolute inset-0 bg-[#051126]/30 sm:bg-transparent sm:bg-gradient-to-r sm:from-[#051126]/20 sm:via-[#051126]/40 sm:to-[#051126]/20 pointer-events-none" />
+          <div className="max-w-4xl mx-auto w-full py-2 sm:py-4 md:py-5 text-center space-y-3.5 sm:space-y-4">
+            {/* Approved Violet-Blue Transparent Glass Pill Identifier */}
+            <div className="flex justify-center">
+              <div
+                className="inline-flex items-center justify-center px-5 sm:px-8 py-1.5 sm:py-2 rounded-full border border-white/30"
+                style={{
+                  background:
+                    'linear-gradient(135deg, rgba(84, 52, 138, 0.44) 0%, rgba(34, 52, 114, 0.42) 55%, rgba(24, 62, 118, 0.40) 100%)',
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                  boxShadow:
+                    '0 8px 22px rgba(8, 16, 42, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.28)',
+                }}
+              >
+                <span className="text-[11px] sm:text-[13px] md:text-[15px] font-bold uppercase tracking-[0.2em] sm:tracking-[0.26em] text-white [text-shadow:0_1px_8px_rgba(4,12,34,0.8)]">
+                  INTERNATIONAL CONFERENCE <span className="text-[#67E8F9] mx-0.5">·</span>{' '}
+                  <span className="text-[#67E8F9]">2027</span>
+                </span>
+              </div>
+            </div>
 
-              {/* Centered Conference Hero Information */}
-              <div className="relative z-10 max-w-3xl mx-auto text-center space-y-3 sm:space-y-3.5 w-full">
-                {/* Label Badge */}
-                <div className="inline-flex items-center gap-2 px-3.5 py-1 bg-white/10 border border-[#22C5D9]/40 rounded-full shadow-xs backdrop-blur-md">
-                  <Globe className="w-3.5 h-3.5 text-[#22C5D9]" />
-                  <span className="text-[10px] sm:text-[11px] font-bold tracking-widest text-[#22C5D9] uppercase">
-                    INTERNATIONAL CONFERENCE – 2027
-                  </span>
+            {/* Main Title: AI-Powered Innovations in Drug Discovery and Development */}
+            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-[48px] xl:text-[50px] font-black text-white font-heading leading-[1.12] tracking-tight [text-shadow:0_3px_18px_rgba(4,12,34,0.88),0_1px_4px_rgba(0,0,0,0.92)]">
+              AI-Powered{' '}
+              <span className="text-[#22D3EE] [text-shadow:0_2px_16px_rgba(4,12,34,0.92),0_1px_3px_rgba(0,0,0,0.88)]">
+                Innovations
+              </span>{' '}
+              in
+              <span className="block mt-1">Drug Discovery and Development</span>
+            </h2>
+
+            {/* Tagline directly over coastal scenery with delicate side lines */}
+            <div className="flex items-center justify-center gap-3 max-w-3xl mx-auto">
+              <div className="hidden sm:block h-px w-10 md:w-16 bg-gradient-to-r from-transparent to-white/75 shrink-0" />
+              <p className="text-xs sm:text-sm md:text-[16.5px] font-semibold text-white/95 tracking-wide [text-shadow:0_2px_14px_rgba(4,12,34,0.92),0_1px_3px_rgba(0,0,0,0.9)]">
+                Transforming Discovery. Accelerating Innovation. Advancing Healthcare.
+              </p>
+              <div className="hidden sm:block h-px w-10 md:w-16 bg-gradient-to-l from-transparent to-white/75 shrink-0" />
+            </div>
+
+            {/* Wide Rounded Dark Navy-Blue Translucent Glass Panel: Conference Dates & Venue */}
+            <div className="max-w-3xl mx-auto w-full pt-1">
+              <div
+                className="border border-white/25 rounded-2xl sm:rounded-full px-4 sm:px-8 py-3 sm:py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left"
+                style={{
+                  backgroundColor: 'rgba(10, 30, 65, 0.35)',
+                  backdropFilter: 'blur(10px)',
+                  WebkitBackdropFilter: 'blur(10px)',
+                  boxShadow:
+                    '0 10px 28px rgba(5, 16, 42, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Dates */}
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-[#22C5D9]/15 text-[#67E8F9] rounded-xl shrink-0 border border-white/20">
+                    <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] sm:text-[11px] uppercase font-bold text-[#67E8F9] tracking-wider">
+                      CONFERENCE DATES
+                    </div>
+                    <div className="text-sm sm:text-base font-extrabold text-white [text-shadow:0_1px_6px_rgba(4,12,34,0.7)]">
+                      15–16 February 2027
+                    </div>
+                  </div>
                 </div>
 
-                {/* Main Title: AI-Powered Innovations in Drug Discovery and Development */}
-                <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-[46px] xl:text-[48px] font-black text-white font-heading leading-[1.14] tracking-tight drop-shadow-md">
-                  AI-Powered <span className="text-[#22C5D9]">Innovations</span> in
-                  <span className="block mt-1">Drug Discovery and Development</span>
-                </h2>
+                {/* Divider */}
+                <div className="h-8 w-px bg-white/25 hidden sm:block" />
 
-                {/* Tagline */}
-                <p className="text-sm sm:text-base md:text-[16.5px] font-medium text-cyan-100/95 tracking-wide max-w-2xl mx-auto drop-shadow-xs">
-                  Transforming Discovery. Accelerating Innovation. Advancing Healthcare.
-                </p>
-
-                {/* Conference Dates & Venue Glass Banner */}
-                <div className="max-w-2xl mx-auto w-full pt-1">
-                  <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-3 sm:p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left shadow-lg">
-                    {/* Dates */}
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-[#22C5D9]/25 text-[#22C5D9] rounded-xl shrink-0">
-                        <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] sm:text-[11px] uppercase font-bold text-cyan-200 tracking-wider">
-                          CONFERENCE DATES
-                        </div>
-                        <div className="text-sm sm:text-base font-extrabold text-white">
-                          15–16 February 2027
-                        </div>
-                      </div>
+                {/* Venue */}
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-[#22C5D9]/15 text-[#67E8F9] rounded-xl shrink-0 border border-white/20">
+                    <MapPin className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] sm:text-[11px] uppercase font-bold text-[#67E8F9] tracking-wider">
+                      CONFERENCE VENUE
                     </div>
-
-                    {/* Divider */}
-                    <div className="h-8 w-px bg-white/20 hidden sm:block" />
-
-                    {/* Venue */}
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-[#22C5D9]/25 text-[#22C5D9] rounded-xl shrink-0">
-                        <MapPin className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] sm:text-[11px] uppercase font-bold text-cyan-200 tracking-wider">
-                          CONFERENCE VENUE
-                        </div>
-                        <div className="text-sm sm:text-base font-extrabold text-white">
-                          SRM College of Pharmacy, Kattankulathur
-                        </div>
-                      </div>
+                    <div className="text-sm sm:text-base font-extrabold text-white [text-shadow:0_1px_6px_rgba(4,12,34,0.7)]">
+                      SRM College of Pharmacy, Kattankulathur
                     </div>
                   </div>
                 </div>
@@ -247,42 +347,46 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           </div>
 
           {/* ---------------------------------------------------------------------
-              LIVE CONFERENCE COUNTDOWN SECTION
-              Placed immediately below the hero box and above the accreditation strip
+              LIVE CONFERENCE COUNTDOWN SECTION (Compact Reduced-Width Glass Bar)
              --------------------------------------------------------------------- */}
-          <div className="max-w-5xl mx-auto w-full my-1 sm:my-2 px-1 sm:px-0">
+          <div className="max-w-2xl mx-auto w-full my-1 px-1 sm:px-0">
             <ConferenceCountdown />
           </div>
 
           {/* ---------------------------------------------------------------------
               BOTTOM AREA: INSTITUTIONAL RECOGNITIONS & ACCREDITATIONS STRIP
-              (NIRF, NAAC, NBA, QS World Rankings, QS I-GAUGE)
+              (NIRF, QCI, NBA, NAAC Accreditation, QS World Rankings, QS I-GAUGE)
              --------------------------------------------------------------------- */}
-          <div className="max-w-6xl mx-auto w-full pb-1 px-1 sm:px-0">
-            <div className="bg-white/95 backdrop-blur-md border border-white/90 rounded-2xl sm:rounded-3xl shadow-xl p-2.5 sm:p-3.5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3.5 lg:gap-0 divide-y sm:divide-y-0 lg:divide-y-0 lg:divide-x divide-slate-200/80">
-                {/* Column 1: NIRF Ranking */}
-                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
+          <div className="max-w-7xl mx-auto w-full pb-1 px-1 sm:px-0">
+            <div className="bg-white/95 backdrop-blur-md border border-white/90 rounded-2xl sm:rounded-3xl shadow-xl px-2.5 py-2.5 sm:px-4 sm:py-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3 lg:gap-0 divide-y sm:divide-y-0 lg:divide-x divide-slate-200/80">
+                {/* Column 1: NIRF */}
+                <div className="flex items-center justify-center px-2 lg:px-1.5 xl:px-2.5 py-1">
                   <NIRFLogo />
                 </div>
 
-                {/* Column 2: NAAC Accreditation */}
-                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
-                  <NAACLogo />
+                {/* Column 2: QCI */}
+                <div className="flex items-center justify-center px-2 lg:px-1.5 xl:px-2.5 py-1">
+                  <QCILogo />
                 </div>
 
                 {/* Column 3: NBA Accreditation */}
-                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
+                <div className="flex items-center justify-center px-2 lg:px-1.5 xl:px-2.5 py-1">
                   <NBALogo />
                 </div>
 
-                {/* Column 4: QS World University Rankings */}
-                <div className="flex items-center justify-center px-2 sm:px-3 py-1">
+                {/* Column 4: NAAC Accreditation */}
+                <div className="flex items-center justify-center px-2 lg:px-1.5 xl:px-2.5 py-1">
+                  <NAACLogo />
+                </div>
+
+                {/* Column 5: QS World Rankings */}
+                <div className="flex items-center justify-center px-2 lg:px-1.5 xl:px-2.5 py-1">
                   <QSWorldRankingLogo />
                 </div>
 
-                {/* Column 5: QS I-GAUGE */}
-                <div className="flex items-center justify-center px-2 sm:px-3 py-1 sm:col-span-2 lg:col-span-1">
+                {/* Column 6: QS I-GAUGE */}
+                <div className="flex items-center justify-center px-2 lg:px-1.5 xl:px-2.5 py-1">
                   <QSIGaugeLogo />
                 </div>
               </div>
@@ -1292,7 +1396,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Three Presentation Cards (horizontal row on desktop):
             1. E-Poster Presentation (ONLINE badge, laptop image, description, Download Template, Download Guidelines)
             2. Oral Presentation (OFFLINE badge, podium speaker image, description, Download Template, Download Guidelines)
-            3. Poster Presentation (ONLINE badge, stand poster image, description, Download Template, Download Guidelines)
+            3. Poster Presentation (OFFLINE badge, stand poster image, description, Download Template, Download Guidelines)
           - Abstract Submission Process Strip:
             - Left: Abstract Submission Process with clipboard icon
             - Steps 01 to 04: Prepare, Choose, Submit, Track
@@ -1713,7 +1817,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Subtitle: "Plan your participation and stay updated with key timelines for the conference."
           - Four deadline cards in a single horizontal row on desktop:
             1. Abstract Submission Deadline (31 December 2026) - Blue accent, FileText icon
-            2. Registration Deadline (16 January 2027) - Lavender/Violet accent, UserCheck icon
+            2. Registration Deadline (15 January 2027) - Lavender/Violet accent, UserCheck icon
             3. Full Paper Submission (01 February 2027) - Cyan accent, ClipboardCheck icon
             4. Acceptance Notification (02 February 2027) - Soft peach accent, Bell icon
           - Prominent horizontal conference dates banner: "CONFERENCE DATES | 15–16 February 2027"
@@ -1814,7 +1918,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                     Registration Deadline
                   </div>
                   <div className="text-base sm:text-lg lg:text-[18px] xl:text-[19px] font-black text-[#082746] font-['Plus_Jakarta_Sans',sans-serif] tracking-tight mt-0.5 leading-snug">
-                    16 January 2027
+                    {REGISTRATION_DEADLINE}
                   </div>
                   <div className="text-[11px] sm:text-xs text-[#52617A] leading-tight mt-1 font-['Inter',sans-serif]">
                     Last date for conference registration.
@@ -1916,7 +2020,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                     Registration
                   </div>
                   <div className="mt-2 inline-block px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#F3E8FF] text-[#7554D9] border border-[#E9D5FF] shadow-2xs font-['Inter',sans-serif]">
-                    By 16 January 2027
+                    By {REGISTRATION_DEADLINE}
                   </div>
                 </div>
 
@@ -1991,7 +2095,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                     Registration
                   </div>
                   <div className="mt-1 inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#F3E8FF] text-[#7554D9] border border-[#E9D5FF]">
-                    By 16 January 2027
+                    By {REGISTRATION_DEADLINE}
                   </div>
                 </div>
               </div>
@@ -2066,7 +2170,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           backgroundImage: `url(${IMAGES.venueSectionBg})`,
         }}
       >
-        <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-7 relative z-10">
+        <div className="max-w-[1360px] mx-auto w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-7 relative z-10">
           {/* 1. SECTION HEADING & IDENTITY */}
           <div className="text-center space-y-2">
             {/* Top pill badge flanked by horizontal rules */}
@@ -2108,10 +2212,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </p>
           </div>
 
-          {/* 2. THREE EQUAL-HEIGHT CARDS: CONFERENCE VENUE, ACADEMIC HOST & CAMPUS */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-6 items-stretch">
+          {/* 2. FOUR EQUAL-HEIGHT CARDS: CONFERENCE VENUE, ACADEMIC HOST, CAMPUS & COLLABORATOR */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
             {/* CARD 1: MAIN CONFERENCE VENUE */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[300px]">
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
               <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
                 <img
                   src={IMAGES.srmAuditoriumPhoto}
@@ -2119,16 +2223,16 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
-              <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-3">
+              <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-xl bg-[#EDE9FE] text-[#7C3AED] flex items-center justify-center shrink-0 border border-purple-100 shadow-2xs">
                     <Users className="w-6 h-6 text-[#7C3AED]" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-[10px] font-bold tracking-wider text-[#7C3AED] uppercase block">
                       MAIN CONFERENCE VENUE
                     </span>
-                    <h3 className="text-lg sm:text-[19px] font-black text-[#082746] font-heading leading-tight">
+                    <h3 className="text-[17px] xl:text-[18px] font-black text-[#082746] font-heading leading-tight">
                       Dr. T. P. Ganesan Auditorium
                     </h3>
                   </div>
@@ -2140,7 +2244,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* CARD 2: ACADEMIC HOST */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[300px]">
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
               <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
                 <img
                   src={IMAGES.srmPharmacyBuilding}
@@ -2148,7 +2252,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
-              <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-3">
+              <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-xl bg-[#E0F7FA] text-[#087E8B] flex items-center justify-center shrink-0 border border-cyan-100 shadow-2xs">
                     <svg viewBox="0 0 48 48" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2160,11 +2264,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                       <path d="M22,14 C21,11 18,11 18,14 C20,15 22,14 22,14 Z" fill="currentColor" />
                     </svg>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-[10px] font-bold tracking-wider text-[#087E8B] uppercase block">
                       ACADEMIC HOST
                     </span>
-                    <h3 className="text-lg sm:text-[19px] font-black text-[#082746] font-heading leading-tight">
+                    <h3 className="text-[17px] xl:text-[18px] font-black text-[#082746] font-heading leading-tight">
                       SRM College of Pharmacy
                     </h3>
                   </div>
@@ -2176,7 +2280,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* CARD 3: SRMIST CAMPUS */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[300px]">
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
               <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
                 <img
                   src={IMAGES.srmistCampusAerial}
@@ -2184,7 +2288,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
-              <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-3">
+              <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-xl bg-[#FFF7ED] text-[#EA580C] flex items-center justify-center shrink-0 border border-orange-100 shadow-2xs">
                     <svg viewBox="0 0 48 48" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2198,11 +2302,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                       <circle cx="24" cy="14" r="1.5" fill="currentColor" />
                     </svg>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-[10px] font-bold tracking-wider text-[#EA580C] uppercase block">
                       SRMIST CAMPUS
                     </span>
-                    <h3 className="text-lg sm:text-[19px] font-black text-[#082746] font-heading leading-tight">
+                    <h3 className="text-[17px] xl:text-[18px] font-black text-[#082746] font-heading leading-tight">
                       SRM Institute of Science and Technology
                     </h3>
                   </div>
@@ -2210,6 +2314,46 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug">
                   Kattankulathur, Tamil Nadu.
                 </p>
+              </div>
+            </div>
+
+            {/* CARD 4: ACADEMIC COLLABORATOR – INTI INTERNATIONAL UNIVERSITY */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
+              <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
+                <img
+                  src={IMAGES.intiCampusPhoto}
+                  alt="INTI International University Main Campus, Malaysia"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                />
+              </div>
+              <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-[#FFF1F2] flex items-center justify-center shrink-0 border border-rose-100 shadow-2xs">
+                    {/* Official INTI 8-spoke red starburst mark */}
+                    <svg viewBox="0 0 100 100" className="w-6 h-6" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="INTI International University Logo">
+                      <path d="M50 10L50 90M10 50L90 50M21.7 21.7L78.3 78.3M21.7 78.3L78.3 21.7" stroke="#E11D48" strokeWidth="13" strokeLinecap="round" />
+                      <circle cx="50" cy="50" r="11" fill="#E11D48" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-bold tracking-wider text-[#BE123C] uppercase block">
+                      ACADEMIC COLLABORATOR
+                    </span>
+                    <h3 className="text-[17px] xl:text-[18px] font-black text-[#082746] font-heading leading-tight">
+                      INTI International University
+                    </h3>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#BE123C]">
+                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                    <span>Malaysia</span>
+                  </div>
+                  <p className="text-xs sm:text-[13.5px] text-[#45536B] leading-snug">
+                    Academic collaboration supporting the international scope of the conference.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -2235,7 +2379,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Heading: "Participate in AI-DD2027" with curved purple underline flourish
           - Subtitle: "Submit your peer-reviewed abstract to one of seven approved tracks and register as a delegate to engage with leading international researchers in drug discovery."
           - Two side-by-side equal-height cards:
-            * Left: Delegate Registration (₹2,000 for students and faculty, gradient button)
+            * Left: Delegate Registration (Official fee structure ₹2,000 / ₹3,000 & 15 January 2027 deadline, gradient button)
             * Right: Abstract Submission (7 TRACKS badge, info banner, white button with violet outline)
           - Bottom process strip (guaranteed single horizontal row on desktop):
             "How to Participate? [1] Register -> [2] Confirm -> [3] Submit"
@@ -2308,36 +2452,48 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                       </h3>
                     </div>
                     <p className="text-sm sm:text-base text-[#45536B] leading-relaxed">
-                      Standard confirmed registration fee applies to all categories.
+                      Official delegate registration fees by participant category.
                     </p>
                   </div>
                 </div>
 
-                {/* Bullets with Corrected ₹2,000 Fee */}
-                <div className="space-y-3 pt-2 pl-1">
-                  <div className="flex items-center gap-3 text-base sm:text-[17px] text-[#45536B]">
+                {/* Official Fee Schedule & Deadline Summary */}
+                <div className="space-y-2.5 pt-1 pl-1">
+                  <div className="flex items-center gap-3 text-sm sm:text-[15.5px] text-[#45536B]">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#7554D9] shrink-0" />
                     <span>
-                      Students (UG / PG / PhD / Scholars): <strong className="font-black text-[#082746]">₹2,000</strong>
+                      Students, Research Scholars &amp; Faculty: <strong className="font-black text-[#082746] tabular-nums">₹2,000</strong>
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-base sm:text-[17px] text-[#45536B]">
+                  <div className="flex items-center gap-3 text-sm sm:text-[15.5px] text-[#45536B]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#087E8B] shrink-0" />
+                    <span>
+                      Industrial Participants: <strong className="font-black text-[#082746] tabular-nums">₹3,000</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm sm:text-[15.5px] text-[#45536B]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#087E8B] shrink-0" />
+                    <span>
+                      Spot Registration: <strong className="font-black text-[#082746] tabular-nums">₹3,000</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm sm:text-[15.5px] text-[#45536B]">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#7554D9] shrink-0" />
                     <span>
-                      Faculty Members & Academicians: <strong className="font-black text-[#082746]">₹2,000</strong>
+                      Last Date for Registration: <strong className="font-black text-[#7554D9]">{REGISTRATION_DEADLINE}</strong>
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Gradient Pill Button with Corrected ₹2,000 Fee */}
+              {/* Gradient Pill Button */}
               <button
                 type="button"
                 onClick={() => onNavigate('registration')}
                 className="w-full py-4 px-6 rounded-full font-bold text-base sm:text-[17px] text-white bg-gradient-to-r from-[#7554D9] via-[#6366F1] to-[#22C5D9] hover:opacity-95 transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2.5 cursor-pointer mt-2"
               >
                 <UserPlus className="w-5 h-5 text-white" />
-                <span>Register as Delegate (₹2,000)</span>
+                <span>Register as Delegate</span>
                 <ArrowRight className="w-5 h-5" />
               </button>
             </div>

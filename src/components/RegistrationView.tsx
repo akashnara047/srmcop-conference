@@ -29,6 +29,9 @@ import {
   X,
   Download,
   Calendar,
+  QrCode,
+  Landmark,
+  ShieldCheck,
 } from 'lucide-react';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
@@ -38,7 +41,16 @@ import {
   generateRegistrationReceiptPDF,
   type RegistrationRecord,
 } from '../lib/managementService';
+import {
+  INTERNAL_INSTITUTION_NAME,
+  type InstitutionCategoryValue,
+} from '../lib/presentationDashboardStats';
 import { IMAGES } from '../lib/images';
+import {
+  REGISTRATION_DEADLINE,
+  REGISTRATION_FEE_SCHEDULE,
+  getApplicableRegistrationFee,
+} from '../data/conferenceData';
 import confetti from 'canvas-confetti';
 
 // Available categories
@@ -88,6 +100,7 @@ export const RegistrationView: React.FC = () => {
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
   const [courseOrDesignation, setCourseOrDesignation] = useState('');
+  const [institutionCategory, setInstitutionCategory] = useState<InstitutionCategoryValue | ''>('');
   const [institution, setInstitution] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('India');
@@ -134,6 +147,7 @@ export const RegistrationView: React.FC = () => {
   const [submittedRecord, setSubmittedRecord] = useState<RegistrationRecord | null>(null);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedUpi, setCopiedUpi] = useState(false);
 
   // =========================================================================
   // STATUS LOOKUP & RESUBMISSION STATES
@@ -146,6 +160,8 @@ export const RegistrationView: React.FC = () => {
   const [newTransRef, setNewTransRef] = useState('');
   const [resubmitSuccess, setResubmitSuccess] = useState(false);
 
+  const applicableFee = getApplicableRegistrationFee(category);
+
   // Category change handler: when moving away from 'Others', clear its custom specification
   const handleCategorySelect = (selected: RegistrationCategory) => {
     setCategory(selected);
@@ -154,6 +170,27 @@ export const RegistrationView: React.FC = () => {
     }
     if (validationErrors.category || validationErrors.otherCategoryDescription) {
       setValidationErrors((prev) => ({ ...prev, category: '', otherCategoryDescription: '' }));
+    }
+  };
+
+  // Institution Category handler: locks & auto-populates SRMIST for Internal, enables free-text for External
+  const handleInstitutionCategorySelect = (selected: InstitutionCategoryValue) => {
+    setInstitutionCategory(selected);
+    if (selected === 'internal') {
+      setInstitution(INTERNAL_INSTITUTION_NAME);
+      setValidationErrors((prev) => ({
+        ...prev,
+        institutionCategory: '',
+        institution: '',
+      }));
+    } else {
+      if (institution.trim() === INTERNAL_INSTITUTION_NAME) {
+        setInstitution('');
+      }
+      setValidationErrors((prev) => ({
+        ...prev,
+        institutionCategory: '',
+      }));
     }
   };
 
@@ -272,6 +309,9 @@ export const RegistrationView: React.FC = () => {
     }
 
     if (!courseOrDesignation.trim()) errors.courseOrDesignation = 'Course / Designation is required';
+    if (!institutionCategory) {
+      errors.institutionCategory = 'Please select your Institution Category (Internal or External)';
+    }
     if (!institution.trim()) errors.institution = 'Institution / Organization is required';
     if (!city.trim()) errors.city = 'City is required';
     if (!country.trim()) errors.country = 'Country is required';
@@ -321,12 +361,18 @@ export const RegistrationView: React.FC = () => {
     const parsedAmount = parseFloat(paymentAmount.trim());
 
     try {
+      const resolvedInstitution =
+        institutionCategory === 'internal'
+          ? INTERNAL_INSTITUTION_NAME
+          : institution.trim();
+
       const regPayload: Omit<RegistrationRecord, 'id' | 'registrationId' | 'createdAt'> = {
         fullName: fullName.trim(),
         email: email.trim(),
         mobile: mobile.trim(),
         courseOrDesignation: courseOrDesignation.trim(),
-        institution: institution.trim(),
+        institutionCategory: institutionCategory as InstitutionCategoryValue,
+        institution: resolvedInstitution,
         city: city.trim(),
         country: country.trim(),
         category,
@@ -447,6 +493,12 @@ export const RegistrationView: React.FC = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const copyUpiId = () => {
+    navigator.clipboard.writeText('EZE0362244@CUB');
+    setCopiedUpi(true);
+    setTimeout(() => setCopiedUpi(false), 2000);
   };
 
   const handleDownloadPDF = () => {
@@ -586,8 +638,8 @@ export const RegistrationView: React.FC = () => {
               </div>
 
               {/* Notice */}
-              <p className="text-[11.5px] text-slate-500 leading-relaxed text-left bg-slate-50 p-3 rounded-xl border border-slate-200">
-                Please retain your Registration ID (<code>{registeredId}</code>). A computer-generated PDF receipt containing all submitted details is ready for download.
+              <p className="text-[11.5px] text-slate-600 leading-relaxed text-left bg-slate-50 p-3 rounded-xl border border-slate-200">
+                Please retain your Registration ID (<code>{registeredId}</code>). You can use this ID immediately in the Abstract Submission Portal while your payment (currently <strong>Pending Verification</strong>) is reviewed by the Organising Secretary. A PDF receipt containing all submitted details is ready below.
               </p>
 
               {/* Action Buttons: Download Registration Receipt (PDF) & Close */}
@@ -616,52 +668,68 @@ export const RegistrationView: React.FC = () => {
 
       <div className="w-[94%] sm:w-[95%] max-w-[1240px] mx-auto relative z-10 space-y-4 sm:space-y-5">
         {/* =====================================================================
-            PAGE HEADER (Exact recreation of mockup)
+            PAGE HEADER (Centered heading matching approved conference design)
            ===================================================================== */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 pb-1">
-          {/* Left: Eyebrow badge, Title, Subtitle */}
-          <div className="space-y-1.5 max-w-2xl">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EAE5FC] border border-[#DDD6FE] text-[#713CE0] text-[11px] font-bold tracking-wider uppercase">
-              <CheckCircle2 className="w-3.5 h-3.5 text-[#713CE0]" />
-              <span>DELEGATE REGISTRATION & PAYMENT VERIFICATION</span>
+        <div className="space-y-4 pb-1">
+          <div className="text-center space-y-2.5 max-w-3xl mx-auto">
+            {/* Eyebrow Pill Badge */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              <div className="hidden sm:block w-12 md:w-20 h-[1.5px] bg-[#7554D9]/40" />
+              <div className="inline-flex items-center gap-2 px-4 sm:px-5 py-1.5 rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] text-white shadow-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0" />
+                <span className="text-[10px] sm:text-xs font-black tracking-widest uppercase">
+                  DELEGATE REGISTRATION &amp; PAYMENT VERIFICATION
+                </span>
+              </div>
+              <div className="hidden sm:block w-12 md:w-20 h-[1.5px] bg-[#22C5D9]/50" />
             </div>
 
-            <h1 className="text-3xl sm:text-4xl lg:text-[44px] font-bold text-[#101B4B] font-heading tracking-tight leading-tight">
+            {/* Main Heading */}
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-[44px] font-black text-[#082746] font-heading tracking-tight leading-[1.18]">
               Registration Portal
             </h1>
 
-            <p className="text-sm sm:text-base text-slate-600 font-normal leading-relaxed">
+            {/* Short Centered Purple-to-Cyan Gradient Underline */}
+            <div
+              aria-hidden="true"
+              className="mx-auto w-24 sm:w-28 h-[3.5px] rounded-full bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9]"
+            />
+
+            {/* Centered Compact Description */}
+            <p className="text-sm sm:text-base text-slate-600 font-normal leading-relaxed max-w-xl mx-auto pt-0.5">
               Register for the conference and complete your payment verification in a single, simple form.
             </p>
           </div>
 
-          {/* Right: Switcher (New Registration / Registration Status) */}
-          <div className="inline-flex p-1 bg-white/90 border border-[#D8D2F8] rounded-2xl shadow-xs backdrop-blur-sm shrink-0 self-start md:self-auto">
-            <button
-              type="button"
-              onClick={() => setActiveTab('register')}
-              className={`px-4 py-2 rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'register'
-                  ? 'bg-gradient-to-r from-[#6D3CE2] to-[#8545EB] text-white shadow-xs'
-                  : 'text-[#101B4B] hover:text-[#713CE0] hover:bg-slate-50'
-              }`}
-            >
-              <Edit className="w-3.5 h-3.5" />
-              <span>New Registration</span>
-            </button>
+          {/* Centered Switcher Controls (New Registration / Registration Status) */}
+          <div className="flex justify-center pt-1">
+            <div className="inline-flex p-1 bg-white/90 border border-[#D8D2F8] rounded-2xl shadow-xs backdrop-blur-sm shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveTab('register')}
+                className={`px-4 py-2 rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  activeTab === 'register'
+                    ? 'bg-gradient-to-r from-[#6D3CE2] to-[#8545EB] text-white shadow-xs'
+                    : 'text-[#101B4B] hover:text-[#713CE0] hover:bg-slate-50'
+                }`}
+              >
+                <Edit className="w-3.5 h-3.5" />
+                <span>New Registration</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('status')}
-              className={`px-4 py-2 rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'status'
-                  ? 'bg-gradient-to-r from-[#6D3CE2] to-[#8545EB] text-white shadow-xs'
-                  : 'text-[#101B4B] hover:text-[#713CE0] hover:bg-slate-50'
-              }`}
-            >
-              <ClipboardList className="w-3.5 h-3.5" />
-              <span>Registration Status</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('status')}
+                className={`px-4 py-2 rounded-xl text-[13px] font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  activeTab === 'status'
+                    ? 'bg-gradient-to-r from-[#6D3CE2] to-[#8545EB] text-white shadow-xs'
+                    : 'text-[#101B4B] hover:text-[#713CE0] hover:bg-slate-50'
+                }`}
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                <span>Registration Status</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -722,15 +790,15 @@ export const RegistrationView: React.FC = () => {
                         Official Registration ID
                       </span>
                       {lookupRecord.registrationId ? (
-                        <div className="font-mono font-bold text-[20px] text-[#713CE0] flex items-center gap-2">
+                        <div className="font-mono font-bold text-[20px] text-[#713CE0] flex flex-wrap items-center gap-2">
                           <span>{lookupRecord.registrationId}</span>
                           <span className="text-[11px] font-sans font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
-                            Verified · Eligible for Abstract Submission
+                            Active · Eligible for Abstract Submission
                           </span>
                         </div>
                       ) : (
                         <div className="text-amber-800 text-[13px] font-medium pt-0.5">
-                          Pending Payment Verification · AICONDD ID issued upon approval
+                          Application Ref: {lookupRecord.id}
                         </div>
                       )}
                       <div className="text-slate-400 text-[11px] font-mono mt-0.5">
@@ -964,6 +1032,53 @@ export const RegistrationView: React.FC = () => {
             )}
 
             {/* =================================================================
+                REGISTRATION FEES & DEADLINE REFERENCE PANEL
+               ================================================================= */}
+            <div className="bg-white/85 backdrop-blur-md border border-[#D9D3F9] rounded-2xl shadow-[0_4px_20px_rgba(113,60,224,0.06)] overflow-hidden">
+              <div className="px-5 py-3 bg-gradient-to-r from-[#EDE9FD] to-[#E8F8FC] border-b border-[#E3DEF9] flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[#713CE0] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-bold text-[#101B4B] font-heading">
+                    Official Registration Fees &amp; Deadline
+                  </h2>
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/90 border border-[#C9BDF9] text-xs font-bold text-[#101B4B] shadow-2xs">
+                  <Calendar className="w-3.5 h-3.5 text-[#713CE0] shrink-0" />
+                  <span>Last Date for Registration:</span>
+                  <span className="text-[#713CE0] font-extrabold">{REGISTRATION_DEADLINE}</span>
+                </div>
+              </div>
+
+              <div className="p-4 sm:p-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                  {REGISTRATION_FEE_SCHEDULE.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`rounded-xl border px-3.5 py-2.5 flex flex-col justify-between ${
+                        item.tier === 'premium'
+                          ? 'bg-[#F2FBFC] border-[#B6EBF2]'
+                          : 'bg-[#FAF8FE] border-[#DDD6FE]'
+                      }`}
+                    >
+                      <span className="text-[12px] font-semibold text-[#26345B] leading-snug">
+                        {item.category}
+                      </span>
+                      <span
+                        className={`text-lg font-extrabold font-heading tabular-nums mt-1 ${
+                          item.tier === 'premium' ? 'text-[#087E8B]' : 'text-[#713CE0]'
+                        }`}
+                      >
+                        {item.formattedFee}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* =================================================================
                 SECTION 1 – PARTICIPANT DETAILS
                ================================================================= */}
             <div className="bg-white/80 backdrop-blur-md border border-[#D9D3F9] rounded-2xl shadow-[0_4px_20px_rgba(113,60,224,0.06)] overflow-hidden">
@@ -1101,10 +1216,69 @@ export const RegistrationView: React.FC = () => {
                     )}
                   </div>
 
+                  {/* Institution Category (Mandatory: Internal vs External) */}
+                  <div className="md:col-span-2">
+                    <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
+                      Institution Category <span className="text-red-500">*</span>
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {[
+                        {
+                          value: 'internal' as InstitutionCategoryValue,
+                          label: 'Internal – SRM College of Pharmacy, SRMIST, Kattankulathur',
+                        },
+                        {
+                          value: 'external' as InstitutionCategoryValue,
+                          label: 'External – Other Institutions / Organizations',
+                        },
+                      ].map((opt) => {
+                        const isSelected = institutionCategory === opt.value;
+                        return (
+                          <div
+                            key={opt.value}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleInstitutionCategorySelect(opt.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                handleInstitutionCategorySelect(opt.value);
+                              }
+                            }}
+                            className={`min-h-[42px] px-3.5 py-2 rounded-xl border flex items-center gap-2.5 cursor-pointer transition-all ${
+                              isSelected
+                                ? 'border-2 border-[#713CE0] bg-[#F1EDFD] text-[#101B4B] shadow-2xs'
+                                : validationErrors.institutionCategory
+                                ? 'border-red-400 bg-red-50/20 hover:border-red-500'
+                                : 'border-[#D8D2F8] bg-white/80 hover:border-[#C5B9F7] hover:bg-white'
+                            }`}
+                          >
+                            <div className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center shrink-0">
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-[#713CE0]" />}
+                            </div>
+                            <span className="text-[13px] sm:text-[13.5px] font-medium text-[#101B4B] leading-snug">
+                              {opt.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {validationErrors.institutionCategory && (
+                      <span className="text-[11px] text-red-600 font-medium block mt-1">
+                        {validationErrors.institutionCategory}
+                      </span>
+                    )}
+                  </div>
+
                   {/* Institution / Organization (Full Width on desktop) */}
                   <div className="md:col-span-2">
                     <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
                       Institution / Organization <span className="text-red-500">*</span>
+                      {institutionCategory === 'internal' && (
+                        <span className="ml-2 text-[11px] font-normal text-[#713CE0]">
+                          (Auto-populated &amp; locked for Internal participants)
+                        </span>
+                      )}
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#713CE0]">
@@ -1112,16 +1286,26 @@ export const RegistrationView: React.FC = () => {
                       </div>
                       <input
                         type="text"
-                        placeholder="e.g. SRM College of Pharmacy, SRMIST"
+                        readOnly={institutionCategory === 'internal'}
+                        placeholder={
+                          institutionCategory === 'external'
+                            ? 'Enter your college, university, hospital, company or organization name'
+                            : 'Select Institution Category above (or enter your institution name)'
+                        }
                         value={institution}
                         onChange={(e) => {
+                          if (institutionCategory === 'internal') return;
                           setInstitution(e.target.value);
                           if (validationErrors.institution) {
                             setValidationErrors((prev) => ({ ...prev, institution: '' }));
                           }
                         }}
-                        className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] transition-colors ${
-                          validationErrors.institution ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
+                        className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-3.5 text-[14px] rounded-xl border transition-colors focus:outline-none ${
+                          institutionCategory === 'internal'
+                            ? 'bg-[#F5F2FF] border-[#C9BDF9] text-[#101B4B] font-medium cursor-not-allowed'
+                            : validationErrors.institution
+                            ? 'border-red-400 bg-red-50/20 text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
+                            : 'border-[#D8D2F8] bg-white/95 text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
                         }`}
                       />
                     </div>
@@ -1212,27 +1396,32 @@ export const RegistrationView: React.FC = () => {
                   {[
                     {
                       id: 'Student / Scholar' as RegistrationCategory,
-                      label: 'Student / Scholar',
+                      label: 'Student / Research Scholar',
+                      feeLabel: '₹2,000',
                       icon: GraduationCap,
                     },
                     {
                       id: 'Faculty' as RegistrationCategory,
                       label: 'Faculty',
+                      feeLabel: '₹2,000',
                       icon: User,
                     },
                     {
                       id: 'Industry Professional' as RegistrationCategory,
-                      label: 'Industry Professional',
+                      label: 'Industrial Participant',
+                      feeLabel: '₹3,000',
                       icon: Briefcase,
                     },
                     {
                       id: 'Researcher' as RegistrationCategory,
                       label: 'Researcher',
+                      feeLabel: '₹2,000',
                       icon: FlaskConical,
                     },
                     {
                       id: 'Others' as RegistrationCategory,
                       label: 'Others',
+                      feeLabel: 'Applicable Fee',
                       icon: MoreHorizontal,
                     },
                   ].map((item) => {
@@ -1245,7 +1434,7 @@ export const RegistrationView: React.FC = () => {
                         tabIndex={0}
                         onClick={() => handleCategorySelect(item.id)}
                         onKeyDown={(e) => e.key === 'Enter' && handleCategorySelect(item.id)}
-                        className={`h-[90px] sm:h-[94px] rounded-xl px-2 py-2 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-between ${
+                        className={`min-h-[106px] sm:min-h-[110px] rounded-xl px-2.5 py-2.5 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-between gap-1 ${
                           isSelected
                             ? 'border-2 border-[#713CE0] bg-[#F1EDFD] shadow-xs'
                             : 'border border-[#D8D2F8] bg-white/70 hover:border-[#C5B9F7] hover:bg-white'
@@ -1267,13 +1456,32 @@ export const RegistrationView: React.FC = () => {
                           <Icon className="w-5 h-5" />
                         </div>
 
-                        {/* Category Label */}
-                        <span className="text-[13px] sm:text-[14px] font-semibold text-[#101B4B] leading-tight truncate max-w-full px-1">
-                          {item.label}
-                        </span>
+                        {/* Category Label & Applicable Fee */}
+                        <div className="space-y-0.5 max-w-full">
+                          <span className="text-[12.5px] sm:text-[13px] font-semibold text-[#101B4B] leading-tight block">
+                            {item.label}
+                          </span>
+                          <span className="text-[11px] font-bold text-[#713CE0] tabular-nums block">
+                            {item.feeLabel}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
+                </div>
+
+                {/* Live Applicable Registration Fee Readout for Selected Category */}
+                <div className="p-3 sm:px-4 rounded-xl bg-gradient-to-r from-[#F5F2FF] to-[#EEF8FC] border border-[#DDD6FE] flex flex-wrap items-center justify-between gap-2 text-[13px]">
+                  <div className="flex items-center gap-2 text-[#101B4B]">
+                    <Info className="w-4 h-4 text-[#713CE0] shrink-0" />
+                    <span>
+                      <strong>{applicableFee.label}:</strong>{' '}
+                      <span className="text-[#45536B]">{applicableFee.note}</span>
+                    </span>
+                  </div>
+                  <div className="font-mono font-extrabold text-[#713CE0] text-sm sm:text-base tabular-nums">
+                    Applicable Fee: {applicableFee.formatted}
+                  </div>
                 </div>
 
                 {/* DYNAMIC CONDITIONAL FIELD FOR "OTHERS" CATEGORY */}
@@ -1450,6 +1658,130 @@ export const RegistrationView: React.FC = () => {
             </div>
 
             {/* =================================================================
+                SECTION 3.5 – REGISTRATION FEE PAYMENT (Official CUB QR Code)
+               ================================================================= */}
+            <div className="bg-white/85 backdrop-blur-md border border-[#D9D3F9] rounded-2xl shadow-[0_4px_20px_rgba(113,60,224,0.06)] overflow-hidden">
+              {/* Pale Lavender Header Strip with Icon Badge */}
+              <div className="px-5 py-3 bg-gradient-to-r from-[#EDE9FD] to-[#F3EFFE] border-b border-[#E3DEF9] flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#713CE0] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <QrCode className="w-4 h-4" />
+                </div>
+                <h2 className="text-xl sm:text-2xl font-bold text-[#101B4B] font-heading">
+                  Registration Fee Payment
+                </h2>
+              </div>
+
+              <div className="p-4 sm:p-5 lg:p-6">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                  {/* Left: Authentic Official City Union Bank Payment QR Code */}
+                  <div className="lg:col-span-5 flex flex-col items-center">
+                    <div className="w-full max-w-[340px] bg-white rounded-2xl border border-[#DDD6FE] shadow-[0_6px_24px_rgba(16,27,75,0.08)] p-2.5 sm:p-3 flex flex-col items-center">
+                      <img
+                        src={IMAGES.paymentQrImage}
+                        alt="SRM College of Pharmacy City Union Bank Official UPI Payment QR Code"
+                        className="w-full h-auto max-h-[430px] object-contain rounded-xl"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right: Payment Details, Copyable UPI ID & Clear Instructions */}
+                  <div className="lg:col-span-7 space-y-4">
+                    {/* Instruction Banner */}
+                    <div className="p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-[#F5F2FF] to-[#EEF8FC] border border-[#DDD6FE] flex items-start gap-3">
+                      <Info className="w-5 h-5 text-[#713CE0] shrink-0 mt-0.5" />
+                      <p className="text-[13px] sm:text-[14px] text-[#1E293B] leading-relaxed">
+                        Scan the official City Union Bank QR code or pay using the UPI ID below. After completing payment, enter your Transaction / UTR Reference Number and upload your payment proof screenshot or PDF in the <strong className="text-[#101B4B]">Payment Details</strong> section below.
+                      </p>
+                    </div>
+
+                    {/* Structured Merchant & Bank Details Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-3.5 rounded-xl bg-[#FAF8FE] border border-[#E3DEF9]">
+                        <span className="text-[11px] uppercase font-bold tracking-wider text-slate-500 block">
+                          Institution
+                        </span>
+                        <span className="text-[14px] font-bold text-[#101B4B] mt-0.5 block">
+                          SRM College of Pharmacy
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-[#FAF8FE] border border-[#E3DEF9]">
+                        <span className="text-[11px] uppercase font-bold tracking-wider text-slate-500 block">
+                          Bank
+                        </span>
+                        <span className="text-[14px] font-bold text-[#101B4B] mt-0.5 flex items-center gap-1.5">
+                          <Landmark className="w-4 h-4 text-[#713CE0] shrink-0" />
+                          <span>City Union Bank (CUB)</span>
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-[#FAF8FE] border border-[#E3DEF9]">
+                        <span className="text-[11px] uppercase font-bold tracking-wider text-slate-500 block">
+                          Branch
+                        </span>
+                        <span className="text-[14px] font-bold text-[#101B4B] mt-0.5 block">
+                          117 – Tambaram
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-[#FAF8FE] border border-[#E3DEF9]">
+                        <span className="text-[11px] uppercase font-bold tracking-wider text-slate-500 block">
+                          Merchant ID (MID)
+                        </span>
+                        <span className="font-mono text-[14px] font-bold text-[#101B4B] mt-0.5 block select-all">
+                          E01020101103980
+                        </span>
+                      </div>
+
+                      <div className="sm:col-span-2 p-3.5 rounded-xl bg-[#F1EDFD] border border-[#C5B9F7] flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[11px] uppercase font-bold tracking-wider text-[#713CE0] block">
+                            UPI ID
+                          </span>
+                          <span className="font-mono text-[14px] font-extrabold text-[#101B4B] mt-0.5 block truncate select-all">
+                            EZE0362244@CUB
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={copyUpiId}
+                          title="Copy UPI ID"
+                          className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-[#C5B9F7] text-[#713CE0] text-xs font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs transition-colors"
+                        >
+                          {copiedUpi ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="text-emerald-700">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Supported Methods & Post-Registration Note */}
+                    <div className="p-3.5 rounded-xl bg-white border border-[#E3DEF9] space-y-2 text-[12.5px] sm:text-[13px] text-[#26345B]">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <strong className="text-[#101B4B]">Accepted Payment Methods:</strong>
+                        <span>UPI, Google Pay, PhonePe and Paytm</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-emerald-800 bg-emerald-50/70 border border-emerald-200 rounded-lg p-2.5 text-[12px]">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <span>
+                          Your Registration ID (e.g. <strong className="font-mono">AICONDD001</strong>) is generated immediately after submitting this form and can be used right away for Abstract Submission while payment verification proceeds independently.
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* =================================================================
                 SECTION 4 – PAYMENT DETAILS (Manual Amount Entry & 1 MB Limit)
                ================================================================= */}
             <div className="bg-white/80 backdrop-blur-md border border-[#D9D3F9] rounded-2xl shadow-[0_4px_20px_rgba(113,60,224,0.06)] overflow-hidden">
@@ -1480,7 +1812,7 @@ export const RegistrationView: React.FC = () => {
                         type="text"
                         inputMode="decimal"
                         required
-                        placeholder="e.g. 2000"
+                        placeholder={applicableFee.amount ? `e.g. ${applicableFee.amount}` : 'e.g. 2000 or 3000'}
                         value={paymentAmount}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -1496,6 +1828,9 @@ export const RegistrationView: React.FC = () => {
                         }`}
                       />
                     </div>
+                    <span className="text-[11px] text-slate-500 block mt-1">
+                      Selected category fee: <strong className="text-[#713CE0]">{applicableFee.formatted}</strong>
+                    </span>
                     {validationErrors.paymentAmount && (
                       <span className="text-[11px] text-red-600 font-medium block mt-1">
                         {validationErrors.paymentAmount}
@@ -1661,27 +1996,27 @@ export const RegistrationView: React.FC = () => {
                         <ul className="space-y-1 text-[12px] text-[#26345B] leading-tight">
                           <li className="flex items-start gap-1.5">
                             <span className="text-[#713CE0] font-bold">•</span>
-                            <span>Ensure the payment is made to the official conference account.</span>
+                            <span>Pay the applicable registration fee via the official CUB QR code (UPI ID: <strong className="font-mono">EZE0362244@CUB</strong>) or conference bank account.</span>
                           </li>
                           <li className="flex items-start gap-1.5">
                             <span className="text-[#713CE0] font-bold">•</span>
-                            <span>The payment proof should clearly show the transaction details.</span>
+                            <span>The uploaded payment proof should clearly display the UTR / transaction reference.</span>
                           </li>
                           <li className="flex items-start gap-1.5">
                             <span className="text-[#713CE0] font-bold">•</span>
-                            <span>Your registration will be confirmed after payment verification.</span>
+                            <span>Your Registration ID is generated immediately upon submission; payment verification proceeds independently.</span>
                           </li>
                         </ul>
                       </div>
 
-                      {/* Official Bank Account Details Strip */}
+                      {/* Official Merchant / Bank Account Details Strip */}
                       <div className="pt-2 border-t border-[#E3DEF9] text-[11px] text-slate-600 space-y-0.5">
-                        <div className="flex items-center justify-between">
-                          <span><strong className="text-slate-800">A/C:</strong> 6529731428</span>
-                          <span><strong className="text-slate-800">IFSC:</strong> IDIB000S181</span>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span><strong className="text-slate-800">UPI:</strong> EZE0362244@CUB</span>
+                          <span><strong className="text-slate-800">MID:</strong> E01020101103980</span>
                         </div>
                         <div className="truncate">
-                          <strong className="text-slate-800">Account Name:</strong> SRM College of Pharmacy · Indian Bank
+                          <strong className="text-slate-800">Bank:</strong> City Union Bank (CUB) · 117 – Tambaram · SRM College of Pharmacy
                         </div>
                       </div>
                     </div>

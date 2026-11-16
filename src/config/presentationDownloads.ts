@@ -107,8 +107,8 @@ export const PRESENTATION_CARDS_DATA: PresentationFormatCardItem[] = [
   {
     id: 'poster',
     title: 'Poster Presentation',
-    statusBadge: 'ONLINE',
-    badgeColorClass: 'bg-[#0284C7] text-white',
+    statusBadge: 'OFFLINE',
+    badgeColorClass: 'bg-[#10B981] text-white',
     description: 'Showcase your research findings through the poster presentation format.',
     imageKey: 'posterPresentation',
     imageAlt: 'Poster Presentation - Scientific research poster displayed on a conference stand',

@@ -24,6 +24,7 @@ import { AboutCapsuleIllustration } from './AboutCapsuleIllustration';
 import { AboutMoleculeIllustration } from './AboutMoleculeIllustration';
 import { TrackIllustration } from './TrackIllustrations';
 import { ConferenceCountdown } from './ConferenceCountdown';
+import { PresentationGuidelinesModal } from './PresentationGuidelinesModal';
 import {
   PRESENTATION_CARDS_DATA,
   PRESENTATION_DOCUMENTS,
@@ -38,6 +39,7 @@ interface HomeViewProps {
 export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
   const [pharmaQuestModalOpen, setPharmaQuestModalOpen] = useState(false);
   const [activeDownloadDoc, setActiveDownloadDoc] = useState<PresentationDocument | null>(null);
+  const [activeGuidelineFormat, setActiveGuidelineFormat] = useState<'eposter' | 'oral' | 'poster' | null>(null);
 
   // Lock background scrolling and handle Escape key for modals
   useEffect(() => {
@@ -1541,29 +1543,64 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
 
                   {/* Action Buttons */}
                   <div className="space-y-2 mt-4 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => handleDocumentDownload(card.templateDocId)}
-                      className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
-                    >
-                      <span className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-[#6366F1]" />
-                        <span>Download Template</span>
-                      </span>
-                      <Download className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-y-0.5 transition-transform" />
-                    </button>
+                    {(() => {
+                      const templateDoc = PRESENTATION_DOCUMENTS[card.templateDocId];
+                      if (templateDoc?.status === 'available' && templateDoc.url) {
+                        return (
+                          <a
+                            href={templateDoc.url}
+                            download={templateDoc.filename}
+                            className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
+                          >
+                            <span className="flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-[#6366F1]" />
+                              <span>Download Template</span>
+                            </span>
+                            <Download className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-y-0.5 transition-transform" />
+                          </a>
+                        );
+                      }
 
-                    <button
-                      type="button"
-                      onClick={() => handleDocumentDownload(card.guidelinesDocId)}
-                      className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
-                    >
-                      <span className="flex items-center gap-2">
-                        <BookOpen className="w-4 h-4 text-[#6366F1]" />
-                        <span>Download Guidelines</span>
-                      </span>
-                      <Download className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-y-0.5 transition-transform" />
-                    </button>
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => handleDocumentDownload(card.templateDocId)}
+                          className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
+                        >
+                          <span className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-[#6366F1]" />
+                            <span>Download Template</span>
+                          </span>
+                          <Download className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-y-0.5 transition-transform" />
+                        </button>
+                      );
+                    })()}
+
+                    {card.guidelinesMode === 'modal' ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveGuidelineFormat(card.id)}
+                        className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
+                      >
+                        <span className="flex items-center gap-2">
+                          <BookOpen className="w-4 h-4 text-[#6366F1]" />
+                          <span>{card.guidelinesButtonLabel}</span>
+                        </span>
+                        <ChevronRight className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-x-0.5 transition-transform" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleDocumentDownload(card.guidelinesDocId)}
+                        className="w-full py-2.5 px-3.5 rounded-xl border border-[#CBD5E1] bg-white hover:bg-indigo-50/50 hover:border-[#818CF8] text-[#1E293B] text-xs sm:text-[13px] font-semibold flex items-center justify-between transition-all duration-200 cursor-pointer shadow-xs group/btn"
+                      >
+                        <span className="flex items-center gap-2">
+                          <BookOpen className="w-4 h-4 text-[#6366F1]" />
+                          <span>{card.guidelinesButtonLabel}</span>
+                        </span>
+                        <Download className="w-3.5 h-3.5 text-[#6366F1] group-hover/btn:translate-y-0.5 transition-transform" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -3163,6 +3200,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
+      {/* Oral & Poster Presentation Guidelines Modal */}
+      <PresentationGuidelinesModal
+        format={activeGuidelineFormat}
+        onClose={() => setActiveGuidelineFormat(null)}
+      />
     </div>
   );
 };

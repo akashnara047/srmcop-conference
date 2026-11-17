@@ -28,10 +28,11 @@ export interface ProgrammeSession {
 }
 
 export interface RegistrationFeeItem {
-  id: 'students' | 'research-scholars' | 'faculty' | 'industrial' | 'spot';
+  id: 'students' | 'research-scholars' | 'faculty' | 'industrial' | 'spot' | 'international';
   category: string;
   fee: number;
   formattedFee: string;
+  secondaryFormattedFee?: string;
   tier: 'standard' | 'premium';
 }
 
@@ -73,6 +74,14 @@ export const REGISTRATION_FEE_SCHEDULE: RegistrationFeeItem[] = [
     category: 'Spot Registration',
     fee: 3000,
     formattedFee: '₹3,000',
+    tier: 'premium',
+  },
+  {
+    id: 'international',
+    category: 'International Participants',
+    fee: 200,
+    formattedFee: 'MYR 200',
+    secondaryFormattedFee: 'USD 45',
     tier: 'premium',
   },
 ];
@@ -126,7 +135,7 @@ export function getApplicableRegistrationFee(category: string): {
         amount: null,
         formatted: '₹2,000 / ₹3,000',
         label: 'Other Participants',
-        note: `Students, Research Scholars & Faculty: ₹2,000 · Industrial Participants / Spot Registration: ₹3,000.`,
+        note: `Students, Research Scholars & Faculty: ₹2,000 · Industrial Participants / Spot Registration: ₹3,000 · International Participants: MYR 200 / USD 45.`,
       };
   }
 }
@@ -424,7 +433,7 @@ export const CHIEF_PATRONS = [
 export const PATRONS = [
   { name: 'Prof. C. Muthamizhchelvan', title: 'Vice Chancellor, SRM Institute of Science and Technology' },
   { name: 'Prof. S. Ponnusamy', title: 'Registrar, SRM Institute of Science and Technology' },
-  { name: 'Dr. T. Mythili', title: 'Additional Registrar (MHS),\nSRM Institute of Science and Technology' },
+  { name: 'Dr. T. Mythili', title: 'Additional Registrar (MSL),\nSRM Institute of Science and Technology' },
   { name: 'INTI International University Leadership', title: 'Malaysia' },
 ];
 

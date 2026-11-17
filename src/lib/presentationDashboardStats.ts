@@ -71,6 +71,134 @@ export function formatInstitutionCategoryLabel(value?: string | null): string {
   return 'Unclassified';
 }
 
+export type FoodPreferenceOption = 'Vegetarian' | 'Non-Vegetarian';
+export type FoodPreferenceFilterValue = 'all' | 'vegetarian' | 'non-vegetarian';
+export type ParticipationModeFilterValue = 'all' | 'offline' | 'online';
+export type FoodPreferenceDisplay =
+  | 'Vegetarian'
+  | 'Non-Vegetarian'
+  | 'Not Specified'
+  | 'Not Applicable';
+
+/**
+ * Classifies a registration's participation mode strictly from stored fields.
+ */
+export function classifyParticipationMode(
+  reg: Pick<RegistrationRecord, 'participationMode' | 'modeOfParticipation'>
+): 'offline' | 'online' | 'unknown' {
+  const raw = (reg.participationMode || reg.modeOfParticipation || '').trim().toLowerCase();
+  if (!raw) return 'unknown';
+  if (raw.includes('online') || raw.includes('virtual')) return 'online';
+  if (raw.includes('offline') || raw.includes('on-site') || raw.includes('onsite')) {
+    return 'offline';
+  }
+  return 'unknown';
+}
+
+/**
+ * Reads ONLY the explicit stored food preference (`dietaryPreference`) field.
+ * Never infers food preference from participant names, categories, or other fields.
+ */
+export function normalizeFoodPreferenceValue(
+  value?: string | null
+): FoodPreferenceOption | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.trim().toLowerCase();
+  if (!cleaned) return null;
+  if (cleaned === 'vegetarian' || cleaned === 'veg') return 'Vegetarian';
+  if (
+    cleaned === 'non-vegetarian' ||
+    cleaned === 'non vegetarian' ||
+    cleaned === 'non-veg' ||
+    cleaned === 'nonveg'
+  ) {
+    return 'Non-Vegetarian';
+  }
+  return null;
+}
+
+/**
+ * Formats a registration's food preference for UI tables, modals, PDFs, and Excel export:
+ * - Online registrations -> 'Not Applicable'
+ * - Offline registrations -> 'Vegetarian' | 'Non-Vegetarian' | 'Not Specified'
+ */
+export function formatFoodPreferenceDisplay(
+  reg: Pick<
+    RegistrationRecord,
+    'participationMode' | 'modeOfParticipation' | 'dietaryPreference'
+  >
+): FoodPreferenceDisplay {
+  const mode = classifyParticipationMode(reg);
+  if (mode === 'online') {
+    return 'Not Applicable';
+  }
+  const normalizedPref = normalizeFoodPreferenceValue(reg.dietaryPreference);
+  return normalizedPref ?? 'Not Specified';
+}
+
+export interface FoodPreferenceStats {
+  totalOffline: number;
+  vegetarian: number;
+  nonVegetarian: number;
+  notSpecified: number;
+}
+
+/**
+ * Computes catering headcounts strictly across Offline registrations, deduplicated
+ * by canonical Registration ID / document ID so each registration is counted once.
+ * Online registrations are completely excluded.
+ */
+export function computeFoodPreferenceStats(
+  registrations: RegistrationRecord[]
+): FoodPreferenceStats {
+  const deduped = deduplicateRegistrations(registrations);
+  let totalOffline = 0;
+  let vegetarian = 0;
+  let nonVegetarian = 0;
+  let notSpecified = 0;
+
+  for (const reg of deduped.values()) {
+    if (!reg || (!reg.id && !reg.registrationId)) continue;
+    if (classifyParticipationMode(reg) !== 'offline') continue;
+
+    totalOffline += 1;
+    const pref = normalizeFoodPreferenceValue(reg.dietaryPreference);
+    if (pref === 'Vegetarian') {
+      vegetarian += 1;
+    } else if (pref === 'Non-Vegetarian') {
+      nonVegetarian += 1;
+    } else {
+      notSpecified += 1;
+    }
+  }
+
+  return {
+    totalOffline,
+    vegetarian,
+    nonVegetarian,
+    notSpecified,
+  };
+}
+
+/**
+ * Evaluates whether a registration matches the active Food Preference filter.
+ * Online registrations never match 'vegetarian' or 'non-vegetarian'.
+ */
+export function matchesFoodPreferenceFilter(
+  reg: Pick<
+    RegistrationRecord,
+    'participationMode' | 'modeOfParticipation' | 'dietaryPreference'
+  >,
+  filter: FoodPreferenceFilterValue
+): boolean {
+  if (filter === 'all') return true;
+  if (classifyParticipationMode(reg) !== 'offline') return false;
+  const pref = normalizeFoodPreferenceValue(reg.dietaryPreference);
+  if (filter === 'vegetarian') return pref === 'Vegetarian';
+  if (filter === 'non-vegetarian') return pref === 'Non-Vegetarian';
+  return false;
+}
+
 /**
  * Resolves the linked registration record for an abstract strictly via Registration ID
  * (and optional registrationDocId / linkedAbstractId fallback).

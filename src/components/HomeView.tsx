@@ -170,7 +170,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           {/* ---------------------------------------------------------------------
               TOP AREA: UPPER-CORNER LOGOS & CENTRAL INSTITUTIONAL IDENTITY
              --------------------------------------------------------------------- */}
-          <div className="w-full pt-0.5 space-y-2.5 sm:space-y-3">
+          <div className="w-full pt-1 space-y-3.5 sm:space-y-4">
             {/* Mobile (<768px): Upper-left and upper-right logos row */}
             <div className="flex md:hidden items-center justify-between w-full">
               <img
@@ -200,23 +200,23 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
               </div>
 
               {/* Center: Institutional Typography */}
-              <div className="text-center px-1 pt-0.5">
-                <h1 className="text-xl sm:text-2xl md:text-[1.85rem] lg:text-[2.3rem] xl:text-[2.5rem] font-black text-white font-heading tracking-tight uppercase leading-none [text-shadow:0_2px_12px_rgba(8,18,44,0.82),0_1px_3px_rgba(0,0,0,0.85)]">
+              <div className="text-center px-2 pt-1 sm:pt-1.5 space-y-2 sm:space-y-2.5">
+                <h1 className="text-xl sm:text-2xl md:text-[1.85rem] lg:text-[2.3rem] xl:text-[2.5rem] font-black text-white font-heading tracking-wide sm:tracking-tight uppercase leading-tight sm:leading-[1.18] [text-shadow:0_2px_12px_rgba(8,18,44,0.82),0_1px_3px_rgba(0,0,0,0.85)]">
                   SRM COLLEGE OF PHARMACY
                 </h1>
 
-                <div className="flex items-center justify-center gap-2.5 sm:gap-3 mt-1.5">
+                <div className="flex items-center justify-center gap-2.5 sm:gap-3 pt-0.5">
                   <div className="hidden sm:block h-px w-8 md:w-12 bg-gradient-to-r from-transparent to-white/80" />
-                  <h2 className="text-xs sm:text-sm md:text-[15px] lg:text-base font-extrabold text-white/95 font-heading tracking-normal uppercase [text-shadow:0_2px_10px_rgba(8,18,44,0.85),0_1px_2px_rgba(0,0,0,0.85)]">
+                  <h2 className="text-xs sm:text-sm md:text-[15px] lg:text-base font-extrabold text-white/95 font-heading tracking-normal uppercase leading-snug [text-shadow:0_2px_10px_rgba(8,18,44,0.85),0_1px_2px_rgba(0,0,0,0.85)]">
                     SRM INSTITUTE OF SCIENCE AND TECHNOLOGY
                   </h2>
                   <div className="hidden sm:block h-px w-8 md:w-12 bg-gradient-to-l from-transparent to-white/80" />
                 </div>
 
                 {/* Location with Clean Accent Lines */}
-                <div className="flex items-center justify-center gap-2.5 sm:gap-3 pt-1">
+                <div className="flex items-center justify-center gap-2.5 sm:gap-3 pt-0.5">
                   <div className="h-px w-8 sm:w-14 bg-gradient-to-r from-transparent to-white/85" />
-                  <span className="text-[11px] sm:text-xs md:text-sm font-bold text-white tracking-wide [text-shadow:0_1px_8px_rgba(8,18,44,0.9),0_1px_2px_rgba(0,0,0,0.85)]">
+                  <span className="text-[11px] sm:text-xs md:text-sm font-bold text-white tracking-wide leading-snug [text-shadow:0_1px_8px_rgba(8,18,44,0.9),0_1px_2px_rgba(0,0,0,0.85)]">
                     Kattankulathur, Tamil Nadu, India
                   </span>
                   <div className="h-px w-8 sm:w-14 bg-gradient-to-l from-transparent to-white/85" />
@@ -235,8 +235,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* IN COLLABORATION WITH + Neutral Transparent Frosted Glass Partner Panel */}
-            <div className="flex flex-col items-center">
-              <div className="inline-block px-3.5 py-0.5 bg-gradient-to-r from-[#7554D9] via-[#6D62E5] to-[#22C5D9] text-white text-[9px] sm:text-[10px] font-bold tracking-widest uppercase rounded-full shadow-xs mb-1.5">
+            <div className="flex flex-col items-center pt-0.5">
+              <div className="inline-block px-3.5 py-0.5 bg-gradient-to-r from-[#7554D9] via-[#6D62E5] to-[#22C5D9] text-white text-[9px] sm:text-[10px] font-bold tracking-widest uppercase rounded-full shadow-xs mb-2">
                 IN COLLABORATION WITH
               </div>
               <div
@@ -260,7 +260,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           {/* ---------------------------------------------------------------------
               CENTER: OPEN CONFERENCE HERO INFORMATION OVER COASTAL SCENERY
              --------------------------------------------------------------------- */}
-          <div className="max-w-4xl mx-auto w-full py-2 sm:py-4 md:py-5 text-center space-y-3.5 sm:space-y-4">
+          <div className="max-w-4xl mx-auto w-full py-2.5 sm:py-4 md:py-5 text-center space-y-4 sm:space-y-5">
             {/* Approved Violet-Blue Transparent Glass Pill Identifier */}
             <div className="flex justify-center">
               <div
@@ -282,13 +282,13 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </div>
 
             {/* Main Title: AI-Powered Innovations in Drug Discovery and Development */}
-            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-[48px] xl:text-[50px] font-black text-white font-heading leading-[1.12] tracking-tight [text-shadow:0_3px_18px_rgba(4,12,34,0.88),0_1px_4px_rgba(0,0,0,0.92)]">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-[48px] xl:text-[50px] font-black text-white font-heading leading-[1.18] sm:leading-[1.16] tracking-tight [text-shadow:0_3px_18px_rgba(4,12,34,0.88),0_1px_4px_rgba(0,0,0,0.92)]">
               AI-Powered{' '}
               <span className="text-[#22D3EE] [text-shadow:0_2px_16px_rgba(4,12,34,0.92),0_1px_3px_rgba(0,0,0,0.88)]">
                 Innovations
               </span>{' '}
               in
-              <span className="block mt-1">Drug Discovery and Development</span>
+              <span className="block mt-1.5 sm:mt-2">Drug Discovery and Development</span>
             </h2>
 
             {/* Tagline directly over coastal scenery with delicate side lines */}
@@ -2512,6 +2512,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                     <span className="w-2.5 h-2.5 rounded-full bg-[#087E8B] shrink-0" />
                     <span>
                       Spot Registration: <strong className="font-black text-[#082746] tabular-nums">₹3,000</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm sm:text-[15.5px] text-[#45536B]">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#087E8B] shrink-0" />
+                    <span>
+                      International Participants: <strong className="font-black text-[#082746] tabular-nums">MYR 200 / USD 45</strong>
                     </span>
                   </div>
                   <div className="flex items-center gap-3 text-sm sm:text-[15.5px] text-[#45536B]">

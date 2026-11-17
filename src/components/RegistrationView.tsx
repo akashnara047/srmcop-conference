@@ -194,6 +194,21 @@ export const RegistrationView: React.FC = () => {
     }
   };
 
+  const isOfflineParticipation = participationMode === 'Offline (On-site at SRMIST)';
+
+  // Participation mode handler: clear stale food preference when switching to Online
+  const handleParticipationModeSelect = (
+    selectedMode: 'Offline (On-site at SRMIST)' | 'Online (Virtual)'
+  ) => {
+    setParticipationMode(selectedMode);
+    if (selectedMode === 'Online (Virtual)') {
+      setDietaryPreference('');
+      if (validationErrors.dietaryPreference) {
+        setValidationErrors((prev) => ({ ...prev, dietaryPreference: '' }));
+      }
+    }
+  };
+
   // Toggle presentation preference checkboxes
   const togglePresentationPlan = (plan: string) => {
     setPresentationPlans((prev) =>
@@ -342,6 +357,15 @@ export const RegistrationView: React.FC = () => {
       errors.paymentProof = 'Payment proof exceeds the maximum 1 MB limit';
     }
 
+    // Conditional Food Preference validation: mandatory for Offline participants only
+    if (
+      isOfflineParticipation &&
+      dietaryPreference !== 'Vegetarian' &&
+      dietaryPreference !== 'Non-Vegetarian'
+    ) {
+      errors.dietaryPreference = 'Please select your Food Preference (Vegetarian or Non-Vegetarian)';
+    }
+
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -385,7 +409,7 @@ export const RegistrationView: React.FC = () => {
         paymentAmount: parsedAmount,
         paymentProofName: paymentProofName || 'proof_receipt.pdf',
         paymentProofData: paymentProofData || '',
-        dietaryPreference: dietaryPreference ? dietaryPreference.trim() : '',
+        ...(isOfflineParticipation ? { dietaryPreference: dietaryPreference.trim() } : {}),
         linkedAbstractId: null,
         abstractSubmitted: false,
         recordType: 'live',
@@ -527,7 +551,7 @@ export const RegistrationView: React.FC = () => {
         paymentProofName: paymentProofName || 'proof_receipt.pdf',
         paymentStatus: 'Pending Verification',
         registrationStatus: 'Awaiting Approval',
-        dietaryPreference,
+        ...(isOfflineParticipation ? { dietaryPreference } : {}),
         createdAt: new Date().toISOString(),
       };
       generateRegistrationReceiptPDF(fallbackRecord);
@@ -1052,7 +1076,7 @@ export const RegistrationView: React.FC = () => {
               </div>
 
               <div className="p-4 sm:p-5">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
                   {REGISTRATION_FEE_SCHEDULE.map((item) => (
                     <div
                       key={item.id}
@@ -1065,13 +1089,25 @@ export const RegistrationView: React.FC = () => {
                       <span className="text-[12px] font-semibold text-[#26345B] leading-snug">
                         {item.category}
                       </span>
-                      <span
-                        className={`text-lg font-extrabold font-heading tabular-nums mt-1 ${
-                          item.tier === 'premium' ? 'text-[#087E8B]' : 'text-[#713CE0]'
-                        }`}
-                      >
-                        {item.formattedFee}
-                      </span>
+                      {item.secondaryFormattedFee ? (
+                        <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 leading-tight">
+                          <span className="text-[15px] sm:text-base font-extrabold font-heading tabular-nums text-[#087E8B]">
+                            {item.formattedFee}
+                          </span>
+                          <span className="text-xs font-bold text-[#64748B]">/</span>
+                          <span className="text-[15px] sm:text-base font-extrabold font-heading tabular-nums text-[#087E8B]">
+                            {item.secondaryFormattedFee}
+                          </span>
+                        </div>
+                      ) : (
+                        <span
+                          className={`text-lg font-extrabold font-heading tabular-nums mt-1 ${
+                            item.tier === 'premium' ? 'text-[#087E8B]' : 'text-[#713CE0]'
+                          }`}
+                        >
+                          {item.formattedFee}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1562,8 +1598,13 @@ export const RegistrationView: React.FC = () => {
                             key={mode.value}
                             role="button"
                             tabIndex={0}
-                            onClick={() => setParticipationMode(mode.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && setParticipationMode(mode.value)}
+                            onClick={() => handleParticipationModeSelect(mode.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                handleParticipationModeSelect(mode.value);
+                              }
+                            }}
                             className={`h-[38px] px-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition-all ${
                               isSelected
                                 ? 'border-[#713CE0]/50 bg-[#F1EDFD] text-[#101B4B] shadow-2xs'
@@ -2026,42 +2067,63 @@ export const RegistrationView: React.FC = () => {
             </div>
 
             {/* =================================================================
-                SECTION 5 – ADDITIONAL INFORMATION (Revised: Dietary Preference Only)
+                SECTION 5 – ADDITIONAL INFORMATION (Conditional Food Preference for Offline Participants Only)
                ================================================================= */}
-            <div className="bg-white/80 backdrop-blur-md border border-[#D9D3F9] rounded-2xl shadow-[0_4px_20px_rgba(113,60,224,0.06)] overflow-hidden">
-              {/* Pale Lavender Header Strip with Icon Badge */}
-              <div className="px-5 py-3 bg-gradient-to-r from-[#EDE9FD] to-[#F3EFFE] border-b border-[#E3DEF9] flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[#713CE0] text-white flex items-center justify-center shrink-0 shadow-2xs">
-                  <ClipboardList className="w-4 h-4" />
+            {isOfflineParticipation && (
+              <div className="bg-white/80 backdrop-blur-md border border-[#D9D3F9] rounded-2xl shadow-[0_4px_20px_rgba(113,60,224,0.06)] overflow-hidden animate-in fade-in duration-150">
+                {/* Pale Lavender Header Strip with Icon Badge */}
+                <div className="px-5 py-3 bg-gradient-to-r from-[#EDE9FD] to-[#F3EFFE] border-b border-[#E3DEF9] flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[#713CE0] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <ClipboardList className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-[#101B4B] font-heading">
+                    Additional Information
+                  </h2>
                 </div>
-                <h2 className="text-xl sm:text-2xl font-bold text-[#101B4B] font-heading">
-                  Additional Information
-                </h2>
-              </div>
 
-              {/* Form Content Area: Dietary Preference as a single full-width field */}
-              <div className="p-4 sm:p-5 lg:p-6">
-                <div>
-                  <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
-                    Dietary Preference
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={dietaryPreference}
-                      onChange={(e) => setDietaryPreference(e.target.value)}
-                      className="w-full h-[38px] sm:h-[40px] px-3.5 text-[14px] rounded-xl border border-[#D8D2F8] bg-white/95 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] cursor-pointer appearance-none"
+                {/* Form Content Area: Mandatory Food Preference for Offline Participants */}
+                <div className="p-4 sm:p-5 lg:p-6">
+                  <div>
+                    <label
+                      htmlFor="food-preference-select"
+                      className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
                     >
-                      <option value="">Select an option</option>
-                      <option value="Vegetarian">Vegetarian</option>
-                      <option value="Non-Vegetarian">Non-Vegetarian</option>
-                    </select>
-                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs">
-                      ▼
+                      Food Preference <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        id="food-preference-select"
+                        required
+                        value={dietaryPreference}
+                        onChange={(e) => {
+                          setDietaryPreference(e.target.value);
+                          if (validationErrors.dietaryPreference) {
+                            setValidationErrors((prev) => ({ ...prev, dietaryPreference: '' }));
+                          }
+                        }}
+                        className={`w-full h-[38px] sm:h-[40px] px-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] cursor-pointer appearance-none ${
+                          validationErrors.dietaryPreference
+                            ? 'border-red-400 bg-red-50/20'
+                            : 'border-[#D8D2F8]'
+                        }`}
+                      >
+                        <option value="">Select Food Preference</option>
+                        <option value="Vegetarian">Vegetarian</option>
+                        <option value="Non-Vegetarian">Non-Vegetarian</option>
+                      </select>
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs">
+                        ▼
+                      </div>
                     </div>
+                    {validationErrors.dietaryPreference && (
+                      <span className="text-[11px] text-red-600 font-medium block mt-1">
+                        {validationErrors.dietaryPreference}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* =================================================================
                 REGISTER NOW BUTTON (Mockup-identical prominent pill gradient CTA)

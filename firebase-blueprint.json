@@ -50,10 +50,11 @@
         "category": { "type": "string" },
         "courseOrDesignation": { "type": "string", "maxLength": 150 },
         "institutionCategory": { "type": "string", "enum": ["internal", "external"], "description": "Participant institution classification (internal or external)" },
+        "participationMode": { "type": "string", "enum": ["Offline (On-site at SRMIST)", "Online (Virtual)"] },
         "modeOfParticipation": { "type": "string" },
         "presentationPlan": { "type": "string" },
         "pharmaQuest": { "type": "string" },
-        "dietaryPreference": { "type": "string" },
+        "dietaryPreference": { "type": "string", "enum": ["Vegetarian", "Non-Vegetarian"], "description": "Mandatory food preference collected only for Offline participants" },
         "specialRequirements": { "type": "string" },
         "paymentMode": { "type": "string" },
         "transactionReference": { "type": "string", "maxLength": 100 },
@@ -153,6 +154,25 @@
         "updatedBy": { "type": "string", "maxLength": 150 }
       },
       "required": ["id", "name", "locality", "description", "distanceKm", "mapsQuery", "isActive", "updatedAt"]
+    },
+    "DatabaseBackupRecord": {
+      "title": "DatabaseBackupRecord",
+      "description": "Lightweight metadata log of manual conference database backups initiated by the Organising Secretary",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "filename": { "type": "string", "maxLength": 200 },
+        "initiatedBy": { "type": "string", "maxLength": 150 },
+        "status": { "type": "string", "enum": ["complete", "incomplete"] },
+        "errorCount": { "type": "number" },
+        "storageFilesCount": { "type": "number" },
+        "totalArchiveBytes": { "type": "number" },
+        "recordCounts": { "type": "object" },
+        "storageSummary": { "type": "object" },
+        "errors": { "type": "array" }
+      },
+      "required": ["id", "createdAt", "filename", "initiatedBy", "status", "errorCount", "storageFilesCount", "totalArchiveBytes", "recordCounts"]
     }
   },
   "firestore": {
@@ -183,6 +203,10 @@
     "/touristAttractions/{attractionId}": {
       "schema": "TouristAttractionRecord",
       "description": "Publicly readable, admin-managed tourist attraction entries"
+    },
+    "/databaseBackups/{backupId}": {
+      "schema": "DatabaseBackupRecord",
+      "description": "Admin-only audit metadata for manual full database backups"
     }
   }
 }

@@ -144,5 +144,37 @@ service cloud.firestore {
       allow update: if isAdmin() && isValidId(attractionId) && isValidTouristAttraction(request.resource.data) && request.resource.data.id == attractionId;
       allow delete: if isAdmin() && isValidId(attractionId);
     }
+
+    // Email Notification Logs (system write on form actions, admin-only read for audit & backup)
+    match /emailLogs/{logId} {
+      allow create: if isValidId(logId) &&
+        request.resource.data.keys().hasAll(['id', 'recipient', 'subject', 'type', 'referenceId', 'status', 'timestamp']);
+      allow get, list: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Validation helper for Database Backup metadata logs
+    function isValidDatabaseBackup(data) {
+      return data.keys().hasAll(['id', 'createdAt', 'filename', 'initiatedBy', 'status', 'errorCount', 'storageFilesCount', 'totalArchiveBytes', 'recordCounts']) &&
+        data.keys().hasOnly(['id', 'createdAt', 'filename', 'initiatedBy', 'status', 'errorCount', 'storageFilesCount', 'totalArchiveBytes', 'recordCounts', 'storageSummary', 'errors']) &&
+        isValidId(data.id) &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.filename is string && data.filename.size() >= 5 && data.filename.size() <= 200 &&
+        data.initiatedBy is string && data.initiatedBy.size() >= 3 && data.initiatedBy.size() <= 150 &&
+        data.status in ['complete', 'incomplete'] &&
+        data.errorCount is number && data.errorCount >= 0 &&
+        data.storageFilesCount is number && data.storageFilesCount >= 0 &&
+        data.totalArchiveBytes is number && data.totalArchiveBytes >= 0 &&
+        data.recordCounts is map &&
+        (!('storageSummary' in data) || data.storageSummary is map) &&
+        (!('errors' in data) || (data.errors is list && data.errors.size() <= 200));
+    }
+
+    // Manual Database Backup Logs (strictly Organising Secretary / Admin access only; immutable history)
+    match /databaseBackups/{backupId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin() && isValidId(backupId) && isValidDatabaseBackup(request.resource.data) && request.resource.data.id == backupId;
+      allow update, delete: if false;
+    }
   }
 }

@@ -14,6 +14,7 @@ import { db, storage, handleFirestoreError, OperationType } from './firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
+import { formatFoodPreferenceDisplay } from './presentationDashboardStats';
 
 export interface RegistrationRecord {
   id: string; // Document ID (e.g. REG-...)
@@ -530,7 +531,7 @@ export function exportRegistrationsToExcel(registrations: RegistrationRecord[], 
     'Country': r.country || '',
     'Participation Mode': r.participationMode || '',
     'PharmaQuest Participation': r.participatePharmaQuest || 'No',
-    'Dietary Preference': r.dietaryPreference || 'Not Specified',
+    'Food Preference': formatFoodPreferenceDisplay(r),
     'Payment Fee (INR)': r.paymentAmount || r.amount || 2000,
     'Payment Mode': r.paymentMode || '',
     'Transaction Reference (UTR)': r.transactionReference || '',
@@ -1237,7 +1238,7 @@ export function generateRegistrationReceiptPDF(reg: RegistrationRecord) {
   drawRow('Presentation Plan:', presPlan, 26, 58, currentY + 54, 54);
   drawRow('PharmaQuest:', reg.participatePharmaQuest || reg.pharmaQuest || 'No', 115, 142, currentY + 54, 46);
 
-  drawRow('Dietary Preference:', reg.dietaryPreference || 'Not Specified', 26, 58, currentY + 64, 54);
+  drawRow('Food Preference:', formatFoodPreferenceDisplay(reg), 26, 58, currentY + 64, 54);
   drawRow('Abstract Eligibility:', `Immediate (Use ID: ${regIdDisplay})`, 115, 142, currentY + 64, 46);
 
   // Section 2: Payment & Fee Particulars Box

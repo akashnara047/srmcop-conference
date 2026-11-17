@@ -55,8 +55,15 @@ import {
   Monitor,
   RotateCcw,
   Building2,
+  Database,
+  Utensils,
 } from 'lucide-react';
 import { AdminHospitalityManager } from './AdminHospitalityManager';
+import { AdminBackupManager } from './AdminBackupManager';
+import {
+  AUTHORIZED_ADMIN_EMAILS,
+  isAuthorizedAdminUser,
+} from '../lib/backupService';
 import {
   RegistrationRecord,
   AbstractRecord,
@@ -73,26 +80,27 @@ import {
   ABSTRACT_WORD_FILENAME,
 } from '../lib/abstractWordExport';
 import {
+  FoodPreferenceFilterValue,
   InstitutionCategoryValue,
   InstitutionFilterValue,
+  ParticipationModeFilterValue,
   PresentationDashboardFilter,
+  classifyParticipationMode,
+  computeFoodPreferenceStats,
   computePresentationDashboardMetrics,
   computeRegistrationInstitutionStats,
+  formatFoodPreferenceDisplay,
   formatInstitutionCategoryLabel,
   formatRegistrationPresentationPlan,
   getLinkedRegistrationForAbstractRecord,
+  matchesFoodPreferenceFilter,
   normalizeInstitutionCategory,
   normalizeRegKey,
 } from '../lib/presentationDashboardStats';
 import { SCIENTIFIC_TRACKS } from '../data/conferenceData';
 
 // Authorized administrator emails
-const ADMIN_EMAILS = [
-  'org.secy.cp@srmist.edu.in',
-  'dean.pharmacy.ktr@srmist.edu.in',
-  'akashnara047@gmail.com',
-  'narayanj@srmist.edu.in',
-];
+const ADMIN_EMAILS = AUTHORIZED_ADMIN_EMAILS;
 
 export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   // Navigation tabs in Org. Secretary Dashboard
@@ -103,6 +111,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     | 'search'
     | 'reports'
     | 'hospitality'
+    | 'backup'
     | 'settings';
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
@@ -129,6 +138,10 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [regStatusFilter, setRegStatusFilter] = useState<string>('all');
   const [regCategoryFilter, setRegCategoryFilter] = useState<string>('all');
   const [regInstitutionFilter, setRegInstitutionFilter] = useState<InstitutionFilterValue>('all');
+  const [regParticipationModeFilter, setRegParticipationModeFilter] =
+    useState<ParticipationModeFilterValue>('all');
+  const [regFoodPreferenceFilter, setRegFoodPreferenceFilter] =
+    useState<FoodPreferenceFilterValue>('all');
   const [updatingInstCatId, setUpdatingInstCatId] = useState<string | null>(null);
 
   // Abstract Filter & Search states
@@ -174,18 +187,42 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [passwordChangeMsg, setPasswordChangeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  // Check auth state
+  // Check auth state and verify admin authorization
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
+    let active = true;
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
+      if (!active) return;
+      if (!currentUser) {
+        setUser(null);
+        setIsAdminAuth(false);
+        setAuthLoading(false);
+        return;
+      }
+
+      const authorized = await isAuthorizedAdminUser(currentUser);
+      if (!active) return;
+
+      if (authorized) {
+        setUser(currentUser);
         setIsAdminAuth(true);
       } else {
+        setUser(null);
         setIsAdminAuth(false);
+        setLoginError(
+          `Access denied for ${currentUser.email || 'this account'}. Only authorised Organising Secretary accounts can access this portal.`
+        );
+        try {
+          await signOut(auth);
+        } catch {
+          // Ignore sign-out cleanup failure
+        }
       }
       setAuthLoading(false);
     });
-    return () => unsub();
+    return () => {
+      active = false;
+      unsub();
+    };
   }, []);
 
   // Real-time Firestore streaming when authenticated
@@ -251,8 +288,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     }
 
     try {
+      let cred;
       try {
-        await signInWithEmailAndPassword(auth, effectiveEmail, password);
+        cred = await signInWithEmailAndPassword(auth, effectiveEmail, password);
       } catch (signInErr: any) {
         // If user not found and logging in as default org.secy.cp, bootstrap account
         if (
@@ -261,7 +299,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         ) {
           if (effectiveEmail === 'org.secy.cp@srmist.edu.in' && password === 'password123') {
             try {
-              await createUserWithEmailAndPassword(auth, effectiveEmail, password);
+              cred = await createUserWithEmailAndPassword(auth, effectiveEmail, password);
             } catch (createErr: any) {
               throw signInErr;
             }
@@ -271,6 +309,14 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         } else {
           throw signInErr;
         }
+      }
+      const authorized = await isAuthorizedAdminUser(cred.user);
+      if (!authorized) {
+        await signOut(auth);
+        setLoginError(
+          `Access denied for ${cred.user.email || effectiveEmail}. Only authorised Organising Secretary accounts may sign in.`
+        );
+        return;
       }
       setIsAdminAuth(true);
     } catch (err: any) {
@@ -293,7 +339,15 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     setIsLoggingIn(true);
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const cred = await signInWithPopup(auth, provider);
+      const authorized = await isAuthorizedAdminUser(cred.user);
+      if (!authorized) {
+        await signOut(auth);
+        setLoginError(
+          `Access denied for ${cred.user.email || 'this Google account'}. Only authorised Organising Secretary accounts may sign in.`
+        );
+        return;
+      }
       setIsAdminAuth(true);
     } catch (err: any) {
       console.error('Google login error:', err);
@@ -679,6 +733,12 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     [visibleRegistrations]
   );
 
+  // Real-time Food Preference Summary (strictly Offline registrations only; Online excluded)
+  const foodPreferenceStats = useMemo(
+    () => computeFoodPreferenceStats(visibleRegistrations),
+    [visibleRegistrations]
+  );
+
   // Filtered Registrations Table
   const filteredRegistrations = visibleRegistrations.filter((r) => {
     const q = regSearchQuery.toLowerCase();
@@ -702,7 +762,23 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       regInstitutionFilter === 'all' ||
       normalizeInstitutionCategory(r.institutionCategory) === regInstitutionFilter;
 
-    return matchesSearch && matchesStatus && matchesCategory && matchesInstitution;
+    const matchesParticipationMode =
+      regParticipationModeFilter === 'all' ||
+      classifyParticipationMode(r) === regParticipationModeFilter;
+
+    const matchesFoodPreference = matchesFoodPreferenceFilter(
+      r,
+      regFoodPreferenceFilter
+    );
+
+    return (
+      matchesSearch &&
+      matchesStatus &&
+      matchesCategory &&
+      matchesInstitution &&
+      matchesParticipationMode &&
+      matchesFoodPreference
+    );
   });
 
   // Real-time Scientific Presentation Dashboard metrics (recalculates on any Firestore snapshot change or institution filter change)
@@ -1158,6 +1234,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               { id: 'search', label: 'Participant Search', icon: Search },
               { id: 'reports', label: 'Reports & Excel Export', icon: FileSpreadsheet },
               { id: 'hospitality', label: 'Accommodation & Places', icon: Building2 },
+              { id: 'backup', label: 'Database Backup & Recovery', icon: Database },
               { id: 'settings', label: 'Account Settings', icon: Settings },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -1490,9 +1567,106 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
               </div>
 
+              {/* Food Preference Summary (Offline Catering Headcounts Only) */}
+              <div className="bg-white/80 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200/90 shadow-xs space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center justify-center shrink-0">
+                      <Utensils className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-800">
+                        Food Preference Summary
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Offline registrations only ({foodPreferenceStats.totalOffline} Offline total; Online excluded)
+                      </div>
+                    </div>
+                  </div>
+
+                  {regFoodPreferenceFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setRegFoodPreferenceFilter('all')}
+                      className="text-[11px] font-semibold text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2.5 py-1 rounded-lg cursor-pointer self-start sm:self-auto"
+                    >
+                      Show All ({visibleRegistrations.length})
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRegFoodPreferenceFilter((prev) =>
+                        prev === 'vegetarian' ? 'all' : 'vegetarian'
+                      )
+                    }
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between bg-gradient-to-br from-emerald-50/90 via-white/90 to-green-50/70 ${
+                      regFoodPreferenceFilter === 'vegetarian'
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'border-emerald-200/80 hover:border-emerald-300'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-[11px] font-semibold text-emerald-900">
+                        Vegetarian
+                      </div>
+                      <div className="text-2xl font-extrabold text-emerald-950 font-heading tabular-nums mt-0.5">
+                        {foodPreferenceStats.vegetarian}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-md">
+                      Veg · Offline
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRegFoodPreferenceFilter((prev) =>
+                        prev === 'non-vegetarian' ? 'all' : 'non-vegetarian'
+                      )
+                    }
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between bg-gradient-to-br from-rose-50/90 via-white/90 to-orange-50/60 ${
+                      regFoodPreferenceFilter === 'non-vegetarian'
+                        ? 'border-rose-500 ring-2 ring-rose-500/20 shadow-xs'
+                        : 'border-rose-200/80 hover:border-rose-300'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-[11px] font-semibold text-rose-900">
+                        Non-Vegetarian
+                      </div>
+                      <div className="text-2xl font-extrabold text-rose-950 font-heading tabular-nums mt-0.5">
+                        {foodPreferenceStats.nonVegetarian}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-semibold text-rose-800 bg-rose-100/90 px-2 py-0.5 rounded-md">
+                      Non-Veg · Offline
+                    </span>
+                  </button>
+
+                  <div className="p-3 rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-50/90 via-white/90 to-amber-50/50 flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold text-slate-700">
+                        Not Specified
+                      </div>
+                      <div className="text-2xl font-extrabold text-slate-900 font-heading tabular-nums mt-0.5">
+                        {foodPreferenceStats.notSpecified}
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-semibold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                      Missing · Offline
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Filter and Search Bar */}
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row gap-3">
-                <div className="relative flex-1">
+              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row flex-wrap gap-2.5">
+                <div className="relative flex-1 min-w-[210px]">
                   <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                   <input
                     type="text"
@@ -1504,6 +1678,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
 
                 <select
+                  aria-label="Filter by Payment Status"
                   value={regStatusFilter}
                   onChange={(e) => setRegStatusFilter(e.target.value)}
                   className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
@@ -1516,6 +1691,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </select>
 
                 <select
+                  aria-label="Filter by Participant Category"
                   value={regCategoryFilter}
                   onChange={(e) => setRegCategoryFilter(e.target.value)}
                   className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
@@ -1527,6 +1703,55 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <option value="Researcher">Researcher</option>
                   <option value="Others">Others</option>
                 </select>
+
+                <select
+                  aria-label="Filter by Participation Mode"
+                  value={regParticipationModeFilter}
+                  onChange={(e) =>
+                    setRegParticipationModeFilter(e.target.value as ParticipationModeFilterValue)
+                  }
+                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                >
+                  <option value="all">All Modes</option>
+                  <option value="offline">Offline</option>
+                  <option value="online">Online</option>
+                </select>
+
+                <select
+                  aria-label="Filter by Food Preference"
+                  value={regFoodPreferenceFilter}
+                  onChange={(e) =>
+                    setRegFoodPreferenceFilter(e.target.value as FoodPreferenceFilterValue)
+                  }
+                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-medium text-slate-700"
+                >
+                  <option value="all">Food Preference: All</option>
+                  <option value="vegetarian">Vegetarian</option>
+                  <option value="non-vegetarian">Non-Vegetarian</option>
+                </select>
+
+                {(regSearchQuery ||
+                  regStatusFilter !== 'all' ||
+                  regCategoryFilter !== 'all' ||
+                  regInstitutionFilter !== 'all' ||
+                  regParticipationModeFilter !== 'all' ||
+                  regFoodPreferenceFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegSearchQuery('');
+                      setRegStatusFilter('all');
+                      setRegCategoryFilter('all');
+                      setRegInstitutionFilter('all');
+                      setRegParticipationModeFilter('all');
+                      setRegFoodPreferenceFilter('all');
+                    }}
+                    className="px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                )}
               </div>
 
               {/* Registrations Table */}
@@ -1538,6 +1763,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                         <th className="p-3.5">Registration ID</th>
                         <th className="p-3.5">Participant</th>
                         <th className="p-3.5">Category</th>
+                        <th className="p-3.5">Food Preference</th>
                         <th className="p-3.5">UTR / Fee</th>
                         <th className="p-3.5">Status</th>
                         <th className="p-3.5">Abstract</th>
@@ -1548,18 +1774,20 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     <tbody className="divide-y divide-slate-100">
                       {loadingData ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-400">
+                          <td colSpan={9} className="p-8 text-center text-slate-400">
                             Loading registrations...
                           </td>
                         </tr>
                       ) : filteredRegistrations.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-400">
+                          <td colSpan={9} className="p-8 text-center text-slate-400">
                             No matching registrations found.
                           </td>
                         </tr>
                       ) : (
-                        filteredRegistrations.map((reg) => (
+                        filteredRegistrations.map((reg) => {
+                          const foodPrefLabel = formatFoodPreferenceDisplay(reg);
+                          return (
                           <tr key={reg.id} className="hover:bg-slate-50/80 transition-colors">
                             {/* Registration ID */}
                             <td className="p-3.5 whitespace-nowrap">
@@ -1619,6 +1847,23 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             <td className="p-3.5 whitespace-nowrap text-slate-600">
                               <div>{reg.category}</div>
                               <div className="text-[10px] text-slate-400">{reg.participationMode}</div>
+                            </td>
+
+                            {/* Food Preference */}
+                            <td className="p-3.5 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-semibold border ${
+                                  foodPrefLabel === 'Vegetarian'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : foodPrefLabel === 'Non-Vegetarian'
+                                    ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                    : foodPrefLabel === 'Not Applicable'
+                                    ? 'bg-slate-100 text-slate-500 border-slate-200'
+                                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                                }`}
+                              >
+                                {foodPrefLabel}
+                              </span>
                             </td>
 
                             {/* UTR / Fee */}
@@ -1713,7 +1958,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               </button>
                             </td>
                           </tr>
-                        ))
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -2776,7 +3022,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               </button>
                             </div>
                             <div className="text-slate-500">
-                              <strong>Dietary:</strong> {reg.dietaryPreference || 'Not Specified'}
+                              <strong>Food Preference:</strong> {formatFoodPreferenceDisplay(reg)}
                             </div>
                           </div>
 
@@ -2940,7 +3186,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           )}
 
           {/* ================================================================= */}
-          {/* MODULE 7: ACCOUNT SETTINGS */}
+          {/* MODULE 7: DATABASE BACKUP & RECOVERY */}
+          {/* ================================================================= */}
+          {activeTab === 'backup' && (
+            <AdminBackupManager
+              user={user}
+              onStatusMessage={(msg) => setActionSuccessMsg(msg)}
+            />
+          )}
+
+          {/* ================================================================= */}
+          {/* MODULE 8: ACCOUNT SETTINGS */}
           {/* ================================================================= */}
           {activeTab === 'settings' && (
             <div className="max-w-xl space-y-6 animate-in fade-in duration-150">
@@ -3128,8 +3384,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <strong className="text-slate-800">{selectedReg.courseOrDesignation || 'N/A'}</strong>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Dietary Preference</span>
-                  <strong className="text-slate-800">{selectedReg.dietaryPreference || 'Not Specified'}</strong>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Food Preference</span>
+                  <strong className="text-slate-800">{formatFoodPreferenceDisplay(selectedReg)}</strong>
                 </div>
               </div>
 

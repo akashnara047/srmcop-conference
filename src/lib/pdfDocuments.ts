@@ -2094,14 +2094,20 @@ function assertValidPdfBase64Signature(base64: string, filename: string): void {
   }
 }
 
+function estimateBase64DecodedByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
 function buildValidatedPdfAttachmentOutput(
   doc: jsPDF,
   filename: string
 ): PdfAttachmentOutput {
   const base64 = extractBase64FromDoc(doc);
   assertValidPdfBase64Signature(base64, filename);
+  const decodedBytes = estimateBase64DecodedByteLength(base64);
   console.info(
-    `[pdfDocuments] PDF generation completed: filename=${filename}, mimeType=application/pdf, base64Length=${base64.length}`
+    `[pdfDocuments][Stage 1] PDF generated: hasAttachment=true, filename=${filename}, mimeType=application/pdf, base64Length=${base64.length}, decodedBytes=${decodedBytes}, attachmentCount=1`
   );
   return {
     filename,

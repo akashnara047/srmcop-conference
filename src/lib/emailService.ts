@@ -185,6 +185,13 @@ export async function checkEmailServiceHealth(): Promise<EmailHealthResult> {
   }
 }
 
+function estimateBase64DecodedBytes(base64?: string): number {
+  if (!base64) return 0;
+  const clean = base64.replace(/\s+/g, '');
+  const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+}
+
 async function postToEmailSendApi(params: {
   payload: Record<string, unknown>;
   bearerToken?: string;
@@ -210,15 +217,18 @@ async function postToEmailSendApi(params: {
     | { filename?: string; mimeType?: string; base64?: string }
     | undefined;
   const expectsAttachment = Boolean(att);
-  if (att) {
-    console.info(
-      `[emailService] Sending email with PDF attachment: eventId=${String(
-        params.payload.eventId
-      )}, eventType=${String(params.payload.eventType)}, filename=${att.filename}, mimeType=${
-        att.mimeType
-      }, base64Length=${att.base64?.length || 0}`
-    );
-  }
+  const attBase64Len = att?.base64?.length || 0;
+  const attDecodedBytes = estimateBase64DecodedBytes(att?.base64);
+
+  console.info(
+    `[emailService][Stage 2/3] Sending request to /api/email/send: eventId=${String(
+      params.payload.eventId
+    )}, eventType=${String(params.payload.eventType)}, hasAttachment=${expectsAttachment}, filename=${
+      att?.filename || 'none'
+    }, mimeType=${att?.mimeType || 'none'}, base64Length=${attBase64Len}, decodedBytes=${attDecodedBytes}, attachmentCount=${
+      expectsAttachment ? 1 : 0
+    }`
+  );
 
   const response = await fetch('/api/email/send', {
     method: 'POST',
@@ -241,7 +251,9 @@ async function postToEmailSendApi(params: {
 
   const duplicatePrevented = data.duplicatePrevented === true || data.alreadySent === true;
   const reportedAttachmentCount =
-    typeof data.attachmentCount === 'number' ? data.attachmentCount : expectsAttachment ? 1 : 0;
+    typeof data.attachmentCount === 'number' ? data.attachmentCount : 0;
+  const confirmedBlobCreated = data.blobCreated === true;
+  const confirmedAttachmentSent = data.attachmentSent === true;
 
   if (!response.ok || data.success !== true) {
     const fallbackStatusMsg =
@@ -263,16 +275,23 @@ async function postToEmailSendApi(params: {
     };
   }
 
-  if (expectsAttachment && !duplicatePrevented && reportedAttachmentCount === 0) {
+  // Do not treat HTTP 200 alone as proof of PDF attachment delivery
+  if (
+    expectsAttachment &&
+    !duplicatePrevented &&
+    (reportedAttachmentCount < 1 || !confirmedBlobCreated || !confirmedAttachmentSent)
+  ) {
     return {
       ok: false,
       sentAt: null,
       cc: null,
       duplicatePrevented: false,
       service: typeof data.service === 'string' ? data.service : null,
-      attachmentCount: 0,
+      attachmentCount: reportedAttachmentCount,
       attachmentFilename: null,
-      error: 'Email service reported 0 attachments attached for a required PDF email event.',
+      error: `Required PDF attachment was not confirmed by email service (attachmentCount=${reportedAttachmentCount}, blobCreated=${String(
+        data.blobCreated ?? 'missing'
+      )}). Ensure the updated Apps Script and Vercel API are deployed.`,
     };
   }
 
@@ -950,8 +969,11 @@ export async function retryEmailNotification(params: {
           eventId,
           eventType,
           status: reservation.alreadySent ? 'Sent' : 'Pending',
-          duplicatePrevented: true,
+          duplicatePrevented: reservation.alreadySent,
           sentAt: reservation.sentAt,
+          error: reservation.alreadySent
+            ? null
+            : 'An email dispatch attempt is currently in progress. Please wait 30 seconds and retry.',
         };
       }
       hasReservedLog = true;

@@ -21,6 +21,7 @@ interface PdfAttachmentPayload {
   filename: string;
   mimeType: string;
   base64: string;
+  decodedBytes: number;
 }
 
 interface SendEmailRequestBody {
@@ -1153,7 +1154,7 @@ function validatePdfAttachment(raw: unknown): PdfAttachmentPayload | null {
     throw new Error('Attachment MIME type must be application/pdf.');
   }
 
-  const cleanBase64 = base64Raw.replace(/^data:application\/pdf;[^,]*,/, '').replace(/\s+/g, '');
+  const cleanBase64 = base64Raw.replace(/^data:[^,]+,/, '').replace(/\s+/g, '');
   if (!cleanBase64 || cleanBase64.length > MAX_ATTACHMENT_BASE64_LENGTH) {
     throw new Error('Attachment PDF payload is empty or exceeds size limit.');
   }
@@ -1161,19 +1162,20 @@ function validatePdfAttachment(raw: unknown): PdfAttachmentPayload | null {
     throw new Error('Attachment PDF content is not valid base64.');
   }
 
-  const decodedBytes = Buffer.from(cleanBase64, 'base64');
-  if (decodedBytes.length < 5 || decodedBytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
+  const decodedBuffer = Buffer.from(cleanBase64, 'base64');
+  if (decodedBuffer.length < 5 || decodedBuffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
     throw new Error('Attachment payload does not contain a valid %PDF- file header.');
   }
 
   console.info(
-    `[api/email/send] Attachment received by Vercel API: filename=${safeFilename}, mimeType=application/pdf, base64Length=${cleanBase64.length}, decodedBytes=${decodedBytes.length}`
+    `[api/email/send][Stage 4] Attachment validated: hasAttachment=true, filename=${safeFilename}, mimeType=application/pdf, base64Length=${cleanBase64.length}, decodedBytes=${decodedBuffer.length}, attachmentCount=1`
   );
 
   return {
     filename: safeFilename,
     mimeType: 'application/pdf',
     base64: cleanBase64,
+    decodedBytes: decodedBuffer.length,
   };
 }
 
@@ -1301,12 +1303,14 @@ async function dispatchToAppsScript(params: {
 
     const serializedUpstreamBody = JSON.stringify(upstreamPayload);
     console.info(
-      `[api/email/send] Dispatching to Apps Script: eventId=${params.eventId}, action=${params.eventType}, cc=${
-        ccRecipient || 'none'
-      }, hasAttachment=${Boolean(
-        params.attachment
-      )}, attachmentFilename=${params.attachment?.filename || 'none'}, base64Length=${
+      `[api/email/send][Stage 5] Forwarding to Apps Script: eventId=${params.eventId}, action=${
+        params.eventType
+      }, cc=${ccRecipient || 'none'}, hasAttachment=${Boolean(params.attachment)}, filename=${
+        params.attachment?.filename || 'none'
+      }, mimeType=${params.attachment?.mimeType || 'none'}, base64Length=${
         params.attachment?.base64.length || 0
+      }, decodedBytes=${params.attachment?.decodedBytes || 0}, attachmentCount=${
+        params.attachment ? 1 : 0
       }, requestBytes=${Buffer.byteLength(serializedUpstreamBody)}`
     );
 
@@ -1396,21 +1400,35 @@ async function dispatchToAppsScript(params: {
       };
     }
 
-    // Never report success if a required PDF attachment was dropped by Apps Script
+    // Require positive upstream confirmation whenever a PDF attachment is required (never accept HTTP 200 alone)
+    const upstreamAttachmentReceived = parsedPayload.attachmentReceived === true;
+    const upstreamBlobCreated = parsedPayload.blobCreated === true;
+    const upstreamAttachmentCount =
+      typeof parsedPayload.attachmentCount === 'number' ? parsedPayload.attachmentCount : 0;
+    const upstreamMailAppSent = parsedPayload.mailAppSent === true;
+
     if (
       params.attachment &&
       !duplicateReported &&
-      (parsedPayload.attachmentCount === 0 ||
-        parsedPayload.blobCreated === false ||
-        parsedPayload.attachmentReceived === false)
+      (!upstreamAttachmentReceived ||
+        !upstreamBlobCreated ||
+        upstreamAttachmentCount < 1 ||
+        !upstreamMailAppSent)
     ) {
       return {
         statusCode: 502,
         body: {
           success: false,
           eventId: params.eventId,
-          error:
-            'Google Apps Script did not attach the required PDF document. Redeploy the updated Code.gs Web App version.',
+          error: `Google Apps Script did not confirm PDF attachment delivery (attachmentReceived=${String(
+            parsedPayload.attachmentReceived ?? 'missing'
+          )}, blobCreated=${String(
+            parsedPayload.blobCreated ?? 'missing'
+          )}, attachmentCount=${String(
+            parsedPayload.attachmentCount ?? 'missing'
+          )}, mailAppSent=${String(
+            parsedPayload.mailAppSent ?? 'missing'
+          )}). Deploy the updated docs/google-apps-script/Code.gs as a New Version.`,
         },
       };
     }
@@ -1450,20 +1468,15 @@ async function dispatchToAppsScript(params: {
         duplicatePrevented: duplicateReported,
         alreadySent: duplicateReported,
         service: serviceName,
-        attachmentSent: Boolean(params.attachment),
+        attachmentSent: duplicateReported ? Boolean(params.attachment) : upstreamBlobCreated && upstreamAttachmentCount >= 1,
         attachmentFilename: params.attachment?.filename || null,
-        attachmentCount:
-          typeof parsedPayload.attachmentCount === 'number'
-            ? parsedPayload.attachmentCount
-            : params.attachment
-            ? 1
-            : 0,
+        attachmentCount: upstreamAttachmentCount,
         attachmentBytes:
           typeof parsedPayload.attachmentBytes === 'number'
             ? parsedPayload.attachmentBytes
-            : null,
+            : params.attachment?.decodedBytes ?? 0,
         blobCreated:
-          typeof parsedPayload.blobCreated === 'boolean' ? parsedPayload.blobCreated : null,
+          typeof parsedPayload.blobCreated === 'boolean' ? parsedPayload.blobCreated : false,
       },
     };
   } catch (err: unknown) {

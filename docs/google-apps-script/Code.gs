@@ -17,7 +17,7 @@
  */
 
 var SERVICE_NAME = 'SRMCOP Conference Email Service';
-var SCRIPT_VERSION = '2027.3-cc-pdf';
+var SCRIPT_VERSION = '2027.4-verified-contract';
 var DEFAULT_CC_EMAIL = 'org.secy.cp@srmist.edu.in';
 var EVENT_LOCK_PREFIX = 'SENT_EVENT_';
 
@@ -165,7 +165,7 @@ function doPost(e) {
           continue;
         }
         var b64 = String(att.base64 || att.content || att.data || '')
-          .replace(/^data:application\/pdf;[^,]*,/, '')
+          .replace(/^data:[^,]+,/, '')
           .replace(/\s+/g, '')
           .trim();
 
@@ -173,10 +173,12 @@ function doPost(e) {
         var filename = String(att.filename || att.name || 'SRMCON_2027_Document.pdf').trim();
 
         Logger.log(
-          '[SRMCON] Attachment received by Apps Script: action=' +
+          '[SRMCON][Stage 6] Attachment received by Apps Script: action=' +
             action +
             ', eventId=' +
             eventId +
+            ', hasAttachment=' +
+            Boolean(b64) +
             ', filename=' +
             filename +
             ', mimeType=' +
@@ -189,6 +191,7 @@ function doPost(e) {
           return jsonResponse({
             success: false,
             service: SERVICE_NAME,
+            version: SCRIPT_VERSION,
             eventId: eventId,
             action: action,
             attachmentReceived: attachmentReceived,
@@ -199,10 +202,23 @@ function doPost(e) {
         }
 
         var bytes = Utilities.base64Decode(b64);
-        if (!bytes || bytes.length < 5) {
+        var decodedByteLen = bytes ? bytes.length : 0;
+        Logger.log(
+          '[SRMCON][Stage 6] Base64 decoded: filename=' +
+            filename +
+            ', mimeType=' +
+            mimeType +
+            ', base64Length=' +
+            b64.length +
+            ', decodedBytes=' +
+            decodedByteLen
+        );
+
+        if (!bytes || decodedByteLen < 5) {
           return jsonResponse({
             success: false,
             service: SERVICE_NAME,
+            version: SCRIPT_VERSION,
             eventId: eventId,
             action: action,
             attachmentReceived: attachmentReceived,
@@ -224,6 +240,7 @@ function doPost(e) {
           return jsonResponse({
             success: false,
             service: SERVICE_NAME,
+            version: SCRIPT_VERSION,
             eventId: eventId,
             action: action,
             attachmentReceived: attachmentReceived,
@@ -234,10 +251,12 @@ function doPost(e) {
         }
 
         var pdfBlob = Utilities.newBlob(bytes, mimeType || 'application/pdf', filename);
-        if (!pdfBlob || pdfBlob.getBytes().length === 0) {
+        var blobBytes = pdfBlob ? pdfBlob.getBytes().length : 0;
+        if (!pdfBlob || blobBytes === 0) {
           return jsonResponse({
             success: false,
             service: SERVICE_NAME,
+            version: SCRIPT_VERSION,
             eventId: eventId,
             action: action,
             attachmentReceived: attachmentReceived,
@@ -249,15 +268,19 @@ function doPost(e) {
 
         blobs.push(pdfBlob);
         attachmentFilenames.push(filename);
-        totalAttachmentBytes += pdfBlob.getBytes().length;
+        totalAttachmentBytes += blobBytes;
 
         Logger.log(
-          '[SRMCON] Blob successfully created: filename=' +
+          '[SRMCON][Stage 7] PDF Blob created: hasAttachment=true, filename=' +
             filename +
             ', mimeType=' +
             pdfBlob.getContentType() +
-            ', bytes=' +
-            pdfBlob.getBytes().length
+            ', base64Length=' +
+            b64.length +
+            ', decodedBytes=' +
+            blobBytes +
+            ', attachmentCount=' +
+            blobs.length
         );
       }
 

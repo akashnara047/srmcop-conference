@@ -10,7 +10,7 @@
  *   2. registration_received      (Event 1 - Registration Done / Pending Payment Verification)
  *   3. registration_confirmation  (Event 2 - Registration Confirmed after Payment Verification + PDF)
  *   4. abstract_confirmation      (Event 3 - Abstract Submission Acknowledgement + PDF)
- *   5. abstract_acceptance        (Event 4 - Abstract Accepted)
+ *   5. abstract_acceptance        (Event 4 - Abstract Accepted + PDF)
  */
 
 var SERVICE_NAME = 'SRMCOP Conference Email Service';

@@ -8,7 +8,7 @@ interface HealthResponseBody {
   error?: string;
 }
 
-const REQUEST_TIMEOUT_MS = 9000;
+const REQUEST_TIMEOUT_MS = 15000;
 
 function getAllowedOrigins(req: IncomingMessage): Set<string> {
   const allowed = new Set<string>();
@@ -101,6 +101,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'POST');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
+
+  // Handle CORS preflight cleanly
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end();
+    return;
   }
 
   // Only allow POST requests

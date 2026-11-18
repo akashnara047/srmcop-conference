@@ -3,13 +3,19 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
 
-export const REQUEST_TIMEOUT_MS = 9000;
+export const REQUEST_TIMEOUT_MS = 20000;
 
 export interface FirebaseAppletConfig {
   projectId: string;
   apiKey: string;
   firestoreDatabaseId: string;
 }
+
+const FALLBACK_PUBLIC_FIREBASE_CONFIG: FirebaseAppletConfig = {
+  projectId: 'gen-lang-client-0139223282',
+  apiKey: 'AIzaSyCSDgYedovE6H_AwRMnZtOzUB6b0lS8d7U',
+  firestoreDatabaseId: 'ai-studio-aipoweredinnovat-c4cbd29e-f0bf-43c3-b660-e5c2b8bf5afc',
+};
 
 let cachedFirebaseConfig: FirebaseAppletConfig | null = null;
 
@@ -31,19 +37,24 @@ export function getFirebaseAppletConfig(): FirebaseAppletConfig {
     return cachedFirebaseConfig;
   }
 
-  const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-  const raw = fs.readFileSync(configPath, 'utf8');
-  const parsed = JSON.parse(raw) as Partial<FirebaseAppletConfig>;
+  try {
+    const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<FirebaseAppletConfig>;
 
-  if (!parsed.projectId || !parsed.apiKey || !parsed.firestoreDatabaseId) {
-    throw new Error('Firebase applet configuration is incomplete.');
+    if (parsed.projectId && parsed.apiKey && parsed.firestoreDatabaseId) {
+      cachedFirebaseConfig = {
+        projectId: parsed.projectId,
+        apiKey: parsed.apiKey,
+        firestoreDatabaseId: parsed.firestoreDatabaseId,
+      };
+      return cachedFirebaseConfig;
+    }
+  } catch {
+    // Fallback below if config file is omitted from serverless bundle
   }
 
-  cachedFirebaseConfig = {
-    projectId: parsed.projectId,
-    apiKey: parsed.apiKey,
-    firestoreDatabaseId: parsed.firestoreDatabaseId,
-  };
+  cachedFirebaseConfig = FALLBACK_PUBLIC_FIREBASE_CONFIG;
   return cachedFirebaseConfig;
 }
 

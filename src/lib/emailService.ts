@@ -123,6 +123,67 @@ async function getRequiredAdminIdToken(): Promise<string> {
   return await auth.currentUser.getIdToken();
 }
 
+export interface EmailHealthResult {
+  ok: boolean;
+  service: string | null;
+  remainingQuota: number | null;
+  error: string | null;
+}
+
+export async function checkEmailServiceHealth(): Promise<EmailHealthResult> {
+  try {
+    const response = await fetch('/api/email/health', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    const rawText = await response.text().catch(() => '');
+    let data: Record<string, unknown> = {};
+    if (rawText) {
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          data = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Non-JSON response
+      }
+    }
+
+    if (!response.ok || data.success !== true) {
+      const fallbackMsg =
+        response.status === 404 && !data.error && !data.message
+          ? 'Email health API route /api/email/health returned HTTP 404 (endpoint unavailable).'
+          : `Email health check returned HTTP ${response.status}`;
+      return {
+        ok: false,
+        service: typeof data.service === 'string' ? data.service : null,
+        remainingQuota: null,
+        error: sanitizeClientError(data.error || data.message || fallbackMsg, fallbackMsg),
+      };
+    }
+
+    return {
+      ok: true,
+      service: typeof data.service === 'string' ? data.service : 'SRMCOP Conference Email Service',
+      remainingQuota:
+        typeof data.remainingQuota === 'number' ? data.remainingQuota : null,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      service: null,
+      remainingQuota: null,
+      error: sanitizeClientError(err, 'Unable to reach email health service.'),
+    };
+  }
+}
+
 async function postToEmailSendApi(params: {
   payload: Record<string, unknown>;
   bearerToken?: string;
@@ -147,15 +208,31 @@ async function postToEmailSendApi(params: {
     body: JSON.stringify(params.payload),
   });
 
-  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  const rawText = await response.text().catch(() => '');
+  let data: Record<string, unknown> = {};
+  if (rawText) {
+    try {
+      const parsed = JSON.parse(rawText);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        data = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Non-JSON response (e.g., server/router 404 HTML)
+    }
+  }
+
   if (!response.ok || data.success !== true) {
+    const fallbackStatusMsg =
+      response.status === 404 && !data.error && !data.message
+        ? 'Email API route /api/email/send returned HTTP 404 (endpoint not found on server)'
+        : `Email API returned HTTP ${response.status}`;
     return {
       ok: false,
       sentAt: null,
       duplicatePrevented: false,
       service: typeof data.service === 'string' ? data.service : null,
       error: sanitizeClientError(
-        data.error || data.message || `Email API returned HTTP ${response.status}`,
+        data.error || data.message || fallbackStatusMsg,
         'Email notification delivery failed.'
       ),
     };
@@ -344,16 +421,12 @@ export async function triggerRegistrationReceivedEmail(
       createdPendingLog = true;
     } catch (logErr) {
       if (isPermissionDeniedError(logErr)) {
-        // Document already exists on server -> duplicate dispatch prevented
-        return {
-          success: true,
-          eventId,
-          eventType: 'registration_received',
-          status: 'Sent',
-          duplicatePrevented: true,
-        };
+        // Document already exists on server; still invoke /api/email/send so Apps Script
+        // idempotency confirms actual delivery state without short-circuiting a prior Failed log.
+        console.warn('[emailService] emailLogs doc already exists or create denied for Event 1; deferring idempotency to server.');
+      } else {
+        console.warn('[emailService] Non-fatal log creation note for Event 1:', logErr);
       }
-      console.warn('[emailService] Non-fatal log creation note for Event 1:', logErr);
     }
 
     try {
@@ -561,15 +634,10 @@ export async function triggerAbstractSubmittedEmail(
       createdPendingLog = true;
     } catch (logErr) {
       if (isPermissionDeniedError(logErr)) {
-        return {
-          success: true,
-          eventId,
-          eventType: 'abstract_confirmation',
-          status: 'Sent',
-          duplicatePrevented: true,
-        };
+        console.warn('[emailService] emailLogs doc already exists or create denied for Event 3; deferring idempotency to server.');
+      } else {
+        console.warn('[emailService] Non-fatal log creation note for Event 3:', logErr);
       }
-      console.warn('[emailService] Non-fatal log creation note for Event 3:', logErr);
     }
 
     try {

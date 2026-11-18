@@ -550,10 +550,13 @@ export function buildAbstractAcceptedEmail(abs: Record<string, unknown>): Confer
     recipientName: authorName,
     introParagraphHtml: `On behalf of the Scientific Review Committee of the <strong>${escapeHtml(
       CONFERENCE_TITLE
-    )} (${CONFERENCE_SHORT})</strong>, we are pleased to inform you that your submitted abstract has been officially <strong>ACCEPTED</strong> for presentation at the conference.`,
+    )} (${CONFERENCE_SHORT})</strong>, we are pleased to inform you that your submitted abstract has been officially <strong>ACCEPTED</strong> for presentation at the conference.<br /><br />Your official <strong>Abstract Acceptance Letter PDF</strong> is attached to this email for your records.`,
     detailsRows,
     nextStepsTitle: 'Important Next Steps',
     nextStepsItemsHtml: [
+      `Please retain the attached <strong>Abstract Acceptance Letter PDF</strong> and quote your Abstract ID (<strong>${escapeHtml(
+        abstractId
+      )}</strong>) in all conference communications.`,
       allottedCategoryRaw
         ? `Your abstract has been allocated to <strong>${escapeHtml(
             allottedCategoryRaw
@@ -574,6 +577,7 @@ export function buildAbstractAcceptedEmail(abs: Record<string, unknown>): Confer
     `Dear ${authorName},`,
     '',
     `Congratulations! Your abstract submitted to ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}) has been ACCEPTED for presentation.`,
+    'Your official Abstract Acceptance Letter PDF is attached to this email.',
     '',
     `Abstract ID: ${abstractId}`,
     `Linked Registration ID: ${registrationId}`,
@@ -589,6 +593,7 @@ export function buildAbstractAcceptedEmail(abs: Record<string, unknown>): Confer
     ...(reviewNotes ? [`Committee Remarks: ${reviewNotes}`] : []),
     '',
     'Next Steps:',
+    '- Retain the attached Abstract Acceptance Letter PDF for institutional and check-in reference.',
     '- Check the Abstract Portal for presentation schedule updates and official template guidelines.',
     `- Ensure your registration payment under ${registrationId} is verified if not already confirmed.`,
     '',

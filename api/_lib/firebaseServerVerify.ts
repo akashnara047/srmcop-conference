@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { getFirebaseAppletConfig } from './emailConfig';
+import { getFirebaseAppletConfig } from './emailConfig.ts';
 
 export const AUTHORIZED_ADMIN_EMAILS = [
   'org.secy.cp@srmist.edu.in',

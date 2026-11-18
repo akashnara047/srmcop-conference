@@ -4,6 +4,23 @@ import path from 'node:path';
 import process from 'node:process';
 
 export const REQUEST_TIMEOUT_MS = 20000;
+export const DEFAULT_ORGANISING_SECRETARY_CC = 'org.secy.cp@srmist.edu.in';
+
+export function getConfiguredEmailCcAddress(): string {
+  const configured = (process.env.EMAIL_CC_ADDRESS || DEFAULT_ORGANISING_SECRETARY_CC).trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configured)
+    ? configured
+    : DEFAULT_ORGANISING_SECRETARY_CC;
+}
+
+export function resolveEmailCcRecipient(primaryRecipient: string): string | null {
+  const ccAddress = getConfiguredEmailCcAddress();
+  if (!ccAddress) return null;
+  if (primaryRecipient.trim().toLowerCase() === ccAddress.toLowerCase()) {
+    return null;
+  }
+  return ccAddress;
+}
 
 export interface FirebaseAppletConfig {
   projectId: string;

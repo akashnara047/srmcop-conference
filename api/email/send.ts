@@ -84,7 +84,24 @@ const CONFERENCE_VENUE =
   'SRM College of Pharmacy, SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India';
 const CONFERENCE_COLLABORATOR = 'INTI International University, Malaysia';
 const SECRETARIAT_EMAIL = 'org.secy.cp@srmist.edu.in';
+const DEFAULT_ORGANISING_SECRETARY_CC = SECRETARIAT_EMAIL;
 const CONVENOR_EMAIL = 'dean.pharmacy.ktr@srmist.edu.in';
+
+function getConfiguredEmailCcAddress(): string {
+  const configured = (process.env.EMAIL_CC_ADDRESS || DEFAULT_ORGANISING_SECRETARY_CC).trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configured)
+    ? configured
+    : DEFAULT_ORGANISING_SECRETARY_CC;
+}
+
+function resolveEmailCcRecipient(primaryRecipient: string): string | null {
+  const ccAddress = getConfiguredEmailCcAddress();
+  if (!ccAddress) return null;
+  if (primaryRecipient.trim().toLowerCase() === ccAddress.toLowerCase()) {
+    return null;
+  }
+  return ccAddress;
+}
 
 const TRACK_TITLES: Record<string, string> = {
   'track-01': 'Track 01: Pharmaceutical Technology & Pharmaceutics',
@@ -1144,11 +1161,78 @@ function validatePdfAttachment(raw: unknown): PdfAttachmentPayload | null {
     throw new Error('Attachment PDF content is not valid base64.');
   }
 
+  const decodedBytes = Buffer.from(cleanBase64, 'base64');
+  if (decodedBytes.length < 5 || decodedBytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('Attachment payload does not contain a valid %PDF- file header.');
+  }
+
+  console.info(
+    `[api/email/send] Attachment received by Vercel API: filename=${safeFilename}, mimeType=application/pdf, base64Length=${cleanBase64.length}, decodedBytes=${decodedBytes.length}`
+  );
+
   return {
     filename: safeFilename,
     mimeType: 'application/pdf',
     base64: cleanBase64,
   };
+}
+
+async function generateServerTestPdfAttachment(
+  eventType: Exclude<EmailEventType, 'registration_received'>,
+  recipient: string
+): Promise<PdfAttachmentPayload> {
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const titleByEvent: Record<Exclude<EmailEventType, 'registration_received'>, string> = {
+    registration_confirmation: 'REGISTRATION CONFIRMATION (DIAGNOSTIC TEST)',
+    abstract_confirmation: 'ABSTRACT SUBMISSION ACKNOWLEDGEMENT (DIAGNOSTIC TEST)',
+    abstract_acceptance: 'ABSTRACT ACCEPTANCE LETTER (DIAGNOSTIC TEST)',
+  };
+
+  const filenameByEvent: Record<Exclude<EmailEventType, 'registration_received'>, string> = {
+    registration_confirmation: 'AICONDD-TEST_Registration_Confirmation.pdf',
+    abstract_confirmation: 'AICONDD-ABS-TEST_Abstract_Submission_Acknowledgement.pdf',
+    abstract_acceptance: 'Acceptance_Letter_AICONDD-ABS-TEST.pdf',
+  };
+
+  doc.setFillColor(11, 22, 72);
+  doc.rect(0, 0, 210, 30, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text('SRMCON 2027 - SRM College of Pharmacy, SRMIST', 105, 13, { align: 'center' });
+  doc.setFontSize(10);
+  doc.text(titleByEvent[eventType], 105, 22, { align: 'center' });
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('Automated Email PDF Attachment Diagnostic Verification', 18, 45);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(`Event Type: ${eventType}`, 18, 56);
+  doc.text(`Authorised Test Recipient: ${recipient}`, 18, 63);
+  doc.text(`Generated At (UTC): ${new Date().toISOString()}`, 18, 70);
+  doc.text('Status: Valid %PDF- attachment generated and transmitted end-to-end.', 18, 80);
+  doc.text('No conference registration, abstract, or counter records were modified.', 18, 87);
+
+  const dataUri = doc.output('datauristring');
+  const commaIdx = dataUri.indexOf(',');
+  const base64 = (commaIdx >= 0 ? dataUri.slice(commaIdx + 1) : dataUri).replace(/\s+/g, '');
+
+  const validated = validatePdfAttachment({
+    filename: filenameByEvent[eventType],
+    mimeType: 'application/pdf',
+    base64,
+  });
+
+  if (!validated) {
+    throw new Error('Failed to generate diagnostic PDF attachment.');
+  }
+
+  return validated;
 }
 
 function isAppsScriptAuthFailure(payload: Record<string, unknown>, statusCode: number): boolean {
@@ -1191,15 +1275,19 @@ async function dispatchToAppsScript(params: {
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
+    const ccRecipient = resolveEmailCcRecipient(params.recipient);
+
     const upstreamPayload: Record<string, unknown> = {
       token: params.appsScriptSecret,
       action: params.eventType,
       eventId: params.eventId,
       to: params.recipient,
+      ...(ccRecipient ? { cc: ccRecipient } : {}),
       subject: params.builtEmail.subject,
       htmlBody: params.builtEmail.htmlBody,
       textBody: params.builtEmail.textBody,
       data: params.builtEmail.structuredData,
+      requiresAttachment: Boolean(params.attachment),
     };
 
     // Send a single compact attachment object to prevent payload bloat (Code.gs reads attachment.base64)
@@ -1211,13 +1299,24 @@ async function dispatchToAppsScript(params: {
       };
     }
 
+    const serializedUpstreamBody = JSON.stringify(upstreamPayload);
+    console.info(
+      `[api/email/send] Dispatching to Apps Script: eventId=${params.eventId}, action=${params.eventType}, cc=${
+        ccRecipient || 'none'
+      }, hasAttachment=${Boolean(
+        params.attachment
+      )}, attachmentFilename=${params.attachment?.filename || 'none'}, base64Length=${
+        params.attachment?.base64.length || 0
+      }, requestBytes=${Buffer.byteLength(serializedUpstreamBody)}`
+    );
+
     const upstreamResponse = await fetch(params.appsScriptUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
-      body: JSON.stringify(upstreamPayload),
+      body: serializedUpstreamBody,
       redirect: 'follow',
       signal: controller.signal,
     });
@@ -1274,6 +1373,14 @@ async function dispatchToAppsScript(params: {
       parsedPayload.alreadySent === true ||
       parsedPayload.duplicatePrevented === true;
 
+    console.info(
+      `[api/email/send] Apps Script response: eventId=${params.eventId}, success=${String(
+        parsedPayload.success
+      )}, attachmentReceived=${String(parsedPayload.attachmentReceived ?? 'n/a')}, blobCreated=${String(
+        parsedPayload.blobCreated ?? 'n/a'
+      )}, attachmentCount=${String(parsedPayload.attachmentCount ?? 'n/a')}, duplicate=${duplicateReported}`
+    );
+
     if (parsedPayload.success !== true) {
       const upstreamError = sanitizeErrorMessage(
         parsedPayload.error || parsedPayload.message,
@@ -1285,6 +1392,25 @@ async function dispatchToAppsScript(params: {
           success: false,
           eventId: params.eventId,
           error: upstreamError,
+        },
+      };
+    }
+
+    // Never report success if a required PDF attachment was dropped by Apps Script
+    if (
+      params.attachment &&
+      !duplicateReported &&
+      (parsedPayload.attachmentCount === 0 ||
+        parsedPayload.blobCreated === false ||
+        parsedPayload.attachmentReceived === false)
+    ) {
+      return {
+        statusCode: 502,
+        body: {
+          success: false,
+          eventId: params.eventId,
+          error:
+            'Google Apps Script did not attach the required PDF document. Redeploy the updated Code.gs Web App version.',
         },
       };
     }
@@ -1305,6 +1431,11 @@ async function dispatchToAppsScript(params: {
       cachedAt: Date.now(),
     });
 
+    const resolvedResponseCc =
+      typeof parsedPayload.cc === 'string' && parsedPayload.cc.trim()
+        ? parsedPayload.cc.trim()
+        : ccRecipient;
+
     return {
       statusCode: 200,
       body: {
@@ -1312,12 +1443,27 @@ async function dispatchToAppsScript(params: {
         eventId: params.eventId,
         eventType: params.eventType,
         recipient: params.recipient,
+        cc: resolvedResponseCc || null,
         subject: params.builtEmail.subject,
         status: 'Sent',
         sentAt,
         duplicatePrevented: duplicateReported,
         alreadySent: duplicateReported,
         service: serviceName,
+        attachmentSent: Boolean(params.attachment),
+        attachmentFilename: params.attachment?.filename || null,
+        attachmentCount:
+          typeof parsedPayload.attachmentCount === 'number'
+            ? parsedPayload.attachmentCount
+            : params.attachment
+            ? 1
+            : 0,
+        attachmentBytes:
+          typeof parsedPayload.attachmentBytes === 'number'
+            ? parsedPayload.attachmentBytes
+            : null,
+        blobCreated:
+          typeof parsedPayload.blobCreated === 'boolean' ? parsedPayload.blobCreated : null,
       },
     };
   } catch (err: unknown) {
@@ -1460,10 +1606,10 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   // Enforce per-event attachment contract:
   // Event 1 (registration_received): no PDF attachment
-  // Events 2, 3, 4: PDF attachment required
+  // Events 2, 3, 4: PDF attachment required (in testMode, generate server diagnostic PDF if omitted)
   if (eventType === 'registration_received') {
     validatedAttachment = null;
-  } else if (!validatedAttachment) {
+  } else if (!validatedAttachment && !isTestMode) {
     const attachmentLabels: Record<Exclude<EmailEventType, 'registration_received'>, string> = {
       registration_confirmation: 'official Registration Confirmation PDF',
       abstract_confirmation: 'Abstract Submission Acknowledgement PDF',
@@ -1504,6 +1650,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         error: 'Test mode delivery is restricted to authorized organiser email addresses.',
       });
       return;
+    }
+
+    if (eventType !== 'registration_received' && !validatedAttachment) {
+      try {
+        validatedAttachment = await generateServerTestPdfAttachment(eventType, candidateRecipient);
+      } catch (pdfErr) {
+        sendJson(res, 500, {
+          success: false,
+          eventId,
+          error: sanitizeErrorMessage(pdfErr, 'Failed to generate test mode PDF attachment.'),
+        });
+        return;
+      }
     }
 
     let testBuiltEmail: ConferenceEmailBuildResult;

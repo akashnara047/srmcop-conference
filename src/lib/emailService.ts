@@ -47,6 +47,7 @@ export interface EmailDispatchResult {
   eventId: string;
   eventType: EmailEventType;
   status: EmailLogStatus;
+  cc?: string | null;
   duplicatePrevented?: boolean;
   sentAt?: string | null;
   error?: string | null;
@@ -190,8 +191,11 @@ async function postToEmailSendApi(params: {
 }): Promise<{
   ok: boolean;
   sentAt: string | null;
+  cc: string | null;
   duplicatePrevented: boolean;
   service: string | null;
+  attachmentCount: number;
+  attachmentFilename: string | null;
   error: string | null;
 }> {
   const headers: Record<string, string> = {
@@ -200,6 +204,20 @@ async function postToEmailSendApi(params: {
   };
   if (params.bearerToken) {
     headers.Authorization = `Bearer ${params.bearerToken}`;
+  }
+
+  const att = params.payload.attachment as
+    | { filename?: string; mimeType?: string; base64?: string }
+    | undefined;
+  const expectsAttachment = Boolean(att);
+  if (att) {
+    console.info(
+      `[emailService] Sending email with PDF attachment: eventId=${String(
+        params.payload.eventId
+      )}, eventType=${String(params.payload.eventType)}, filename=${att.filename}, mimeType=${
+        att.mimeType
+      }, base64Length=${att.base64?.length || 0}`
+    );
   }
 
   const response = await fetch('/api/email/send', {
@@ -221,6 +239,10 @@ async function postToEmailSendApi(params: {
     }
   }
 
+  const duplicatePrevented = data.duplicatePrevented === true || data.alreadySent === true;
+  const reportedAttachmentCount =
+    typeof data.attachmentCount === 'number' ? data.attachmentCount : expectsAttachment ? 1 : 0;
+
   if (!response.ok || data.success !== true) {
     const fallbackStatusMsg =
       response.status === 404 && !data.error && !data.message
@@ -229,8 +251,11 @@ async function postToEmailSendApi(params: {
     return {
       ok: false,
       sentAt: null,
+      cc: null,
       duplicatePrevented: false,
       service: typeof data.service === 'string' ? data.service : null,
+      attachmentCount: 0,
+      attachmentFilename: null,
       error: sanitizeClientError(
         data.error || data.message || fallbackStatusMsg,
         'Email notification delivery failed.'
@@ -238,11 +263,30 @@ async function postToEmailSendApi(params: {
     };
   }
 
+  if (expectsAttachment && !duplicatePrevented && reportedAttachmentCount === 0) {
+    return {
+      ok: false,
+      sentAt: null,
+      cc: null,
+      duplicatePrevented: false,
+      service: typeof data.service === 'string' ? data.service : null,
+      attachmentCount: 0,
+      attachmentFilename: null,
+      error: 'Email service reported 0 attachments attached for a required PDF email event.',
+    };
+  }
+
   return {
     ok: true,
     sentAt: typeof data.sentAt === 'string' ? data.sentAt : new Date().toISOString(),
-    duplicatePrevented: data.duplicatePrevented === true || data.alreadySent === true,
+    cc: typeof data.cc === 'string' && data.cc.trim() ? data.cc.trim() : null,
+    duplicatePrevented,
     service: typeof data.service === 'string' ? data.service : 'SRMCOP Conference Email Service',
+    attachmentCount: reportedAttachmentCount,
+    attachmentFilename:
+      typeof data.attachmentFilename === 'string'
+        ? data.attachmentFilename
+        : att?.filename || null,
     error: null,
   };
 }
@@ -457,6 +501,7 @@ export async function triggerRegistrationReceivedEmail(
         eventId,
         eventType: 'registration_received',
         status: apiResult.ok ? 'Sent' : 'Failed',
+        cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
         error: apiResult.error,
@@ -561,6 +606,7 @@ export async function triggerRegistrationConfirmedEmail(
         eventId,
         eventType: 'registration_confirmation',
         status: apiResult.ok ? 'Sent' : 'Failed',
+        cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
         error: apiResult.error,
@@ -668,6 +714,7 @@ export async function triggerAbstractSubmittedEmail(
         eventId,
         eventType: 'abstract_confirmation',
         status: apiResult.ok ? 'Sent' : 'Failed',
+        cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
         error: apiResult.error,
@@ -772,6 +819,7 @@ export async function triggerAbstractAcceptedEmail(
         eventId,
         eventType: 'abstract_acceptance',
         status: apiResult.ok ? 'Sent' : 'Failed',
+        cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
         error: apiResult.error,
@@ -935,6 +983,7 @@ export async function retryEmailNotification(params: {
         eventId,
         eventType,
         status: apiResult.ok ? 'Sent' : 'Failed',
+        cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
         error: apiResult.error,
@@ -961,3 +1010,99 @@ export async function retryEmailNotification(params: {
     }
   });
 }
+
+// ============================================================================
+// ADMIN-AUTHENTICATED SAFE TEST DISPATCH (No Firestore Records Modified)
+// ============================================================================
+export async function sendAdminTestEmail(params: {
+  eventType: EmailEventType;
+  testRecipient?: string;
+}): Promise<EmailDispatchResult> {
+  const eventId = `EMAIL_TEST_${params.eventType.toUpperCase()}_${Date.now()}`;
+  try {
+    const bearerToken = await getRequiredAdminIdToken();
+    const recipient = (params.testRecipient || auth.currentUser?.email || '').trim().toLowerCase();
+
+    const sampleReg: RegistrationRecord = {
+      id: 'AICONDD-TEST',
+      registrationId: 'AICONDD-TEST',
+      fullName: 'SRMCON Secretariat Diagnostic Test',
+      email: recipient,
+      mobile: '9876543210',
+      institution: 'SRM College of Pharmacy, SRMIST',
+      courseOrDesignation: 'Organising Secretariat Test',
+      category: 'Faculty / Academician',
+      participationMode: 'Offline (On-site)',
+      dietaryPreference: 'Vegetarian',
+      paymentMode: 'UPI',
+      transactionReference: 'DIAGNOSTIC-TEST-UTR',
+      paymentAmount: 1500,
+      paymentStatus: 'Verified',
+      registrationStatus: 'Approved',
+      createdAt: new Date().toISOString(),
+      verifiedAt: new Date().toISOString(),
+    };
+
+    const sampleAbs: AbstractRecord = {
+      id: 'AICONDD-ABS-TEST',
+      registrationId: 'AICONDD-TEST',
+      title: 'SRMCON 2027 Automated Email & PDF Attachment Diagnostic Verification',
+      trackId: 'track-03',
+      presentationPreference: 'Oral Presentation',
+      allottedPresentationFormat: 'Oral Presentation',
+      presentingAuthor: {
+        fullName: 'SRMCON Secretariat Diagnostic Test',
+        email: recipient,
+        designation: 'Organising Secretariat Test',
+        affiliation: 'SRM College of Pharmacy, SRMIST',
+      },
+      coAuthors: [],
+      abstractContent: {
+        text: 'Diagnostic test verifying end-to-end PDF attachment generation, Vercel serverless dispatch, and Google Apps Script MailApp delivery.',
+      },
+      keywords: ['SRMCON 2027', 'Diagnostic Verification'],
+      status: 'Accepted',
+      createdAt: new Date().toISOString(),
+    };
+
+    let attachment: { filename: string; mimeType: 'application/pdf'; base64: string } | undefined;
+    if (params.eventType === 'registration_confirmation') {
+      attachment = generateRegistrationReceiptPDFBase64(sampleReg);
+    } else if (params.eventType === 'abstract_confirmation') {
+      attachment = generateSubmissionReceiptPDFBase64(sampleAbs, sampleReg);
+    } else if (params.eventType === 'abstract_acceptance') {
+      attachment = generateAcceptanceLetterPDFBase64(sampleAbs, sampleReg);
+    }
+
+    const apiResult = await postToEmailSendApi({
+      bearerToken,
+      payload: {
+        eventId,
+        eventType: params.eventType,
+        testMode: true,
+        ...(recipient ? { testRecipient: recipient } : {}),
+        ...(attachment ? { attachment } : {}),
+      },
+    });
+
+    return {
+      success: apiResult.ok,
+      eventId,
+      eventType: params.eventType,
+      status: apiResult.ok ? 'Sent' : 'Failed',
+      cc: apiResult.cc,
+      duplicatePrevented: apiResult.duplicatePrevented,
+      sentAt: apiResult.sentAt,
+      error: apiResult.error,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      eventId,
+      eventType: params.eventType,
+      status: 'Failed',
+      error: sanitizeClientError(err, 'Admin test email dispatch failed.'),
+    };
+  }
+}
+

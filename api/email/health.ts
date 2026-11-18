@@ -4,6 +4,9 @@ import process from 'node:process';
 interface HealthResponseBody {
   success: boolean;
   service?: string;
+  version?: string;
+  attachmentSupported?: boolean;
+  defaultCcEmail?: string;
   remainingQuota?: number;
   error?: string;
 }
@@ -232,9 +235,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? parsedPayload.service.trim()
         : 'SRMCOP Conference Email Service';
 
+    const scriptVersion =
+      typeof parsedPayload.version === 'string' && parsedPayload.version.trim()
+        ? parsedPayload.version.trim()
+        : undefined;
+
+    const attachmentSupported =
+      typeof parsedPayload.attachmentSupported === 'boolean'
+        ? parsedPayload.attachmentSupported
+        : undefined;
+
+    const defaultCcEmail =
+      typeof parsedPayload.defaultCcEmail === 'string' && parsedPayload.defaultCcEmail.trim()
+        ? parsedPayload.defaultCcEmail.trim()
+        : undefined;
+
     sendJson(res, 200, {
       success: true,
       service: serviceName,
+      ...(scriptVersion ? { version: scriptVersion } : {}),
+      ...(attachmentSupported !== undefined ? { attachmentSupported } : {}),
+      ...(defaultCcEmail ? { defaultCcEmail } : {}),
       remainingQuota,
     });
   } catch (err: unknown) {

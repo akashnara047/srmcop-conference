@@ -2078,7 +2078,36 @@ export function buildAbstractAcceptanceLetterPDFDoc(
 function extractBase64FromDoc(doc: jsPDF): string {
   const dataUri = doc.output('datauristring');
   const commaIdx = dataUri.indexOf(',');
-  return commaIdx >= 0 ? dataUri.slice(commaIdx + 1) : dataUri;
+  return commaIdx >= 0 ? dataUri.slice(commaIdx + 1).replace(/\s+/g, '') : dataUri.replace(/\s+/g, '');
+}
+
+function assertValidPdfBase64Signature(base64: string, filename: string): void {
+  if (!base64 || base64.length < 32) {
+    throw new Error(`Generated PDF "${filename}" produced an empty or truncated Base64 payload.`);
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    throw new Error(`Generated PDF "${filename}" is not valid Base64.`);
+  }
+  // Base64 of "%PDF-" starts with "JVBERi"
+  if (!base64.startsWith('JVBERi')) {
+    throw new Error(`Generated PDF "${filename}" does not start with a valid %PDF- header.`);
+  }
+}
+
+function buildValidatedPdfAttachmentOutput(
+  doc: jsPDF,
+  filename: string
+): PdfAttachmentOutput {
+  const base64 = extractBase64FromDoc(doc);
+  assertValidPdfBase64Signature(base64, filename);
+  console.info(
+    `[pdfDocuments] PDF generation completed: filename=${filename}, mimeType=application/pdf, base64Length=${base64.length}`
+  );
+  return {
+    filename,
+    mimeType: 'application/pdf',
+    base64,
+  };
 }
 
 function createBlobUrlFromDoc(doc: jsPDF): string {
@@ -2111,11 +2140,7 @@ export function generateRegistrationConfirmationPDFBase64(
   reg: RegistrationRecord
 ): PdfAttachmentOutput {
   const { doc, filename } = buildRegistrationConfirmationPDFDoc(reg);
-  return {
-    filename,
-    mimeType: 'application/pdf',
-    base64: extractBase64FromDoc(doc),
-  };
+  return buildValidatedPdfAttachmentOutput(doc, filename);
 }
 
 export function createRegistrationConfirmationPreviewUrl(reg: RegistrationRecord): {
@@ -2142,11 +2167,7 @@ export function generateAbstractSubmissionAckPDFBase64(
   registration?: RegistrationRecord
 ): PdfAttachmentOutput {
   const { doc, filename } = buildAbstractSubmissionAckPDFDoc(abstract, registration);
-  return {
-    filename,
-    mimeType: 'application/pdf',
-    base64: extractBase64FromDoc(doc),
-  };
+  return buildValidatedPdfAttachmentOutput(doc, filename);
 }
 
 export function createAbstractSubmissionAckPreviewUrl(
@@ -2173,11 +2194,7 @@ export function generateAbstractAcceptanceLetterPDFBase64(
   registration?: RegistrationRecord
 ): PdfAttachmentOutput {
   const { doc, filename } = buildAbstractAcceptanceLetterPDFDoc(abstract, registration);
-  return {
-    filename,
-    mimeType: 'application/pdf',
-    base64: extractBase64FromDoc(doc),
-  };
+  return buildValidatedPdfAttachmentOutput(doc, filename);
 }
 
 export function createAbstractAcceptanceLetterPreviewUrl(

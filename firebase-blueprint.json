@@ -173,6 +173,37 @@
         "errors": { "type": "array" }
       },
       "required": ["id", "createdAt", "filename", "initiatedBy", "status", "errorCount", "storageFilesCount", "totalArchiveBytes", "recordCounts"]
+    },
+    "EmailLog": {
+      "title": "EmailLog",
+      "description": "Idempotent automated email notification delivery tracking and retry log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "eventId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["registration_received", "registration_confirmation", "abstract_confirmation", "abstract_acceptance"] },
+        "referenceId": { "type": "string", "maxLength": 128 },
+        "registrationId": { "type": "string", "maxLength": 128 },
+        "regDocId": { "type": "string", "maxLength": 128 },
+        "abstractId": { "type": "string", "maxLength": 128 },
+        "recipient": { "type": "string", "format": "email", "maxLength": 200 },
+        "subject": { "type": "string", "maxLength": 250 },
+        "status": { "type": "string", "enum": ["Pending", "Sent", "Failed"] },
+        "attemptCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "lastAttemptedAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "sentAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "error": { "type": "string", "maxLength": 500 },
+        "hasAttachment": { "type": "boolean" },
+        "attachmentName": { "type": "string", "maxLength": 200 },
+        "triggeredBy": { "type": "string", "maxLength": 150 },
+        "duplicatePrevented": { "type": "boolean" },
+        "providerService": { "type": "string", "maxLength": 120 },
+        "recordType": { "type": "string", "enum": ["live", "test"] },
+        "timestamp": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 50 }
+      },
+      "required": ["id", "eventId", "type", "referenceId", "recipient", "subject", "status", "attemptCount", "createdAt", "lastAttemptedAt", "timestamp"]
     }
   },
   "firestore": {
@@ -207,6 +238,10 @@
     "/databaseBackups/{backupId}": {
       "schema": "DatabaseBackupRecord",
       "description": "Admin-only audit metadata for manual full database backups"
+    },
+    "/emailLogs/{logId}": {
+      "schema": "EmailLog",
+      "description": "Automated email notification delivery status, duplicate prevention, and retry tracking logs"
     }
   }
 }

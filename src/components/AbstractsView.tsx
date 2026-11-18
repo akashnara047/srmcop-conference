@@ -26,8 +26,6 @@ import {
   Monitor,
   Layout,
   Tv,
-  Printer,
-  Download,
   Award,
   Sparkles,
   Lock,
@@ -45,11 +43,10 @@ import { SectionBackToTop } from './BackToTop';
 import {
   verifyRegistrationForAbstractSubmission,
   submitAbstractWithAtomicId,
-  generateAcceptanceLetterPDF,
-  generateSubmissionReceiptPDF,
   AbstractRecord,
   RegistrationRecord,
 } from '../lib/managementService';
+import { triggerAbstractSubmittedEmail } from '../lib/emailService';
 
 interface AbstractsViewProps {
   initialTrackId?: string;
@@ -479,6 +476,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       const submittedRecord: AbstractRecord = {
         id: allocatedAbstractId,
         registrationId: regId,
+        registrationDocId: verifiedRegistration.id || regId,
         title: title.trim(),
         trackId: selectedTrack,
         presentationPreference: presentationType,
@@ -493,9 +491,15 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
         abstractContent: { text: abstractText.trim() },
         keywords,
         ...(supportingDocFile ? { supportingDocumentName: supportingDocFile.name } : {}),
+        recordType: verifiedRegistration.recordType || 'live',
         status: 'Submitted',
         createdAt: new Date().toISOString(),
       };
+
+      // Trigger Event 3 (Abstract Submission Acknowledgement + PDF) asynchronously without blocking UI
+      triggerAbstractSubmittedEmail(submittedRecord, verifiedRegistration).catch((emailErr) => {
+        console.warn('Background abstract submission email note:', emailErr);
+      });
 
       setSubmittedAbstractData(submittedRecord);
       setShowConfirmationModal(true);
@@ -777,27 +781,31 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                     </div>
                   )}
 
-                  <div className="pt-2 flex flex-wrap items-center justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() => generateSubmissionReceiptPDF(lookupResult)}
-                      className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm rounded-xl flex items-center gap-2 cursor-pointer shadow-xs transition"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Download Submission Receipt (PDF)</span>
-                    </button>
-
-                    {lookupResult.status === 'Accepted' && (
-                      <button
-                        type="button"
-                        onClick={() => generateAcceptanceLetterPDF(lookupResult)}
-                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl flex items-center gap-2 cursor-pointer shadow-xs transition"
-                      >
-                        <Award className="w-4 h-4" />
-                        <span>Download Acceptance Letter (PDF)</span>
-                      </button>
-                    )}
-                  </div>
+                  {lookupResult.status === 'Accepted' ? (
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2.5 text-xs sm:text-sm text-emerald-900">
+                      <Award className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="block font-bold">Abstract Accepted</strong>
+                        <span>
+                          Your official <strong>Abstract Acceptance Letter (PDF)</strong>
+                          {(lookupResult.allottedPresentationFormat || lookupResult.finalPresentationFormat)
+                            ? ` (Allotted Format: ${lookupResult.allottedPresentationFormat || lookupResult.finalPresentationFormat})`
+                            : ''}{' '}
+                          is distributed exclusively via email to the presenting author&apos;s registered email address.
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-[#FAF8FF] border border-[#E2DAF8] rounded-xl flex items-start gap-2.5 text-xs sm:text-sm text-slate-700">
+                      <Mail className="w-4 h-4 text-[#7C3AED] shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="block font-bold text-[#101B4B]">Email-Only Document Delivery</strong>
+                        <span>
+                          Your official <strong>Abstract Submission Acknowledgement (PDF)</strong> is sent as an email attachment to the presenting author&apos;s registered email address upon submission. Official abstract documents are distributed exclusively via email.
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1045,10 +1053,10 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                   <div className="p-5 bg-[#FAF8FF] rounded-2xl border border-[#E2DAF8] space-y-1.5">
                     <span className="font-bold text-sm text-[#6D28D9] flex items-center gap-2">
                       <Sparkles className="w-4 h-4" />
-                      <span>3. Instant Abstract ID & PDF</span>
+                      <span>3. Instant Abstract ID &amp; Email Acknowledgement</span>
                     </span>
                     <p className="text-slate-600 text-xs sm:text-sm leading-relaxed">
-                      Receive an automatically generated Abstract ID and downloadable PDF receipt upon submission.
+                      Receive an automatically generated Abstract ID upon submission and your official Abstract Submission Acknowledgement (PDF) via email.
                     </p>
                   </div>
                 </div>
@@ -1890,26 +1898,20 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Email Delivery Notice & Action Buttons */}
             <div className="space-y-3 pt-1">
-              <button
-                type="button"
-                onClick={() => generateSubmissionReceiptPDF(submittedAbstractData, verifiedRegistration || undefined)}
-                className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#6366F1] to-[#7C3AED] hover:opacity-95 text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download Abstract Submission Receipt (PDF)</span>
-              </button>
+              <div className="p-4 rounded-xl bg-purple-50 border border-purple-200 flex items-start gap-2.5 text-xs sm:text-sm text-purple-950">
+                <Mail className="w-4 h-4 text-purple-700 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="block font-bold">Acknowledgement PDF Sent via Email</strong>
+                  <span className="text-slate-700">
+                    Your official <strong>Abstract Submission Acknowledgement (PDF)</strong> is sent as an email attachment to{' '}
+                    <strong>{submittedAbstractData.presentingAuthor?.email || email}</strong>. Once scientific review is complete and accepted, your Acceptance Letter (PDF) will also be sent via email.
+                  </span>
+                </div>
+              </div>
 
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="px-5 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Receipt</span>
-                </button>
 
                 <button
                   type="button"

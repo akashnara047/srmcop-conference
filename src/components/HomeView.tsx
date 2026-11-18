@@ -201,7 +201,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
 
               {/* Center: Institutional Typography */}
               <div className="text-center px-2 pt-1 sm:pt-1.5 space-y-2 sm:space-y-2.5">
-                <h1 className="text-xl sm:text-2xl md:text-[1.85rem] lg:text-[2.3rem] xl:text-[2.5rem] font-black text-white font-heading tracking-wide sm:tracking-tight uppercase leading-tight sm:leading-[1.18] [text-shadow:0_2px_12px_rgba(8,18,44,0.82),0_1px_3px_rgba(0,0,0,0.85)]">
+                <h1 className="text-xl sm:text-2xl md:text-[1.85rem] lg:text-[2.3rem] xl:text-[2.5rem] font-black text-white font-heading tracking-[0.08em] sm:tracking-[0.09em] lg:tracking-[0.11em] [word-spacing:0.22em] sm:[word-spacing:0.26em] lg:[word-spacing:0.3em] uppercase leading-snug sm:leading-[1.22] [text-shadow:0_2px_12px_rgba(8,18,44,0.82),0_1px_3px_rgba(0,0,0,0.85)]">
                   SRM COLLEGE OF PHARMACY
                 </h1>
 

@@ -290,9 +290,9 @@ export const SCIENTIFIC_TRACKS: Track[] = [
 export const INVITED_SPEAKERS: Speaker[] = [
   {
     id: 'speaker-1',
-    name: 'Dr. Geetha Subramaniam',
-    titlePrefix: 'Dr.',
-    affiliationPlaceholder: 'Faculty & Distinguished Scientist (Affiliation details will be announced)',
+    name: 'Professor Dr. Geetha Subramaniam',
+    titlePrefix: 'Prof. Dr.',
+    affiliationPlaceholder: 'Professor, INTI International University, Malaysia',
     linkedInUrl: 'https://www.linkedin.com/in/geetha-subramaniam-650b2b41/',
     domain: 'Pharmaceutical Science & Biotechnology',
   },

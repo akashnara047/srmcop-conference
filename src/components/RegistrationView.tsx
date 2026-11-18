@@ -35,10 +35,10 @@ import {
 } from 'lucide-react';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { dispatchRegistrationEmails } from '../lib/emailService';
+import { triggerRegistrationReceivedEmail } from '../lib/emailService';
 import {
   submitConferenceRegistration,
-  generateRegistrationReceiptPDF,
+  generateRegistrationSubmissionReceiptPDF,
   type RegistrationRecord,
 } from '../lib/managementService';
 import {
@@ -421,18 +421,9 @@ export const RegistrationView: React.FC = () => {
       // 1. Concurrency-safe atomic transaction write to Firestore (allocates AICONDD001, AICONDD002, etc.)
       const { regDoc, regId } = await submitConferenceRegistration(regPayload);
 
-      // 2. Trigger notification emails to organizers and participant asynchronously without blocking UI
-      dispatchRegistrationEmails({
-        id: regId,
-        fullName: fullName.trim(),
-        email: email.trim(),
-        institution: institution.trim(),
-        category,
-        otherCategoryDescription: category === 'Others' ? otherCategoryDescription.trim() : undefined,
-        transactionReference: transactionRef.trim(),
-        amount: parsedAmount,
-      }).catch((emailErr) => {
-        console.warn('Background email dispatch note:', emailErr);
+      // 2. Trigger Event 1 (Registration Received) email asynchronously without blocking UI
+      triggerRegistrationReceivedEmail(regDoc).catch((emailErr) => {
+        console.warn('Background registration received email note:', emailErr);
       });
 
       // 3. Update state to display confirmation dialog and downloadable receipt
@@ -525,37 +516,15 @@ export const RegistrationView: React.FC = () => {
     setTimeout(() => setCopiedUpi(false), 2000);
   };
 
-  const handleDownloadPDF = () => {
-    if (submittedRecord) {
-      generateRegistrationReceiptPDF(submittedRecord);
-    } else if (registeredId) {
-      const fallbackRecord: RegistrationRecord = {
-        id: registeredId,
-        registrationId: registeredId,
-        fullName: fullName.trim(),
-        email: email.trim(),
-        mobile: mobile.trim(),
-        courseOrDesignation: courseOrDesignation.trim(),
-        institution: institution.trim(),
-        city: city.trim(),
-        country: country.trim(),
-        category,
-        otherCategoryDescription: category === 'Others' ? otherCategoryDescription.trim() : '',
-        participationMode,
-        presentationPlans,
-        participatePharmaQuest,
-        paymentMode,
-        transactionReference: transactionRef.trim(),
-        paymentAmount: parseFloat(paymentAmount.trim()) || 0,
-        amount: parseFloat(paymentAmount.trim()) || 0,
-        paymentProofName: paymentProofName || 'proof_receipt.pdf',
-        paymentStatus: 'Pending Verification',
-        registrationStatus: 'Awaiting Approval',
-        ...(isOfflineParticipation ? { dietaryPreference } : {}),
-        createdAt: new Date().toISOString(),
-      };
-      generateRegistrationReceiptPDF(fallbackRecord);
-    }
+  const isLookupConfirmationEligible =
+    !!lookupRecord &&
+    lookupRecord.paymentStatus === 'Verified' &&
+    lookupRecord.registrationStatus === 'Approved';
+
+  const handleDownloadSubmissionReceiptPDF = (record?: RegistrationRecord | null) => {
+    const target = record || submittedRecord;
+    if (!target) return;
+    generateRegistrationSubmissionReceiptPDF(target);
   };
 
   const resetForm = () => {
@@ -663,27 +632,44 @@ export const RegistrationView: React.FC = () => {
 
               {/* Notice */}
               <p className="text-[11.5px] text-slate-600 leading-relaxed text-left bg-slate-50 p-3 rounded-xl border border-slate-200">
-                Please retain your Registration ID (<code>{registeredId}</code>). You can use this ID immediately in the Abstract Submission Portal while your payment (currently <strong>Pending Verification</strong>) is reviewed by the Organising Secretary. A PDF receipt containing all submitted details is ready below.
+                Please retain your Registration ID (<code>{registeredId}</code>). You can use this ID immediately in the Abstract Submission Portal while your payment (currently <strong>Pending Verification</strong>) is reviewed by the Organising Secretary. Your official <strong>Registration Confirmation (PDF)</strong> will be sent to your registered email address once payment verification and approval are completed.
               </p>
 
-              {/* Action Buttons: Download Registration Receipt (PDF) & Close */}
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={handleDownloadPDF}
-                  className="w-full sm:flex-1 h-[44px] px-5 bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[13.5px] rounded-xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download Registration Receipt (PDF)</span>
-                </button>
+              {/* Action Buttons */}
+              <div className="space-y-2.5 pt-1">
+                {submittedRecord && (
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadSubmissionReceiptPDF(submittedRecord)}
+                    className="w-full h-[46px] px-5 bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[14px] rounded-xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download Registration Receipt</span>
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmationModal(false)}
-                  className="w-full sm:w-auto h-[44px] px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[13.5px] rounded-xl transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowConfirmationModal(false);
+                      setLookupRegId(registeredId);
+                      setActiveTab('status');
+                    }}
+                    className="w-full sm:flex-1 h-[42px] px-5 bg-[#EDE9FD] hover:bg-[#E2DCFB] text-[#5B21B6] font-bold text-[13px] rounded-xl flex items-center justify-center gap-2 border border-[#D8D2F8] transition-colors cursor-pointer"
+                  >
+                    <Search className="w-4 h-4" />
+                    <span>Check Registration Status</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmationModal(false)}
+                    className="w-full sm:w-auto h-[42px] px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[13px] rounded-xl transition-colors cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -898,6 +884,36 @@ export const RegistrationView: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Official Registration Confirmation PDF Delivery Status (Email Attachment Only) */}
+                  {isLookupConfirmationEligible ? (
+                    <div className="p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-xl flex items-start gap-2.5">
+                      <Mail className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                      <div className="text-[12.5px] text-emerald-900">
+                        <strong className="block font-bold">Registration Verified &amp; Confirmed</strong>
+                        <span>
+                          Your official <strong>Registration Confirmation (PDF)</strong> is issued exclusively via email and has been sent to your registered email address (<strong>{lookupRecord.email}</strong>).
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="text-[12px] text-slate-600 flex items-start gap-2">
+                        <Info className="w-4 h-4 text-[#713CE0] shrink-0 mt-0.5" />
+                        <span>
+                          Once your payment is verified and your registration is approved by the Organising Secretary, your official <strong>Registration Confirmation (PDF)</strong> will be sent to your registered email address. Meanwhile, you may download your initial Registration Receipt below.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadSubmissionReceiptPDF(lookupRecord)}
+                        className="px-4 py-2 bg-[#EDE9FD] hover:bg-[#E2DCFB] text-[#5B21B6] border border-[#D8D2F8] font-bold text-[12px] rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Registration Receipt</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Resubmission section if Payment Rejected */}
                   {lookupRecord.paymentStatus === 'Rejected' && (
                     <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
@@ -987,15 +1003,29 @@ export const RegistrationView: React.FC = () => {
               </button>
             </div>
 
-            {/* Action Buttons: Download PDF Receipt & Register Another */}
+            {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
+              {submittedRecord && (
+                <button
+                  type="button"
+                  onClick={() => handleDownloadSubmissionReceiptPDF(submittedRecord)}
+                  className="w-full sm:w-auto h-[44px] px-6 bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[13.5px] rounded-xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Registration Receipt</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={handleDownloadPDF}
-                className="w-full sm:w-auto h-[44px] px-6 bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[13.5px] rounded-xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
+                onClick={() => {
+                  setLookupRegId(registeredId);
+                  setActiveTab('status');
+                }}
+                className="w-full sm:w-auto h-[44px] px-5 bg-[#EDE9FD] hover:bg-[#E2DCFB] text-[#5B21B6] font-bold text-[13.5px] rounded-xl flex items-center justify-center gap-2 border border-[#D8D2F8] transition-colors cursor-pointer"
               >
-                <Download className="w-4 h-4" />
-                <span>Download Registration Receipt (PDF)</span>
+                <Search className="w-4 h-4" />
+                <span>Track Verification Status</span>
               </button>
 
               <button

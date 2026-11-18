@@ -145,12 +145,77 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(attractionId);
     }
 
-    // Email Notification Logs (system write on form actions, admin-only read for audit & backup)
+    // Email Notification Logs (idempotent Pending create, Pending->Sent/Failed completion, Sent immutable, admin retry & audit read)
+    function isValidEmailLogCreate(data, logId) {
+      return data.keys().hasAll(['id', 'eventId', 'type', 'referenceId', 'recipient', 'subject', 'status', 'attemptCount', 'createdAt', 'lastAttemptedAt', 'timestamp']) &&
+        data.keys().hasOnly([
+          'id', 'eventId', 'type', 'referenceId', 'registrationId', 'regDocId',
+          'abstractId', 'recipient', 'subject', 'status', 'attemptCount',
+          'createdAt', 'lastAttemptedAt', 'sentAt', 'error', 'hasAttachment',
+          'attachmentName', 'triggeredBy', 'duplicatePrevented', 'providerService',
+          'recordType', 'timestamp', 'updatedAt'
+        ]) &&
+        data.id == logId &&
+        data.eventId == logId &&
+        data.type in ['registration_received', 'registration_confirmation', 'abstract_confirmation', 'abstract_acceptance'] &&
+        data.status == 'Pending' &&
+        data.attemptCount is int && data.attemptCount == 1 &&
+        data.referenceId is string && data.referenceId.size() >= 3 && data.referenceId.size() <= 128 &&
+        data.recipient is string && data.recipient.size() >= 3 && data.recipient.size() <= 200 &&
+        data.subject is string && data.subject.size() >= 3 && data.subject.size() <= 250 &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.lastAttemptedAt is string && data.lastAttemptedAt.size() <= 50 &&
+        data.timestamp is string && data.timestamp.size() <= 50 &&
+        (!('sentAt' in data) || data.sentAt == null) &&
+        (!('error' in data) || data.error == null) &&
+        (!('hasAttachment' in data) || data.hasAttachment is bool) &&
+        (!('attachmentName' in data) || data.attachmentName == null || (data.attachmentName is string && data.attachmentName.size() <= 200)) &&
+        (!('triggeredBy' in data) || (data.triggeredBy is string && data.triggeredBy.size() <= 150)) &&
+        (!('duplicatePrevented' in data) || data.duplicatePrevented is bool) &&
+        (!('providerService' in data) || data.providerService == null || (data.providerService is string && data.providerService.size() <= 120)) &&
+        (!('recordType' in data) || data.recordType in ['live', 'test']);
+    }
+
+    function isValidEmailLogUpdate(newData, oldData) {
+      return newData.keys().hasOnly([
+          'id', 'eventId', 'type', 'referenceId', 'registrationId', 'regDocId',
+          'abstractId', 'recipient', 'subject', 'status', 'attemptCount',
+          'createdAt', 'lastAttemptedAt', 'sentAt', 'error', 'hasAttachment',
+          'attachmentName', 'triggeredBy', 'duplicatePrevented', 'providerService',
+          'recordType', 'timestamp', 'updatedAt'
+        ]) &&
+        newData.id == oldData.id &&
+        newData.eventId == oldData.eventId &&
+        newData.type == oldData.type &&
+        newData.referenceId == oldData.referenceId &&
+        newData.createdAt == oldData.createdAt &&
+        newData.status in ['Pending', 'Sent', 'Failed'] &&
+        newData.attemptCount is int && newData.attemptCount >= 1 && newData.attemptCount <= 50 &&
+        newData.lastAttemptedAt is string && newData.lastAttemptedAt.size() <= 50 &&
+        (!('sentAt' in newData) || newData.sentAt == null || (newData.sentAt is string && newData.sentAt.size() <= 50)) &&
+        (!('error' in newData) || newData.error == null || (newData.error is string && newData.error.size() <= 500));
+    }
+
+    function isValidPublicEmailLogCompletion(newData, oldData) {
+      return oldData.status == 'Pending' &&
+        oldData.type in ['registration_received', 'abstract_confirmation'] &&
+        newData.status in ['Sent', 'Failed'] &&
+        newData.recipient == oldData.recipient &&
+        newData.subject == oldData.subject &&
+        newData.attemptCount == oldData.attemptCount;
+    }
+
     match /emailLogs/{logId} {
       allow create: if isValidId(logId) &&
-        request.resource.data.keys().hasAll(['id', 'recipient', 'subject', 'type', 'referenceId', 'status', 'timestamp']);
+        isValidEmailLogCreate(request.resource.data, logId) &&
+        (isAdmin() || request.resource.data.type in ['registration_received', 'abstract_confirmation']);
       allow get, list: if isAdmin();
-      allow update, delete: if false;
+      allow update: if isValidId(logId) &&
+        resource.data.status != 'Sent' &&
+        resource.data.status != 'Delivered' &&
+        isValidEmailLogUpdate(request.resource.data, resource.data) &&
+        (isAdmin() || isValidPublicEmailLogCompletion(request.resource.data, resource.data));
+      allow delete: if isAdmin() && isValidId(logId);
     }
 
     // Validation helper for Database Backup metadata logs

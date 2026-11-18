@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock,
   CloudUpload,
+  Copy,
   Database,
   Download,
   ExternalLink,
@@ -17,8 +18,10 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Users,
   X,
 } from 'lucide-react';
@@ -32,6 +35,15 @@ import {
   formatBytes,
   triggerBlobDownload,
 } from '../lib/backupService';
+import {
+  TRIAL_RESET_STAGES,
+  TrialResetPreviewStats,
+  TrialResetProgressUpdate,
+  TrialResetVerificationReport,
+  executeTrialRunReset,
+  fetchTrialResetPreviewStats,
+  formatTrialResetTextReport,
+} from '../lib/trialResetService';
 
 interface AdminBackupManagerProps {
   user: User | null;
@@ -59,16 +71,31 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
   // Strictly kept in browser memory for current session only
   const [sessionBackup, setSessionBackup] = useState<BackupExecutionResult | null>(null);
 
+  // Trial-Run Reset state
+  const [resetPreview, setResetPreview] = useState<TrialResetPreviewStats | null>(null);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [allowIncompleteOverride, setAllowIncompleteOverride] = useState(false);
+  const [isRunningReset, setIsRunningReset] = useState(false);
+  const [resetProgress, setResetProgress] = useState<TrialResetProgressUpdate | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetReport, setResetReport] = useState<TrialResetVerificationReport | null>(null);
+  const [copiedReport, setCopiedReport] = useState(false);
+
   const loadOverview = useCallback(async () => {
     setLoadingStats(true);
     setStatsError(null);
     try {
-      const overview = await fetchBackupOverviewStats();
+      const [overview, preview] = await Promise.all([
+        fetchBackupOverviewStats(),
+        fetchTrialResetPreviewStats(),
+      ]);
       setRegistrationsCount(overview.registrationsCount);
       setAbstractsCount(overview.abstractsCount);
       setPaymentsCount(overview.paymentsCount);
       setUploadedFilesCount(overview.uploadedFilesCount);
       setHistory(overview.history);
+      setResetPreview(preview);
     } catch (err: any) {
       setStatsError(err?.message || 'Unable to load backup overview metrics.');
     } finally {
@@ -134,6 +161,58 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
   const handleDownloadAgain = () => {
     if (!sessionBackup) return;
     triggerBlobDownload(sessionBackup.blob, sessionBackup.filename);
+  };
+
+  const handleOpenResetModal = () => {
+    setResetConfirmText('');
+    setAllowIncompleteOverride(false);
+    setShowResetModal(true);
+  };
+
+  const handleConfirmAndExecuteReset = async () => {
+    if (isRunningReset || isRunningBackup) return;
+    if (resetConfirmText.trim().toUpperCase() !== 'RESET TRIAL DATA') return;
+
+    setShowResetModal(false);
+    setIsRunningReset(true);
+    setResetError(null);
+    setResetReport(null);
+    setResetProgress({
+      stageIndex: 0,
+      stageLabel: TRIAL_RESET_STAGES[0],
+      percent: 5,
+      detail: 'Preparing mandatory pre-reset backup and trial-run cleanup...',
+    });
+
+    try {
+      const report = await executeTrialRunReset(
+        (update) => setResetProgress(update),
+        { allowIncompleteBackup: allowIncompleteOverride }
+      );
+      setResetReport(report);
+      onStatusMessage?.(
+        `Trial-run reset complete: deleted ${report.registrationsDeleted} registrations, ${report.abstractsDeleted} abstracts, ${report.emailLogsCleared} linked email logs. Next IDs: ${report.nextRegistrationId} & ${report.nextAbstractId}.`
+      );
+      await loadOverview();
+    } catch (err: any) {
+      setResetError(
+        err?.message || 'Trial-run reset failed. Review the error details before retrying.'
+      );
+      setResetProgress(null);
+    } finally {
+      setIsRunningReset(false);
+    }
+  };
+
+  const handleCopyResetReport = async () => {
+    if (!resetReport) return;
+    try {
+      await navigator.clipboard.writeText(formatTrialResetTextReport(resetReport));
+      setCopiedReport(true);
+      setTimeout(() => setCopiedReport(false), 2500);
+    } catch {
+      // Fallback ignored if clipboard blocked
+    }
   };
 
   return (
@@ -609,6 +688,285 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
         </div>
       </div>
 
+      {/* Trial-Run Data Reset & ID Sequence Initialization */}
+      <div className="bg-white rounded-xl border border-rose-200 shadow-2xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-rose-100 bg-rose-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 mt-0.5">
+              <RotateCcw className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Pre-Trial Data Reset &amp; Sequence Initialization
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-bold uppercase tracking-wide">
+                  Organising Secretary Only
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                Automatically exports a full ZIP backup, deletes all registration and abstract records, clears linked duplicate-prevention email logs, and resets ID counters to start cleanly at <strong className="font-mono">AICONDD001</strong> and <strong className="font-mono">AICONDD-ABS-001</strong>.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenResetModal}
+            disabled={loadingStats || isRunningBackup || isRunningReset}
+            className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-2 cursor-pointer shadow-xs shrink-0 self-start sm:self-auto disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isRunningReset ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Resetting Trial Data...</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4" />
+                <span>Reset for Trial Run</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Live Counter & Target Scope Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 block">
+                Registration Sequence
+              </span>
+              <div className="mt-1 flex items-baseline justify-between gap-2">
+                <span className="font-mono font-bold text-slate-900 text-sm">
+                  #{loadingStats ? '—' : resetPreview?.registrationCounterSeq ?? 0}
+                </span>
+                <span className="text-[11px] font-mono text-purple-700 font-semibold">
+                  Next: {loadingStats ? '—' : resetPreview?.currentNextRegistrationId ?? 'AICONDD001'}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                {loadingStats ? '—' : resetPreview?.registrationsCount ?? registrationsCount} record(s) in Firestore
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 block">
+                Abstract Sequence
+              </span>
+              <div className="mt-1 flex items-baseline justify-between gap-2">
+                <span className="font-mono font-bold text-slate-900 text-sm">
+                  #{loadingStats ? '—' : resetPreview?.abstractCounterSeq ?? 0}
+                </span>
+                <span className="text-[11px] font-mono text-indigo-700 font-semibold">
+                  Next: {loadingStats ? '—' : resetPreview?.currentNextAbstractId ?? 'AICONDD-ABS-001'}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                {loadingStats ? '—' : resetPreview?.abstractsCount ?? abstractsCount} record(s) in Firestore
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 block">
+                Linked Email Logs
+              </span>
+              <div className="mt-1 flex items-baseline justify-between gap-2">
+                <span className="font-mono font-bold text-slate-900 text-sm">
+                  {loadingStats ? '—' : resetPreview?.associatedEmailLogsCount ?? 0} to clear
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {loadingStats ? '—' : resetPreview?.unrelatedEmailLogsCount ?? 0} preserved
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                Clears duplicate-prevention locks on old IDs
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+              <span className="text-[10px] uppercase font-semibold text-emerald-700 block">
+                Preserved Conference Data
+              </span>
+              <div className="mt-1 text-[11px] font-semibold text-emerald-950">
+                Speakers, Programme, PDFs &amp; Hospitality
+              </div>
+              <div className="text-[10px] text-emerald-700 mt-1">
+                Admins, enquiries, backups &amp; audit logs stay intact
+              </div>
+            </div>
+          </div>
+
+          {/* Live Reset Progress */}
+          {(isRunningReset || resetProgress) && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/40 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  {isRunningReset ? (
+                    <Loader2 className="w-4 h-4 text-rose-600 animate-spin shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  )}
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">
+                      {resetProgress?.stageLabel}
+                    </div>
+                    <div className="text-[11px] text-slate-600">{resetProgress?.detail}</div>
+                  </div>
+                </div>
+                <span className="font-mono text-xs font-bold text-rose-700 bg-white px-2.5 py-0.5 rounded-full border border-rose-200">
+                  {resetProgress?.percent ?? 0}%
+                </span>
+              </div>
+
+              <div className="w-full h-2 bg-rose-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-rose-600 to-purple-600 transition-all duration-300"
+                  style={{ width: `${resetProgress?.percent ?? 0}%` }}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {TRIAL_RESET_STAGES.map((label, idx) => {
+                  const currentIdx = resetProgress?.stageIndex ?? 0;
+                  const isDone =
+                    (!isRunningReset && (resetProgress?.percent ?? 0) === 100) || idx < currentIdx;
+                  const isCurrent = isRunningReset && idx === currentIdx;
+                  return (
+                    <div
+                      key={label}
+                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] flex items-center gap-2 ${
+                        isDone
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-medium'
+                          : isCurrent
+                          ? 'bg-rose-100/70 border-rose-300 text-rose-950 font-semibold'
+                          : 'bg-white border-slate-200 text-slate-400'
+                      }`}
+                    >
+                      {isDone ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      ) : isCurrent ? (
+                        <Loader2 className="w-3.5 h-3.5 text-rose-600 animate-spin shrink-0" />
+                      ) : (
+                        <span className="w-3.5 h-3.5 rounded-full border border-slate-300 text-[9px] flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                      )}
+                      <span className="truncate">{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Reset Error */}
+          {resetError && (
+            <div className="rounded-xl bg-red-50 border border-red-200 p-4 flex items-start gap-2.5 text-xs text-red-900">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold">Trial-Run Reset Halted</div>
+                <div>{resetError}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Post-Reset Verification Report */}
+          {resetReport && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold text-emerald-950">
+                      Post-Reset Verification Complete — Ready for Fresh Trial Run
+                    </h4>
+                    <p className="text-[11px] text-emerald-800">
+                      Backup archived to <span className="font-mono font-semibold">{resetReport.backupFilename}</span> before deletion.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyResetReport}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-100/60 text-emerald-900 text-xs font-semibold flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                >
+                  {copiedReport ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Copied Report</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Verification Report</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Registrations
+                  </span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {resetReport.registrationsDeleted} / {resetReport.registrationsFound} deleted
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Abstracts
+                  </span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {resetReport.abstractsDeleted} / {resetReport.abstractsFound} deleted
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Email Logs Cleared
+                  </span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {resetReport.emailLogsCleared} ({resetReport.emailLogsPreserved} kept)
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Next Reg ID
+                  </span>
+                  <span className="font-mono font-bold text-purple-700">
+                    {resetReport.nextRegistrationId}
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Next Abstract ID
+                  </span>
+                  <span className="font-mono font-bold text-indigo-700">
+                    {resetReport.nextAbstractId}
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Remaining Old Docs
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700">
+                    {resetReport.remainingRegistrationsAfter} Reg · {resetReport.remainingAbstractsAfter} Abs
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-950 flex items-start gap-2">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Apps Script Deduplication Check:</strong> Firestore <span className="font-mono">emailLogs</span> have been cleared, so the website will dispatch emails for <span className="font-mono">{resetReport.nextRegistrationId}</span> and <span className="font-mono">{resetReport.nextAbstractId}</span>. If your external Google Apps Script Web App also stores sent <span className="font-mono">eventId</span> entries in a Google Sheet or Script Properties, clear those old trial entries in Apps Script if you see <span className="font-mono">duplicatePrevented</span> responses.
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Persistent Backup History Table (Metadata Only) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -741,6 +1099,99 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
                 >
                   <Archive className="w-3.5 h-3.5" />
                   <span>Create Backup</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trial-Run Reset Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-lg w-full rounded-2xl shadow-2xl border border-rose-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-4 bg-[#0B112C] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 text-rose-400" />
+                <h3 className="text-sm font-bold font-heading">
+                  Confirm Pre-Trial Data Reset
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-rose-950 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>This will permanently remove existing registration &amp; abstract records</span>
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-rose-900">
+                  <li>
+                    First exports &amp; downloads a complete ZIP backup of all Firestore records and attachments.
+                  </li>
+                  <li>
+                    Deletes all <strong>{resetPreview?.registrationsCount ?? registrationsCount}</strong> registration(s) and <strong>{resetPreview?.abstractsCount ?? abstractsCount}</strong> abstract submission(s).
+                  </li>
+                  <li>
+                    Clears <strong>{resetPreview?.associatedEmailLogsCount ?? 0}</strong> linked email log(s) so fresh trial IDs are not blocked by duplicate-email checks (preserves {resetPreview?.unrelatedEmailLogsCount ?? 0} unrelated log(s)).
+                  </li>
+                  <li>
+                    Resets counters from <span className="font-mono">#{resetPreview?.registrationCounterSeq ?? 0}</span> / <span className="font-mono">#{resetPreview?.abstractCounterSeq ?? 0}</span> back to <span className="font-mono">0</span> (next IDs: <strong className="font-mono">AICONDD001</strong> and <strong className="font-mono">AICONDD-ABS-001</strong>).
+                  </li>
+                  <li>
+                    Preserves speakers, programme, accommodation, tourist attractions, contact enquiries, audit logs, and backup history.
+                  </li>
+                </ul>
+              </div>
+
+              <label className="flex items-start gap-2 text-[11px] text-slate-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={allowIncompleteOverride}
+                  onChange={(e) => setAllowIncompleteOverride(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                />
+                <span>
+                  Proceed even if an old legacy attachment URL fails to download during pre-reset backup (not recommended unless a broken file blocks backup completion).
+                </span>
+              </label>
+
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-semibold text-slate-700">
+                  Type <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-rose-700">RESET TRIAL DATA</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  placeholder="RESET TRIAL DATA"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-500 font-mono text-xs"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResetModal(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmAndExecuteReset}
+                  disabled={resetConfirmText.trim().toUpperCase() !== 'RESET TRIAL DATA'}
+                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Backup &amp; Reset Now</span>
                 </button>
               </div>
             </div>

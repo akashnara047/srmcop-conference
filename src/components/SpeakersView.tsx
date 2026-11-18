@@ -9,6 +9,7 @@ export interface InvitedSpeakerProfile {
   designation: string;
   affiliation: string;
   biography: string;
+  researchInterests?: string[];
   /**
    * Confirmed or provisional talk title.
    */
@@ -27,13 +28,26 @@ export interface InvitedSpeakerProfile {
 const INVITED_SPEAKERS_DATA: InvitedSpeakerProfile[] = [
   {
     id: 'speaker-1',
-    name: 'Dr. Geetha Subramaniam',
+    name: 'Professor Dr. Geetha Subramaniam',
     specialty: 'Pharmaceutical Science & Biotechnology',
-    designation: 'Faculty & Distinguished Scientist',
-    affiliation: 'Affiliation details will be announced.',
+    designation: 'Professor',
+    affiliation: 'INTI International University, Malaysia',
     biography:
-      'A distinguished scientist with expertise in pharmaceutical sciences and biotechnology, with a focus on translating innovative research into therapeutic applications.',
+      "Professor Dr. Geetha Subramaniam is a Professor at INTI International University, Malaysia. She graduated from the University of Malaya (UM) in 1999 with a PhD in Medical Virology.\n\nHer academic leadership experience includes five years as Head of Programme for the Bachelor of Biotechnology, followed by serving as Dean of the Faculty and Interim Pro-Vice Chancellor for Academic Operations at INTI International University. She subsequently redirected her focus towards research excellence.\n\nShe currently serves as Deputy Chair of the Safety, Security and Health Committee and is a certified ISO 45001:2018 auditor and former Lead Auditor. As a founding member of INTI's ESG Task Force, she has championed projects integrating ESG principles across the institution.\n\nWith more than 30 years of research experience, her primary research interests include antibiotic resistance in pathogens and antimicrobial susceptibility profiling to support treatment decisions. She also investigates indigenous herbs for antimicrobial activity and their potential to replace or enhance conventional antibiotics.\n\nHer additional research interests include the utilisation of agro-economic waste for mushroom cultivation, supported by an industrial grant, and vaccine hesitancy towards COVID-19 vaccines. Her research team has published three Scopus-cited papers on COVID-19 vaccine hesitancy.\n\nHer achievements include the Asia International Research Awards in Microbiology (2023), invitations as a keynote speaker at international conferences in India, Uzbekistan, Prague and Indonesia, and appointment as Adjunct Professor at Sharda University, Delhi, in 2025.\n\nShe brings six years of diagnostic laboratory experience into her teaching and actively encourages student research through final-year project supervision, with several resulting publications in Scopus-cited journals.\n\nHer educational achievements include a National Teaching Excellence Award from the Private Education Cooperation in 2022, selection as a panelist for EDUTech Asia 2024 and recognition as an Australian Fellowship Awards (DFAT) recipient in 2025.",
+    researchInterests: [
+      'Medical Virology',
+      'Antibiotic Resistance',
+      'Antimicrobial Susceptibility',
+      'Herbal Antimicrobials',
+      'Vaccine Hesitancy',
+      'COVID-19 Research',
+      'Sustainable Biotechnology',
+      'Mushroom Cultivation',
+      'ESG in Higher Education',
+    ],
     provisionalTalkTitle: 'AI-Driven Strategies in Pharmaceutical Development',
+    photoUrl: '/assets/aistudio/Prof._Geetha_new_profile_pic_2383af5d.jpg',
+    photoPosition: 'object-[50%_24%]',
   },
   {
     id: 'speaker-2',
@@ -92,8 +106,9 @@ const INVITED_SPEAKERS_DATA: InvitedSpeakerProfile[] = [
     affiliation: 'A*STAR – Institute of Molecular and Cell Biology, Singapore',
     biography:
       "Dr. Parthiban Periasamy is a Senior Scientist and Lead Mass Spectrometry Scientist at A*STAR's Institute of Molecular and Cell Biology, Singapore. He holds a PhD from QIMR Berghofer and The University of Queensland. He combines artificial intelligence with proteomics and immunopeptidomics, using AI-predicted small molecules to increase neoantigen presentation and improve cancer immunotherapy.",
-    provisionalTalkTitle: 'Talk title to be announced',
-    isTalkPending: true,
+    provisionalTalkTitle:
+      'Beyond the Algorithm: Benefits and Limitations of AI in Small-Molecule Discovery, and How Pharmacologists Can Bridge AI and Conventional Drug Development',
+    isTalkConfirmed: true,
     photoUrl: '/assets/aistudio/Profile_Photo_Blue_Suit_White_BG_600dpi_d48a8fa1.jpg',
     photoPosition: 'object-top',
   },
@@ -377,9 +392,30 @@ export const SpeakersView: React.FC = () => {
                   About the Speaker
                 </h3>
 
-                <p className="text-[14px] sm:text-[15px] font-normal text-[#334155] leading-relaxed">
-                  {selectedSpeaker.biography}
-                </p>
+                <div className="space-y-2.5 text-[14px] sm:text-[15px] font-normal text-[#334155] leading-relaxed">
+                  {selectedSpeaker.biography.split('\n\n').map((paragraph, idx) => (
+                    <p key={idx}>{paragraph}</p>
+                  ))}
+                </div>
+
+                {selectedSpeaker.researchInterests &&
+                  selectedSpeaker.researchInterests.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-[13px] font-bold uppercase tracking-wider text-[#082746] mb-2">
+                        Research Interests
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedSpeaker.researchInterests.map((interest) => (
+                          <span
+                            key={interest}
+                            className="inline-flex items-center px-2.5 py-1 rounded-md text-[12px] font-medium bg-[#F3EFFD] text-[#5B21B6] border border-[#E4DDFB]"
+                          >
+                            {interest}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                 <div className="mt-4 bg-gradient-to-r from-[#F3EFFD] via-[#F5F2FE] to-[#EFF7FE] border border-[#E4DDFB] rounded-xl px-3.5 py-3 flex items-start gap-2.5">
                   <div className="w-7 h-7 rounded-md bg-white/90 border border-[#DDD6FE] text-[#7554D9] flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">

@@ -73,7 +73,14 @@ import {
   exportRegistrationsToExcel,
   exportAbstractsToExcel,
   exportMasterParticipantsToExcel,
+  generateRegistrationSubmissionReceiptPDF,
+  generateRegistrationReceiptPDF,
+  generateSubmissionReceiptPDF,
   generateAcceptanceLetterPDF,
+  createRegistrationSubmissionReceiptPreviewUrl,
+  createRegistrationConfirmationPreviewUrl,
+  createAbstractSubmissionAckPreviewUrl,
+  createAbstractAcceptanceLetterPreviewUrl,
 } from '../lib/managementService';
 import {
   exportAllAbstractsToWord,
@@ -98,6 +105,18 @@ import {
   normalizeRegKey,
 } from '../lib/presentationDashboardStats';
 import { SCIENTIFIC_TRACKS } from '../data/conferenceData';
+import {
+  EMAIL_EVENT_LABELS,
+  type EmailEventType,
+  type EmailLogRecord,
+  getAbstractAcceptedEventId,
+  getAbstractSubmittedEventId,
+  getRegistrationConfirmedEventId,
+  getRegistrationReceivedEventId,
+  retryEmailNotification,
+  triggerAbstractAcceptedEmail,
+  triggerRegistrationConfirmedEmail,
+} from '../lib/emailService';
 
 // Authorized administrator emails
 const ADMIN_EMAILS = AUTHORIZED_ADMIN_EMAILS;
@@ -128,6 +147,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   // Live collections from Firestore
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
   const [abstracts, setAbstracts] = useState<AbstractRecord[]>([]);
+  const [emailLogs, setEmailLogs] = useState<EmailLogRecord[]>([]);
+  const [retryingEmailEventId, setRetryingEmailEventId] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(true);
 
   // Global Record Type Filter ('all' | 'live' | 'test')
@@ -186,6 +207,57 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [passwordChangeMsg, setPasswordChangeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // In-app PDF Document Preview modal state (with Blob URL cleanup)
+  const [pdfPreview, setPdfPreview] = useState<{
+    title: string;
+    subtitle: string;
+    filename: string;
+    url: string;
+    onDownload: () => void;
+  } | null>(null);
+
+  const openPdfPreview = (config: {
+    title: string;
+    subtitle: string;
+    build: () => { url: string; filename: string };
+    onDownload: () => void;
+  }) => {
+    try {
+      const { url, filename } = config.build();
+      setPdfPreview((prev) => {
+        if (prev?.url) {
+          URL.revokeObjectURL(prev.url);
+        }
+        return {
+          title: config.title,
+          subtitle: config.subtitle,
+          filename,
+          url,
+          onDownload: config.onDownload,
+        };
+      });
+    } catch (err: any) {
+      alert(err?.message || 'Unable to generate PDF preview.');
+    }
+  };
+
+  const closePdfPreview = () => {
+    setPdfPreview((prev) => {
+      if (prev?.url) {
+        URL.revokeObjectURL(prev.url);
+      }
+      return null;
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreview?.url) {
+        URL.revokeObjectURL(pdfPreview.url);
+      }
+    };
+  }, [pdfPreview?.url]);
 
   // Check auth state and verify admin authorization
   useEffect(() => {
@@ -268,9 +340,31 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       }
     );
 
+    // 3. Stream Automated Email Notification Logs
+    const emailUnsub = onSnapshot(
+      collection(db, 'emailLogs'),
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => ({
+          ...d.data(),
+          id: d.id,
+        })) as EmailLogRecord[];
+        list.sort(
+          (a, b) =>
+            new Date(b.lastAttemptedAt || b.createdAt || b.timestamp || 0).getTime() -
+            new Date(a.lastAttemptedAt || a.createdAt || a.timestamp || 0).getTime()
+        );
+        setEmailLogs(list);
+      },
+      (error) => {
+        console.error('Error streaming email logs:', error);
+        handleFirestoreError(error, OperationType.GET, 'emailLogs');
+      }
+    );
+
     return () => {
       regUnsub();
       absUnsub();
+      emailUnsub();
     };
   }, [isAdminAuth]);
 
@@ -367,20 +461,49 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     setIsAdminAuth(false);
   };
 
-  // Payment Verification Handler: Generates AICONDDxxx atomically
+  // Payment Verification Handler: Generates AICONDDxxx atomically & dispatches Event 2 email
   const handleVerifyPayment = async (reg: RegistrationRecord) => {
     setProcessingAction(true);
     setActionSuccessMsg(null);
     try {
       const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
+      const remarksText = actionRemarks.trim() || 'Payment verified by Org. Secretary.';
       const allocatedId = await verifyPaymentAndAllocateRegId(
         reg.id,
         adminIdentity,
-        actionRemarks.trim() || 'Payment verified by Org. Secretary.'
+        remarksText
       );
 
+      const nowIso = new Date().toISOString();
+      const verifiedRegSnapshot: RegistrationRecord = {
+        ...reg,
+        registrationId: allocatedId,
+        paymentStatus: 'Verified',
+        registrationStatus: 'Approved',
+        adminRemarks: remarksText,
+        verifiedBy: adminIdentity,
+        verifiedAt: nowIso,
+        updatedAt: nowIso,
+      };
+
+      // Non-blocking email dispatch: payment verification remains committed even if email fails
+      let emailNote = '';
+      try {
+        const emailResult = await triggerRegistrationConfirmedEmail(verifiedRegSnapshot);
+        if (emailResult.success) {
+          emailNote = emailResult.duplicatePrevented
+            ? ' Confirmation email already sent previously.'
+            : ' Confirmation email with Receipt PDF sent.';
+        } else {
+          emailNote = ` Confirmation email failed (${emailResult.error || 'upstream error'}) — use Retry in dashboard.`;
+        }
+      } catch (emailErr: any) {
+        console.warn('Non-fatal Event 2 email dispatch error:', emailErr);
+        emailNote = ' Confirmation email could not be sent — use Retry in dashboard.';
+      }
+
       setActionSuccessMsg(
-        `Payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).`
+        `Payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).${emailNote}`
       );
       setSelectedReg(null);
       setActionRemarks('');
@@ -503,7 +626,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     }
   };
 
-  // Abstract Review Status Update
+  // Abstract Review Status Update (triggers Event 4 ONLY when status === 'Accepted')
   const handleUpdateAbstractStatus = async (
     targetStatus: 'Submitted' | 'Under Review' | 'Accepted' | 'Rejected'
   ) => {
@@ -512,16 +635,43 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     try {
       const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
       const timestamp = new Date().toISOString();
+      const reviewNote = actionRemarks.trim() || `Status updated to ${targetStatus}`;
 
       await updateDoc(doc(db, 'abstractSubmissions', selectedAbs.id), {
         status: targetStatus,
-        reviewNotes: actionRemarks.trim() || `Status updated to ${targetStatus}`,
+        reviewNotes: reviewNote,
         reviewedBy: adminIdentity,
         reviewedAt: timestamp,
         updatedAt: timestamp,
       });
 
-      setActionSuccessMsg(`Abstract ${selectedAbs.id} status successfully updated to "${targetStatus}".`);
+      let emailNote = '';
+      if (targetStatus === 'Accepted') {
+        const acceptedSnapshot: AbstractRecord = {
+          ...selectedAbs,
+          status: 'Accepted',
+          reviewNotes: reviewNote,
+          reviewedBy: adminIdentity,
+          reviewedAt: timestamp,
+          updatedAt: timestamp,
+        };
+        try {
+          const linkedReg = getLinkedRegistrationForAbstractRecord(acceptedSnapshot, registrations);
+          const emailResult = await triggerAbstractAcceptedEmail(acceptedSnapshot, linkedReg);
+          if (emailResult.success) {
+            emailNote = emailResult.duplicatePrevented
+              ? ' Acceptance email already sent previously.'
+              : ' Acceptance confirmation email sent.';
+          } else {
+            emailNote = ` Acceptance email failed (${emailResult.error || 'upstream error'}) — use Retry in dashboard.`;
+          }
+        } catch (emailErr: any) {
+          console.warn('Non-fatal Event 4 email dispatch error:', emailErr);
+          emailNote = ' Acceptance email could not be sent — use Retry in dashboard.';
+        }
+      }
+
+      setActionSuccessMsg(`Abstract ${selectedAbs.id} status successfully updated to "${targetStatus}".${emailNote}`);
       setSelectedAbs(null);
       setActionRemarks('');
     } catch (err: any) {
@@ -726,6 +876,114 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
   const visibleRegistrations = filterByRecordType(registrations);
   const visibleAbstracts = filterByRecordType(abstracts);
+  const visibleEmailLogs = filterByRecordType(emailLogs);
+
+  const emailLogMap = useMemo(() => {
+    const map = new Map<string, EmailLogRecord>();
+    for (const log of emailLogs) {
+      map.set(log.eventId || log.id, log);
+    }
+    return map;
+  }, [emailLogs]);
+
+  const normalizeLogStatus = (log?: EmailLogRecord): 'Sent' | 'Pending' | 'Failed' | 'Not Sent' => {
+    if (!log) return 'Not Sent';
+    if (log.status === 'Sent' || (log.status as string) === 'Delivered') return 'Sent';
+    if (log.status === 'Pending') return 'Pending';
+    if (log.status === 'Failed') return 'Failed';
+    return 'Not Sent';
+  };
+
+  const emailDeliverySummary = useMemo(() => {
+    const types: EmailEventType[] = [
+      'registration_received',
+      'registration_confirmation',
+      'abstract_confirmation',
+      'abstract_acceptance',
+    ];
+    const counts: Record<EmailEventType, { sent: number; failed: number; pending: number }> = {
+      registration_received: { sent: 0, failed: 0, pending: 0 },
+      registration_confirmation: { sent: 0, failed: 0, pending: 0 },
+      abstract_confirmation: { sent: 0, failed: 0, pending: 0 },
+      abstract_acceptance: { sent: 0, failed: 0, pending: 0 },
+    };
+
+    for (const log of visibleEmailLogs) {
+      if (!types.includes(log.type)) continue;
+      const st = normalizeLogStatus(log);
+      if (st === 'Sent') counts[log.type].sent += 1;
+      else if (st === 'Failed') counts[log.type].failed += 1;
+      else if (st === 'Pending') counts[log.type].pending += 1;
+    }
+
+    const failedLogs = visibleEmailLogs.filter(
+      (log) => types.includes(log.type) && normalizeLogStatus(log) === 'Failed'
+    );
+
+    return { counts, failedLogs };
+  }, [visibleEmailLogs]);
+
+  const handleRetryOrSendEmail = async (params: {
+    eventId: string;
+    eventType: EmailEventType;
+    registration?: RegistrationRecord;
+    abstract?: AbstractRecord;
+  }) => {
+    if (retryingEmailEventId) return;
+    setRetryingEmailEventId(params.eventId);
+    setActionSuccessMsg(null);
+
+    try {
+      let resolvedReg = params.registration;
+      let resolvedAbs = params.abstract;
+
+      if (!resolvedAbs && (params.eventType === 'abstract_confirmation' || params.eventType === 'abstract_acceptance')) {
+        const log = emailLogMap.get(params.eventId);
+        const absId = log?.abstractId || log?.referenceId;
+        if (absId) {
+          resolvedAbs = abstracts.find((a) => a.id.toUpperCase() === absId.toUpperCase());
+        }
+      }
+
+      if (!resolvedReg) {
+        if (resolvedAbs) {
+          resolvedReg = getLinkedRegistrationForAbstractRecord(resolvedAbs, registrations);
+        } else {
+          const log = emailLogMap.get(params.eventId);
+          const regKey = (log?.registrationId || log?.referenceId || '').toUpperCase();
+          const regDocKey = log?.regDocId;
+          resolvedReg = registrations.find(
+            (r) =>
+              (regDocKey && r.id === regDocKey) ||
+              (r.registrationId && r.registrationId.toUpperCase() === regKey) ||
+              r.id.toUpperCase() === regKey
+          );
+        }
+      }
+
+      const result = await retryEmailNotification({
+        eventId: params.eventId,
+        eventType: params.eventType,
+        registration: resolvedReg,
+        abstract: resolvedAbs,
+      });
+
+      const label = EMAIL_EVENT_LABELS[params.eventType] || params.eventType;
+      if (result.success) {
+        setActionSuccessMsg(
+          result.duplicatePrevented
+            ? `${label} email (${params.eventId}) was already delivered previously; duplicate blocked.`
+            : `${label} email (${params.eventId}) sent successfully.`
+        );
+      } else {
+        setActionSuccessMsg(
+          `${label} email (${params.eventId}) retry failed: ${result.error || 'Email service unavailable.'}`
+        );
+      }
+    } finally {
+      setRetryingEmailEventId(null);
+    }
+  };
 
   // Real-time Registration Institution Breakdown (across ALL registrants including non-presenting delegates)
   const regInstitutionStats = useMemo(
@@ -1371,6 +1629,107 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
               </div>
 
+              {/* Automated Email Delivery Status */}
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Automated Email Delivery Status</span>
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {(
+                    [
+                      'registration_received',
+                      'registration_confirmation',
+                      'abstract_confirmation',
+                      'abstract_acceptance',
+                    ] as EmailEventType[]
+                  ).map((evType) => {
+                    const stat = emailDeliverySummary.counts[evType];
+                    return (
+                      <div key={evType} className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                        <div className="text-[11px] font-semibold text-slate-600">
+                          {EMAIL_EVENT_LABELS[evType]}
+                        </div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-2xl font-bold font-mono tabular-nums text-emerald-700">
+                            {stat.sent}
+                          </span>
+                          <span className="text-[10px] font-semibold uppercase text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            Sent
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] pt-0.5">
+                          <span className={stat.failed > 0 ? 'text-red-600 font-bold' : 'text-slate-400'}>
+                            Failed: {stat.failed}
+                          </span>
+                          <span className="text-slate-300">·</span>
+                          <span className={stat.pending > 0 ? 'text-amber-600 font-bold' : 'text-slate-400'}>
+                            Pending: {stat.pending}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {emailDeliverySummary.failedLogs.length > 0 && (
+                  <div className="mt-3 bg-red-50/70 border border-red-200 rounded-xl p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-red-900">
+                        <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                        <span>
+                          {emailDeliverySummary.failedLogs.length} Failed Email Notification
+                          {emailDeliverySummary.failedLogs.length === 1 ? '' : 's'} Requiring Retry
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {emailDeliverySummary.failedLogs.map((log) => (
+                        <div
+                          key={log.eventId || log.id}
+                          className="bg-white rounded-lg border border-red-200/80 p-2.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-bold text-slate-900">
+                                {EMAIL_EVENT_LABELS[log.type] || log.type}
+                              </span>
+                              <span className="font-mono text-[11px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
+                                {log.referenceId}
+                              </span>
+                              <span className="text-slate-500 text-[11px] truncate">{log.recipient}</span>
+                            </div>
+                            <div className="text-[11px] text-red-700 truncate" title={log.error || ''}>
+                              {log.error || 'Delivery error'} (Attempts: {log.attemptCount || 1})
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={retryingEmailEventId === (log.eventId || log.id)}
+                            onClick={() =>
+                              handleRetryOrSendEmail({
+                                eventId: log.eventId || log.id,
+                                eventType: log.type,
+                              })
+                            }
+                            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+                          >
+                            <RefreshCw
+                              className={`w-3 h-3 ${
+                                retryingEmailEventId === (log.eventId || log.id) ? 'animate-spin' : ''
+                              }`}
+                            />
+                            <span>
+                              {retryingEmailEventId === (log.eventId || log.id) ? 'Retrying...' : 'Retry Email'}
+                            </span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Action shortcut banner */}
               <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="space-y-1">
@@ -1889,6 +2248,90 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               >
                                 {reg.paymentStatus}
                               </span>
+                              {(() => {
+                                const regKey = (reg.registrationId || reg.id || '').trim().toUpperCase();
+                                const doneId = getRegistrationReceivedEventId(regKey);
+                                const confId = getRegistrationConfirmedEventId(regKey);
+                                const doneLog = emailLogMap.get(doneId);
+                                const confLog = emailLogMap.get(confId);
+                                const doneStatus = normalizeLogStatus(doneLog);
+                                const confStatus = normalizeLogStatus(confLog);
+                                const isVerified =
+                                  reg.paymentStatus === 'Verified' && reg.registrationStatus === 'Approved';
+
+                                return (
+                                  <div className="mt-1 flex flex-wrap items-center gap-1 text-[9.5px]">
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded font-semibold ${
+                                        doneStatus === 'Sent'
+                                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                          : doneStatus === 'Failed'
+                                          ? 'bg-red-50 text-red-700 border border-red-200'
+                                          : doneStatus === 'Pending'
+                                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                          : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                      }`}
+                                      title={doneLog?.error || `Registration Done Email: ${doneStatus}`}
+                                    >
+                                      Done: {doneStatus}
+                                    </span>
+                                    {doneStatus === 'Failed' && (
+                                      <button
+                                        type="button"
+                                        disabled={retryingEmailEventId === doneId}
+                                        onClick={() =>
+                                          handleRetryOrSendEmail({
+                                            eventId: doneId,
+                                            eventType: 'registration_received',
+                                            registration: reg,
+                                          })
+                                        }
+                                        className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                      >
+                                        {retryingEmailEventId === doneId ? '...' : 'Retry'}
+                                      </button>
+                                    )}
+                                    {(isVerified || confLog) && (
+                                      <>
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded font-semibold ${
+                                            confStatus === 'Sent'
+                                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                              : confStatus === 'Failed'
+                                              ? 'bg-red-50 text-red-700 border border-red-200'
+                                              : confStatus === 'Pending'
+                                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                              : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                          }`}
+                                          title={confLog?.error || `Registration Confirmation Email: ${confStatus}`}
+                                        >
+                                          Conf: {confStatus}
+                                        </span>
+                                        {(confStatus === 'Failed' || (isVerified && confStatus === 'Not Sent')) && (
+                                          <button
+                                            type="button"
+                                            disabled={retryingEmailEventId === confId}
+                                            onClick={() =>
+                                              handleRetryOrSendEmail({
+                                                eventId: confId,
+                                                eventType: 'registration_confirmation',
+                                                registration: reg,
+                                              })
+                                            }
+                                            className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                          >
+                                            {retryingEmailEventId === confId
+                                              ? '...'
+                                              : confStatus === 'Failed'
+                                              ? 'Retry'
+                                              : 'Send'}
+                                          </button>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
 
                             {/* Abstract Link */}
@@ -1937,6 +2380,52 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 >
                                   Verify
                                 </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openPdfPreview({
+                                    title: 'Registration Receipt PDF',
+                                    subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                    build: () => createRegistrationSubmissionReceiptPreviewUrl(reg),
+                                    onDownload: () => generateRegistrationSubmissionReceiptPDF(reg),
+                                  })
+                                }
+                                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                title="Preview Registration Receipt PDF"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>Receipt</span>
+                              </button>
+
+                              {reg.paymentStatus === 'Verified' && reg.registrationStatus === 'Approved' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openPdfPreview({
+                                        title: 'Registration Confirmation PDF',
+                                        subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                        build: () => createRegistrationConfirmationPreviewUrl(reg),
+                                        onDownload: () => generateRegistrationReceiptPDF(reg),
+                                      })
+                                    }
+                                    className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                    title="Preview Official Registration Confirmation PDF"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                    <span>PDF</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => generateRegistrationReceiptPDF(reg)}
+                                    className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center"
+                                    title="Download Official Registration Confirmation PDF"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
                               )}
 
                               <button
@@ -2852,6 +3341,89 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 >
                                   {abs.status}
                                 </span>
+                                {(() => {
+                                  const subId = getAbstractSubmittedEventId(abs.id);
+                                  const accId = getAbstractAcceptedEventId(abs.id);
+                                  const subLog = emailLogMap.get(subId);
+                                  const accLog = emailLogMap.get(accId);
+                                  const subStatus = normalizeLogStatus(subLog);
+                                  const accStatus = normalizeLogStatus(accLog);
+
+                                  return (
+                                    <div className="mt-1 flex flex-wrap items-center gap-1 text-[9.5px]">
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded font-semibold ${
+                                          subStatus === 'Sent'
+                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                            : subStatus === 'Failed'
+                                            ? 'bg-red-50 text-red-700 border border-red-200'
+                                            : subStatus === 'Pending'
+                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                            : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                        }`}
+                                        title={subLog?.error || `Abstract Submission Email: ${subStatus}`}
+                                      >
+                                        Sub: {subStatus}
+                                      </span>
+                                      {subStatus === 'Failed' && (
+                                        <button
+                                          type="button"
+                                          disabled={retryingEmailEventId === subId}
+                                          onClick={() =>
+                                            handleRetryOrSendEmail({
+                                              eventId: subId,
+                                              eventType: 'abstract_confirmation',
+                                              registration: linkedReg,
+                                              abstract: abs,
+                                            })
+                                          }
+                                          className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                        >
+                                          {retryingEmailEventId === subId ? '...' : 'Retry'}
+                                        </button>
+                                      )}
+                                      {(abs.status === 'Accepted' || accLog) && (
+                                        <>
+                                          <span
+                                            className={`px-1.5 py-0.5 rounded font-semibold ${
+                                              accStatus === 'Sent'
+                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                : accStatus === 'Failed'
+                                                ? 'bg-red-50 text-red-700 border border-red-200'
+                                                : accStatus === 'Pending'
+                                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                            }`}
+                                            title={accLog?.error || `Abstract Acceptance Email: ${accStatus}`}
+                                          >
+                                            Acc: {accStatus}
+                                          </span>
+                                          {(accStatus === 'Failed' || (abs.status === 'Accepted' && accStatus === 'Not Sent')) && (
+                                            <button
+                                              type="button"
+                                              disabled={retryingEmailEventId === accId}
+                                              onClick={() =>
+                                                handleRetryOrSendEmail({
+                                                  eventId: accId,
+                                                  eventType: 'abstract_acceptance',
+                                                  registration: linkedReg,
+                                                  abstract: abs,
+                                                })
+                                              }
+                                              className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                            >
+                                              {retryingEmailEventId === accId
+                                                ? '...'
+                                                : accStatus === 'Failed'
+                                                ? 'Retry'
+                                                : 'Send'}
+                                            </button>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </td>
 
                               {/* Type */}
@@ -2871,15 +3443,50 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
                               {/* Actions */}
                               <td className="p-3.5 text-right whitespace-nowrap space-x-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openPdfPreview({
+                                      title: 'Abstract Submission Acknowledgement PDF',
+                                      subtitle: `${abs.id} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
+                                      build: () => createAbstractSubmissionAckPreviewUrl(abs, linkedReg),
+                                      onDownload: () => generateSubmissionReceiptPDF(abs, linkedReg),
+                                    })
+                                  }
+                                  className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                  title="Preview Abstract Submission Acknowledgement PDF"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                  <span>Ack</span>
+                                </button>
+
                                 {abs.status === 'Accepted' && (
-                                  <button
-                                    onClick={() => generateAcceptanceLetterPDF(abs)}
-                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1 shadow-2xs"
-                                    title="Download Acceptance Letter (PDF)"
-                                  >
-                                    <Award className="w-3 h-3" />
-                                    <span>Letter</span>
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openPdfPreview({
+                                          title: 'Abstract Acceptance Letter PDF',
+                                          subtitle: `${abs.id} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
+                                          build: () => createAbstractAcceptanceLetterPreviewUrl(abs, linkedReg),
+                                          onDownload: () => generateAcceptanceLetterPDF(abs, linkedReg),
+                                        })
+                                      }
+                                      className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1 shadow-2xs"
+                                      title="Preview Acceptance Letter (PDF)"
+                                    >
+                                      <Award className="w-3 h-3" />
+                                      <span>Letter</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => generateAcceptanceLetterPDF(abs, linkedReg)}
+                                      className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center"
+                                      title="Download Acceptance Letter (PDF)"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
                                 )}
 
                                 <button
@@ -3024,6 +3631,59 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             <div className="text-slate-500">
                               <strong>Food Preference:</strong> {formatFoodPreferenceDisplay(reg)}
                             </div>
+                            <div className="pt-2 flex flex-wrap gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openPdfPreview({
+                                    title: 'Registration Receipt PDF',
+                                    subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                    build: () => createRegistrationSubmissionReceiptPreviewUrl(reg),
+                                    onDownload: () => generateRegistrationSubmissionReceiptPDF(reg),
+                                  })
+                                }
+                                className="px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Preview Receipt</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => generateRegistrationSubmissionReceiptPDF(reg)}
+                                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Receipt PDF</span>
+                              </button>
+
+                              {reg.paymentStatus === 'Verified' && reg.registrationStatus === 'Approved' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openPdfPreview({
+                                        title: 'Registration Confirmation PDF',
+                                        subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                        build: () => createRegistrationConfirmationPreviewUrl(reg),
+                                        onDownload: () => generateRegistrationReceiptPDF(reg),
+                                      })
+                                    }
+                                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>Preview Confirmation PDF</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => generateRegistrationReceiptPDF(reg)}
+                                    className="px-2.5 py-1 bg-white hover:bg-slate-100 text-indigo-700 border border-indigo-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    <span>Download PDF</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
 
                           {/* Right: Linked Abstract */}
@@ -3066,15 +3726,58 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                     </span>
                                   </span>
                                 </div>
-                                {linkedAbs.status === 'Accepted' && (
+                                <div className="pt-2 flex flex-wrap gap-1.5">
                                   <button
-                                    onClick={() => generateAcceptanceLetterPDF(linkedAbs, reg)}
-                                    className="mt-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1.5"
+                                    type="button"
+                                    onClick={() =>
+                                      openPdfPreview({
+                                        title: 'Abstract Submission Acknowledgement PDF',
+                                        subtitle: `${linkedAbs.id} · ${reg.fullName}`,
+                                        build: () => createAbstractSubmissionAckPreviewUrl(linkedAbs, reg),
+                                        onDownload: () => generateSubmissionReceiptPDF(linkedAbs, reg),
+                                      })
+                                    }
+                                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
                                   >
-                                    <Award className="w-3.5 h-3.5" />
-                                    <span>Download Acceptance Letter (PDF)</span>
+                                    <Eye className="w-3 h-3" />
+                                    <span>Preview Ack PDF</span>
                                   </button>
-                                )}
+                                  <button
+                                    type="button"
+                                    onClick={() => generateSubmissionReceiptPDF(linkedAbs, reg)}
+                                    className="px-2.5 py-1 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    <span>Ack PDF</span>
+                                  </button>
+                                  {linkedAbs.status === 'Accepted' && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          openPdfPreview({
+                                            title: 'Abstract Acceptance Letter PDF',
+                                            subtitle: `${linkedAbs.id} · ${reg.fullName}`,
+                                            build: () => createAbstractAcceptanceLetterPreviewUrl(linkedAbs, reg),
+                                            onDownload: () => generateAcceptanceLetterPDF(linkedAbs, reg),
+                                          })
+                                        }
+                                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                      >
+                                        <Award className="w-3 h-3" />
+                                        <span>Preview Letter</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => generateAcceptanceLetterPDF(linkedAbs, reg)}
+                                        className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
+                                      >
+                                        <Download className="w-3 h-3" />
+                                        <span>Letter PDF</span>
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               </div>
                             ) : (
                               <div className="text-slate-400 py-3 text-center">
@@ -3422,6 +4125,117 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
               </div>
 
+              {/* Email Notification Status Panel */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase text-slate-700">
+                  <Mail className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Email Notification Status</span>
+                </div>
+                {(() => {
+                  const regKey = (selectedReg.registrationId || selectedReg.id || '').trim().toUpperCase();
+                  const doneId = getRegistrationReceivedEventId(regKey);
+                  const confId = getRegistrationConfirmedEventId(regKey);
+                  const doneLog = emailLogMap.get(doneId);
+                  const confLog = emailLogMap.get(confId);
+                  const doneStatus = normalizeLogStatus(doneLog);
+                  const confStatus = normalizeLogStatus(confLog);
+                  const isVerified =
+                    selectedReg.paymentStatus === 'Verified' && selectedReg.registrationStatus === 'Approved';
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">Registration Done Email</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              doneStatus === 'Sent'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : doneStatus === 'Failed'
+                                ? 'bg-red-100 text-red-800'
+                                : doneStatus === 'Pending'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {doneStatus}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {doneLog?.sentAt
+                            ? `Sent: ${new Date(doneLog.sentAt).toLocaleString('en-IN')}`
+                            : doneLog?.error
+                            ? `Error: ${doneLog.error}`
+                            : 'Queued automatically upon submission'}
+                        </div>
+                        {doneStatus !== 'Sent' && (
+                          <button
+                            type="button"
+                            disabled={retryingEmailEventId === doneId}
+                            onClick={() =>
+                              handleRetryOrSendEmail({
+                                eventId: doneId,
+                                eventType: 'registration_received',
+                                registration: selectedReg,
+                              })
+                            }
+                            className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${retryingEmailEventId === doneId ? 'animate-spin' : ''}`} />
+                            <span>{doneStatus === 'Failed' ? 'Retry Email' : 'Send Email'}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">Registration Confirmation (+ PDF)</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              confStatus === 'Sent'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : confStatus === 'Failed'
+                                ? 'bg-red-100 text-red-800'
+                                : confStatus === 'Pending'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {confStatus}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {confLog?.sentAt
+                            ? `Sent: ${new Date(confLog.sentAt).toLocaleString('en-IN')}`
+                            : confLog?.error
+                            ? `Error: ${confLog.error}`
+                            : isVerified
+                            ? 'Eligible for confirmation dispatch'
+                            : 'Sent automatically after payment verification'}
+                        </div>
+                        {isVerified && confStatus !== 'Sent' && (
+                          <button
+                            type="button"
+                            disabled={retryingEmailEventId === confId}
+                            onClick={() =>
+                              handleRetryOrSendEmail({
+                                eventId: confId,
+                                eventType: 'registration_confirmation',
+                                registration: selectedReg,
+                              })
+                            }
+                            className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${retryingEmailEventId === confId ? 'animate-spin' : ''}`} />
+                            <span>{confStatus === 'Failed' ? 'Retry Email' : 'Send Confirmation Email'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
               {/* Remarks textarea */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 text-[11px] uppercase">
@@ -3434,6 +4248,91 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   placeholder="Enter remarks (e.g. UTR verified against bank portal)..."
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-purple-500"
                 />
+              </div>
+
+              {/* Official Institutional Document Actions */}
+              <div className="space-y-2.5">
+                {/* 1. Initial Registration Receipt PDF (Always available for admin record-keeping) */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2.5">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-800 block">
+                      Registration Receipt PDF (Initial Submission)
+                    </span>
+                    <span className="text-[11px] text-slate-600">
+                      Available immediately for record-keeping while payment verification is pending or completed.
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openPdfPreview({
+                          title: 'Registration Receipt PDF',
+                          subtitle: `${selectedReg.registrationId || selectedReg.id} · ${selectedReg.fullName}`,
+                          build: () => createRegistrationSubmissionReceiptPreviewUrl(selectedReg),
+                          onDownload: () => generateRegistrationSubmissionReceiptPDF(selectedReg),
+                        })
+                      }
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Preview Receipt</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => generateRegistrationSubmissionReceiptPDF(selectedReg)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Receipt</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Official Registration Confirmation PDF (Verified & Approved Only) */}
+                <div className="p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl flex flex-wrap items-center justify-between gap-2.5">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900 block">
+                      Official Registration Confirmation PDF
+                    </span>
+                    <span className="text-[11px] text-slate-600">
+                      {selectedReg.paymentStatus === 'Verified' && selectedReg.registrationStatus === 'Approved'
+                        ? 'Registration is verified and approved. Preview or download the confirmation document.'
+                        : 'Locked until payment is Verified and registration status is Approved.'}
+                    </span>
+                  </div>
+                  {selectedReg.paymentStatus === 'Verified' && selectedReg.registrationStatus === 'Approved' ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openPdfPreview({
+                            title: 'Registration Confirmation PDF',
+                            subtitle: `${selectedReg.registrationId || selectedReg.id} · ${selectedReg.fullName}`,
+                            build: () => createRegistrationConfirmationPreviewUrl(selectedReg),
+                            onDownload: () => generateRegistrationReceiptPDF(selectedReg),
+                          })
+                        }
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => generateRegistrationReceiptPDF(selectedReg)}
+                        className="px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-300 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download PDF</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold uppercase">
+                      Verification Pending
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Action Buttons */}
@@ -3666,6 +4565,118 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
               </div>
 
+              {/* Email Notification Status Panel */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase text-slate-700">
+                  <Mail className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Abstract Email Notification Status</span>
+                </div>
+                {(() => {
+                  const subId = getAbstractSubmittedEventId(selectedAbs.id);
+                  const accId = getAbstractAcceptedEventId(selectedAbs.id);
+                  const subLog = emailLogMap.get(subId);
+                  const accLog = emailLogMap.get(accId);
+                  const subStatus = normalizeLogStatus(subLog);
+                  const accStatus = normalizeLogStatus(accLog);
+                  const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                  const isAccepted = selectedAbs.status === 'Accepted';
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">Submission Ack (+ PDF)</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              subStatus === 'Sent'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : subStatus === 'Failed'
+                                ? 'bg-red-100 text-red-800'
+                                : subStatus === 'Pending'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {subStatus}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {subLog?.sentAt
+                            ? `Sent: ${new Date(subLog.sentAt).toLocaleString('en-IN')}`
+                            : subLog?.error
+                            ? `Error: ${subLog.error}`
+                            : 'Sent automatically upon abstract submission'}
+                        </div>
+                        {subStatus !== 'Sent' && (
+                          <button
+                            type="button"
+                            disabled={retryingEmailEventId === subId}
+                            onClick={() =>
+                              handleRetryOrSendEmail({
+                                eventId: subId,
+                                eventType: 'abstract_confirmation',
+                                registration: linkedReg,
+                                abstract: selectedAbs,
+                              })
+                            }
+                            className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${retryingEmailEventId === subId ? 'animate-spin' : ''}`} />
+                            <span>{subStatus === 'Failed' ? 'Retry Email' : 'Send Email'}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-slate-800">Abstract Acceptance Email</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              accStatus === 'Sent'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : accStatus === 'Failed'
+                                ? 'bg-red-100 text-red-800'
+                                : accStatus === 'Pending'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {accStatus}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {accLog?.sentAt
+                            ? `Sent: ${new Date(accLog.sentAt).toLocaleString('en-IN')}`
+                            : accLog?.error
+                            ? `Error: ${accLog.error}`
+                            : isAccepted
+                            ? 'Eligible for acceptance notification'
+                            : 'Sent only when abstract status is Accepted'}
+                        </div>
+                        {isAccepted && accStatus !== 'Sent' && (
+                          <button
+                            type="button"
+                            disabled={retryingEmailEventId === accId}
+                            onClick={() =>
+                              handleRetryOrSendEmail({
+                                eventId: accId,
+                                eventType: 'abstract_acceptance',
+                                registration: linkedReg,
+                                abstract: selectedAbs,
+                              })
+                            }
+                            className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${retryingEmailEventId === accId ? 'animate-spin' : ''}`} />
+                            <span>{accStatus === 'Failed' ? 'Retry Email' : 'Send Acceptance Email'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
               {/* Review notes input */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 text-[11px] uppercase">
@@ -3711,15 +4722,67 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   </button>
                 </div>
 
-                {selectedAbs.status === 'Accepted' && (
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => generateAcceptanceLetterPDF(selectedAbs)}
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
+                    type="button"
+                    onClick={() => {
+                      const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                      openPdfPreview({
+                        title: 'Abstract Submission Acknowledgement PDF',
+                        subtitle: `${selectedAbs.id} · ${selectedAbs.presentingAuthor?.fullName || selectedAbs.presentingAuthor?.name || ''}`,
+                        build: () => createAbstractSubmissionAckPreviewUrl(selectedAbs, linkedReg),
+                        onDownload: () => generateSubmissionReceiptPDF(selectedAbs, linkedReg),
+                      });
+                    }}
+                    className="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
                   >
-                    <Award className="w-3.5 h-3.5" />
-                    <span>PDF Letter</span>
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Preview Ack</span>
                   </button>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                      generateSubmissionReceiptPDF(selectedAbs, linkedReg);
+                    }}
+                    className="px-2.5 py-1.5 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Ack PDF</span>
+                  </button>
+
+                  {selectedAbs.status === 'Accepted' && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                          openPdfPreview({
+                            title: 'Abstract Acceptance Letter PDF',
+                            subtitle: `${selectedAbs.id} · ${selectedAbs.presentingAuthor?.fullName || selectedAbs.presentingAuthor?.name || ''}`,
+                            build: () => createAbstractAcceptanceLetterPreviewUrl(selectedAbs, linkedReg),
+                            onDownload: () => generateAcceptanceLetterPDF(selectedAbs, linkedReg),
+                          });
+                        }}
+                        className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
+                      >
+                        <Award className="w-3.5 h-3.5" />
+                        <span>Preview Letter</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                          generateAcceptanceLetterPDF(selectedAbs, linkedReg);
+                        }}
+                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Letter PDF</span>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -4002,6 +5065,63 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs cursor-pointer disabled:opacity-50"
               >
                 Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ===================================================================== */}
+      {/* MODAL 5: OFFICIAL PDF DOCUMENT PREVIEWER */}
+      {/* ===================================================================== */}
+      {pdfPreview && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5">
+          <div className="bg-white max-w-4xl w-full rounded-2xl shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150 flex flex-col h-[90vh]">
+            <div className="p-4 sm:p-5 bg-[#0B112C] text-white flex items-center justify-between shrink-0 gap-3">
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-bold text-cyan-300 font-mono tracking-wider block">
+                  Institutional PDF Preview
+                </span>
+                <h3 className="text-sm sm:text-base font-bold font-heading truncate">
+                  {pdfPreview.title}
+                </h3>
+                <p className="text-xs text-slate-300 truncate">{pdfPreview.subtitle}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={pdfPreview.onDownload}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={closePdfPreview}
+                  className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                  title="Close Preview"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 bg-slate-100 p-3 sm:p-4 overflow-hidden">
+              <iframe
+                src={pdfPreview.url}
+                title={pdfPreview.title}
+                className="w-full h-full rounded-xl border border-slate-300 bg-white shadow-inner"
+              />
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+              <span className="font-mono truncate">{pdfPreview.filename}</span>
+              <button
+                type="button"
+                onClick={closePdfPreview}
+                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>

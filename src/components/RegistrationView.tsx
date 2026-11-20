@@ -17,6 +17,7 @@ import {
   Info,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Copy,
   Check,
   Search,
@@ -51,6 +52,28 @@ import {
   normalizeTransactionReference,
   type UtrAvailabilityStatus,
 } from '../lib/utrValidationService';
+import {
+  CHECKING_EMAIL_MESSAGE,
+  CHECKING_MOBILE_MESSAGE,
+  CHECKING_NAME_MESSAGE,
+  DETAILS_VERIFIED_MESSAGE,
+  DUPLICATE_EMAIL_MESSAGE,
+  DUPLICATE_MOBILE_MESSAGE,
+  DUPLICATE_UTR_MESSAGE,
+  EMAIL_AVAILABLE_MESSAGE,
+  MOBILE_AVAILABLE_MESSAGE,
+  SAME_NAME_AND_INSTITUTION_WARNING_MESSAGE,
+  SIMILAR_NAME_WARNING_MESSAGE,
+  checkEmailAvailability,
+  checkMobileAvailability,
+  checkNameAdvisoryMatch,
+  isDuplicateRecordError,
+  normalizeEmail,
+  normalizeMobileInternational,
+  normalizePersonName,
+  type FieldAvailabilityStatus,
+  type NameAdvisoryStatus,
+} from '../lib/duplicatePreventionService';
 import {
   INTERNAL_INSTITUTION_NAME,
   type InstitutionCategoryValue,
@@ -160,12 +183,27 @@ export const RegistrationView: React.FC = () => {
   const [copiedUpi, setCopiedUpi] = useState(false);
 
   // =========================================================================
-  // REAL-TIME UTR / TRANSACTION ID DUPLICATE VALIDATION STATES
+  // REAL-TIME DUPLICATE VALIDATION STATES (EMAIL, MOBILE, NAME, UTR)
   // =========================================================================
   const [utrCheckStatus, setUtrCheckStatus] = useState<UtrAvailabilityStatus>('idle');
   const [utrCheckMessage, setUtrCheckMessage] = useState<string>('');
   const [lastCheckedNormalizedUtr, setLastCheckedNormalizedUtr] = useState<string>('');
   const utrCheckSeqRef = useRef(0);
+
+  const [emailCheckStatus, setEmailCheckStatus] = useState<FieldAvailabilityStatus>('idle');
+  const [emailCheckMessage, setEmailCheckMessage] = useState<string>('');
+  const [lastCheckedNormalizedEmail, setLastCheckedNormalizedEmail] = useState<string>('');
+  const emailCheckSeqRef = useRef(0);
+
+  const [mobileCheckStatus, setMobileCheckStatus] = useState<FieldAvailabilityStatus>('idle');
+  const [mobileCheckMessage, setMobileCheckMessage] = useState<string>('');
+  const [lastCheckedNormalizedMobile, setLastCheckedNormalizedMobile] = useState<string>('');
+  const mobileCheckSeqRef = useRef(0);
+
+  const [nameAdvisoryStatus, setNameAdvisoryStatus] = useState<NameAdvisoryStatus>('idle');
+  const [nameAdvisoryMessage, setNameAdvisoryMessage] = useState<string>('');
+  const [lastCheckedNameSignature, setLastCheckedNameSignature] = useState<string>('');
+  const nameCheckSeqRef = useRef(0);
 
   // =========================================================================
   // STATUS LOOKUP & RESUBMISSION STATES
@@ -254,6 +292,220 @@ export const RegistrationView: React.FC = () => {
 
     return () => window.clearTimeout(timer);
   }, [transactionRef, lastCheckedNormalizedUtr, utrCheckStatus, runUtrAvailabilityCheck]);
+
+  // Real-time Firestore availability check for Email Address
+  const runEmailAvailabilityCheck = useCallback(async (rawValue: string) => {
+    const normalized = normalizeEmail(rawValue);
+    if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      emailCheckSeqRef.current += 1;
+      setEmailCheckStatus('idle');
+      setEmailCheckMessage('');
+      setLastCheckedNormalizedEmail('');
+      return null;
+    }
+
+    const requestSeq = ++emailCheckSeqRef.current;
+    setEmailCheckStatus('checking');
+    setEmailCheckMessage(CHECKING_EMAIL_MESSAGE);
+
+    const result = await checkEmailAvailability(rawValue);
+    if (requestSeq !== emailCheckSeqRef.current) {
+      return null;
+    }
+
+    setEmailCheckStatus(result.status);
+    setEmailCheckMessage(result.message);
+    setLastCheckedNormalizedEmail(result.normalizedValue);
+
+    if (result.status === 'duplicate') {
+      setValidationErrors((prev) => ({
+        ...prev,
+        email: DUPLICATE_EMAIL_MESSAGE,
+      }));
+    } else if (result.status === 'available') {
+      setValidationErrors((prev) => (prev.email ? { ...prev, email: '' } : prev));
+    }
+
+    return result;
+  }, []);
+
+  useEffect(() => {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      emailCheckSeqRef.current += 1;
+      setEmailCheckStatus('idle');
+      setEmailCheckMessage('');
+      setLastCheckedNormalizedEmail('');
+      return;
+    }
+
+    const normalized = normalizeEmail(trimmed);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      setEmailCheckStatus('idle');
+      setEmailCheckMessage('');
+      return;
+    }
+
+    if (
+      normalized === lastCheckedNormalizedEmail &&
+      (emailCheckStatus === 'available' || emailCheckStatus === 'duplicate')
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runEmailAvailabilityCheck(trimmed);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [email, lastCheckedNormalizedEmail, emailCheckStatus, runEmailAvailabilityCheck]);
+
+  // Real-time Firestore availability check for Mobile Number (country-aware E.164 normalization)
+  const runMobileAvailabilityCheck = useCallback(
+    async (rawValue: string, targetCountry: string) => {
+      const digitsOnly = rawValue.replace(/\D/g, '');
+      const normalized = normalizeMobileInternational(rawValue, targetCountry);
+      if (!normalized || digitsOnly.length < 8) {
+        mobileCheckSeqRef.current += 1;
+        setMobileCheckStatus('idle');
+        setMobileCheckMessage('');
+        setLastCheckedNormalizedMobile('');
+        return null;
+      }
+
+      const requestSeq = ++mobileCheckSeqRef.current;
+      setMobileCheckStatus('checking');
+      setMobileCheckMessage(CHECKING_MOBILE_MESSAGE);
+
+      const result = await checkMobileAvailability(rawValue, targetCountry);
+      if (requestSeq !== mobileCheckSeqRef.current) {
+        return null;
+      }
+
+      setMobileCheckStatus(result.status);
+      setMobileCheckMessage(result.message);
+      setLastCheckedNormalizedMobile(result.normalizedValue);
+
+      if (result.status === 'duplicate') {
+        setValidationErrors((prev) => ({
+          ...prev,
+          mobile: DUPLICATE_MOBILE_MESSAGE,
+        }));
+      } else if (result.status === 'available') {
+        setValidationErrors((prev) => (prev.mobile ? { ...prev, mobile: '' } : prev));
+      }
+
+      return result;
+    },
+    []
+  );
+
+  useEffect(() => {
+    const trimmed = mobile.trim();
+    const digitsOnly = trimmed.replace(/\D/g, '');
+    if (!trimmed || digitsOnly.length < 8) {
+      mobileCheckSeqRef.current += 1;
+      setMobileCheckStatus('idle');
+      setMobileCheckMessage('');
+      setLastCheckedNormalizedMobile('');
+      return;
+    }
+
+    const normalized = normalizeMobileInternational(trimmed, country);
+    if (
+      normalized === lastCheckedNormalizedMobile &&
+      (mobileCheckStatus === 'available' || mobileCheckStatus === 'duplicate')
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runMobileAvailabilityCheck(trimmed, country);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [mobile, country, lastCheckedNormalizedMobile, mobileCheckStatus, runMobileAvailabilityCheck]);
+
+  // Real-time Non-Blocking Advisory Check for Full Name (+ Institution)
+  const effectiveInstitution =
+    institutionCategory === 'internal' ? INTERNAL_INSTITUTION_NAME : institution.trim();
+
+  const runNameAdvisoryCheck = useCallback(
+    async (rawName: string, rawInstitution: string) => {
+      const normalizedName = normalizePersonName(rawName);
+      if (!normalizedName || normalizedName.length < 3) {
+        nameCheckSeqRef.current += 1;
+        setNameAdvisoryStatus('idle');
+        setNameAdvisoryMessage('');
+        setLastCheckedNameSignature('');
+        return null;
+      }
+
+      const sig = `${normalizedName}|${rawInstitution.trim().toLowerCase()}`;
+      const requestSeq = ++nameCheckSeqRef.current;
+      setNameAdvisoryStatus('checking');
+      setNameAdvisoryMessage(CHECKING_NAME_MESSAGE);
+
+      const result = await checkNameAdvisoryMatch(rawName, rawInstitution);
+      if (requestSeq !== nameCheckSeqRef.current) {
+        return null;
+      }
+
+      setNameAdvisoryStatus(result.status);
+      setNameAdvisoryMessage(result.message);
+      setLastCheckedNameSignature(sig);
+      return result;
+    },
+    []
+  );
+
+  useEffect(() => {
+    const normalizedName = normalizePersonName(fullName);
+    if (!normalizedName || normalizedName.length < 3) {
+      nameCheckSeqRef.current += 1;
+      setNameAdvisoryStatus('idle');
+      setNameAdvisoryMessage('');
+      setLastCheckedNameSignature('');
+      return;
+    }
+
+    const sig = `${normalizedName}|${effectiveInstitution.toLowerCase()}`;
+    if (
+      sig === lastCheckedNameSignature &&
+      nameAdvisoryStatus !== 'idle' &&
+      nameAdvisoryStatus !== 'error'
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runNameAdvisoryCheck(fullName, effectiveInstitution);
+    }, 550);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    fullName,
+    effectiveInstitution,
+    lastCheckedNameSignature,
+    nameAdvisoryStatus,
+    runNameAdvisoryCheck,
+  ]);
+
+  const hasAnyStrictDuplicate =
+    emailCheckStatus === 'duplicate' ||
+    mobileCheckStatus === 'duplicate' ||
+    utrCheckStatus === 'duplicate';
+
+  const isCheckingAnyDuplicate =
+    emailCheckStatus === 'checking' ||
+    mobileCheckStatus === 'checking' ||
+    utrCheckStatus === 'checking';
+
+  const allStrictDetailsVerified =
+    emailCheckStatus === 'available' &&
+    mobileCheckStatus === 'available' &&
+    utrCheckStatus === 'available' &&
+    !hasAnyStrictDuplicate;
 
   // Real-time Firestore availability check for Rejected-payment UTR resubmission (excludes own registration record)
   const runResubmitUtrCheck = useCallback(
@@ -475,12 +727,16 @@ export const RegistrationView: React.FC = () => {
       errors.email = 'Email Address is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       errors.email = 'Please enter a valid email address';
+    } else if (emailCheckStatus === 'duplicate') {
+      errors.email = DUPLICATE_EMAIL_MESSAGE;
     }
 
     if (!mobile.trim()) {
       errors.mobile = 'Mobile Number is required';
     } else if (mobile.replace(/\D/g, '').length < 8) {
       errors.mobile = 'Please enter a valid mobile phone number';
+    } else if (mobileCheckStatus === 'duplicate') {
+      errors.mobile = DUPLICATE_MOBILE_MESSAGE;
     }
 
     if (!courseOrDesignation.trim()) errors.courseOrDesignation = 'Course / Designation is required';
@@ -510,7 +766,7 @@ export const RegistrationView: React.FC = () => {
     if (!transactionRef.trim()) {
       errors.transactionRef = 'Transaction / Reference Number is required';
     } else if (utrCheckStatus === 'duplicate') {
-      errors.transactionRef = UTR_DUPLICATE_MESSAGE;
+      errors.transactionRef = DUPLICATE_UTR_MESSAGE;
     }
 
     if (!paymentProofName) {
@@ -538,11 +794,15 @@ export const RegistrationView: React.FC = () => {
     setFormError(null);
 
     if (!validateForm()) {
-      setFormError(
-        utrCheckStatus === 'duplicate'
-          ? UTR_DUPLICATE_MESSAGE
-          : 'Please complete all required fields indicated below before proceeding.'
-      );
+      if (emailCheckStatus === 'duplicate') {
+        setFormError(DUPLICATE_EMAIL_MESSAGE);
+      } else if (mobileCheckStatus === 'duplicate') {
+        setFormError(DUPLICATE_MOBILE_MESSAGE);
+      } else if (utrCheckStatus === 'duplicate') {
+        setFormError(DUPLICATE_UTR_MESSAGE);
+      } else {
+        setFormError('Please complete all required fields indicated below before proceeding.');
+      }
       window.scrollTo({ top: 260, behavior: 'smooth' });
       return;
     }
@@ -551,16 +811,46 @@ export const RegistrationView: React.FC = () => {
     const parsedAmount = parseFloat(paymentAmount.trim());
 
     try {
-      // Mandatory live UTR check right before submission (prevents bypass via refresh or rapid submit)
+      // Mandatory live uniqueness checks right before submission (prevents bypass via refresh or rapid submit)
+      const normalizedEmail = normalizeEmail(email);
+      if (normalizedEmail !== lastCheckedNormalizedEmail || emailCheckStatus !== 'available') {
+        const liveEmailCheck = await runEmailAvailabilityCheck(email);
+        if (liveEmailCheck && liveEmailCheck.status === 'duplicate') {
+          setValidationErrors((prev) => ({
+            ...prev,
+            email: DUPLICATE_EMAIL_MESSAGE,
+          }));
+          setFormError(DUPLICATE_EMAIL_MESSAGE);
+          setSubmitting(false);
+          window.scrollTo({ top: 260, behavior: 'smooth' });
+          return;
+        }
+      }
+
+      const normalizedMobile = normalizeMobileInternational(mobile, country);
+      if (normalizedMobile !== lastCheckedNormalizedMobile || mobileCheckStatus !== 'available') {
+        const liveMobileCheck = await runMobileAvailabilityCheck(mobile, country);
+        if (liveMobileCheck && liveMobileCheck.status === 'duplicate') {
+          setValidationErrors((prev) => ({
+            ...prev,
+            mobile: DUPLICATE_MOBILE_MESSAGE,
+          }));
+          setFormError(DUPLICATE_MOBILE_MESSAGE);
+          setSubmitting(false);
+          window.scrollTo({ top: 260, behavior: 'smooth' });
+          return;
+        }
+      }
+
       const normalizedUtr = normalizeTransactionReference(transactionRef);
       if (normalizedUtr !== lastCheckedNormalizedUtr || utrCheckStatus !== 'available') {
         const liveCheck = await runUtrAvailabilityCheck(transactionRef);
         if (liveCheck && liveCheck.status === 'duplicate') {
           setValidationErrors((prev) => ({
             ...prev,
-            transactionRef: UTR_DUPLICATE_MESSAGE,
+            transactionRef: DUPLICATE_UTR_MESSAGE,
           }));
-          setFormError(UTR_DUPLICATE_MESSAGE);
+          setFormError(DUPLICATE_UTR_MESSAGE);
           setSubmitting(false);
           return;
         }
@@ -599,7 +889,7 @@ export const RegistrationView: React.FC = () => {
         adminRemarks: '',
       };
 
-      // 1. Concurrency-safe atomic transaction write to Firestore (validates unique UTR & allocates AICONDDxxx)
+      // 1. Concurrency-safe atomic transaction write to Firestore (validates unique email/mobile/UTR & allocates AICONDDxxx)
       const { regDoc, regId } = await submitConferenceRegistration(regPayload);
 
       // 2. Trigger Event 1 (Registration Received) email asynchronously without blocking UI
@@ -614,20 +904,48 @@ export const RegistrationView: React.FC = () => {
       confetti({ particleCount: 85, spread: 70, origin: { y: 0.6 } });
       window.scrollTo({ top: 120, behavior: 'smooth' });
     } catch (err: any) {
-      if (isDuplicateTransactionReferenceError(err)) {
-        setUtrCheckStatus('duplicate');
-        setUtrCheckMessage(UTR_DUPLICATE_MESSAGE);
-        setLastCheckedNormalizedUtr(err.normalizedUtr);
-        setValidationErrors((prev) => ({
-          ...prev,
-          transactionRef: UTR_DUPLICATE_MESSAGE,
-        }));
-        setFormError(UTR_DUPLICATE_MESSAGE);
+      if (isDuplicateRecordError(err) || isDuplicateTransactionReferenceError(err)) {
+        const code = (err as { code?: string }).code;
+        if (code === 'DUPLICATE_EMAIL') {
+          setEmailCheckStatus('duplicate');
+          setEmailCheckMessage(DUPLICATE_EMAIL_MESSAGE);
+          setLastCheckedNormalizedEmail(normalizeEmail(email));
+          setValidationErrors((prev) => ({ ...prev, email: DUPLICATE_EMAIL_MESSAGE }));
+          setFormError(DUPLICATE_EMAIL_MESSAGE);
+          window.scrollTo({ top: 260, behavior: 'smooth' });
+        } else if (code === 'DUPLICATE_MOBILE') {
+          setMobileCheckStatus('duplicate');
+          setMobileCheckMessage(DUPLICATE_MOBILE_MESSAGE);
+          setLastCheckedNormalizedMobile(normalizeMobileInternational(mobile, country));
+          setValidationErrors((prev) => ({ ...prev, mobile: DUPLICATE_MOBILE_MESSAGE }));
+          setFormError(DUPLICATE_MOBILE_MESSAGE);
+          window.scrollTo({ top: 260, behavior: 'smooth' });
+        } else if (code === 'DUPLICATE_UTR' || isDuplicateTransactionReferenceError(err)) {
+          setUtrCheckStatus('duplicate');
+          setUtrCheckMessage(DUPLICATE_UTR_MESSAGE);
+          setLastCheckedNormalizedUtr(normalizeTransactionReference(transactionRef));
+          setValidationErrors((prev) => ({ ...prev, transactionRef: DUPLICATE_UTR_MESSAGE }));
+          setFormError(DUPLICATE_UTR_MESSAGE);
+        } else {
+          setFormError(err.message || 'A duplicate registration record was detected.');
+        }
       } else {
         console.error('Registration error:', err);
-        setFormError(
-          err.message || 'Registration submission failed. Please check your network and try again.'
-        );
+        let friendlyMessage =
+          err?.message || 'Registration submission failed. Please check your network and try again.';
+        if (typeof err?.message === 'string' && err.message.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(err.message);
+            if (typeof parsed?.error === 'string') {
+              friendlyMessage = parsed.error.toLowerCase().includes('permission')
+                ? 'Registration could not be completed due to a database permission or validation check. Please refresh the page and try again, or contact org.secy.cp@srmist.edu.in if the issue persists.'
+                : parsed.error;
+            }
+          } catch {
+            // Fall back to default message
+          }
+        }
+        setFormError(friendlyMessage);
       }
     } finally {
       setSubmitting(false);
@@ -768,6 +1086,18 @@ export const RegistrationView: React.FC = () => {
     setUtrCheckStatus('idle');
     setUtrCheckMessage('');
     setLastCheckedNormalizedUtr('');
+    emailCheckSeqRef.current += 1;
+    setEmailCheckStatus('idle');
+    setEmailCheckMessage('');
+    setLastCheckedNormalizedEmail('');
+    mobileCheckSeqRef.current += 1;
+    setMobileCheckStatus('idle');
+    setMobileCheckMessage('');
+    setLastCheckedNormalizedMobile('');
+    nameCheckSeqRef.current += 1;
+    setNameAdvisoryStatus('idle');
+    setNameAdvisoryMessage('');
+    setLastCheckedNameSignature('');
     setPaymentProofFile(null);
     setPaymentProofName('');
     setPaymentProofSize(null);
@@ -1448,13 +1778,17 @@ export const RegistrationView: React.FC = () => {
               {/* Form Content Area */}
               <div className="p-4 sm:p-5 lg:p-6 space-y-3.5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-3.5">
-                  {/* Full Name */}
+                  {/* Full Name (with Non-Blocking Similar Name Advisory Check) */}
                   <div>
-                    <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
+                    <label
+                      htmlFor="registration-fullname-input"
+                      className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                    >
                       Full Name <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
                       <input
+                        id="registration-fullname-input"
                         type="text"
                         placeholder="Dr. / Prof. / Full Name"
                         value={fullName}
@@ -1464,21 +1798,56 @@ export const RegistrationView: React.FC = () => {
                             setValidationErrors((prev) => ({ ...prev, fullName: '' }));
                           }
                         }}
-                        className={`w-full h-[38px] sm:h-[40px] px-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] transition-colors ${
-                          validationErrors.fullName ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
+                        onBlur={() => {
+                          if (normalizePersonName(fullName).length >= 3) {
+                            void runNameAdvisoryCheck(fullName, effectiveInstitution);
+                          }
+                        }}
+                        className={`w-full h-[38px] sm:h-[40px] pl-3.5 pr-9 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
+                          validationErrors.fullName
+                            ? 'border-red-400 bg-red-50/20 focus:ring-red-500/20 focus:border-red-500'
+                            : nameAdvisoryStatus === 'same_name_and_institution' ||
+                              nameAdvisoryStatus === 'similar_name'
+                            ? 'border-amber-400 bg-amber-50/20 focus:ring-amber-500/20 focus:border-amber-500'
+                            : 'border-[#D8D2F8] focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
                         }`}
                       />
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        {nameAdvisoryStatus === 'checking' && (
+                          <RefreshCw className="w-4 h-4 text-[#713CE0] animate-spin" />
+                        )}
+                        {(nameAdvisoryStatus === 'similar_name' ||
+                          nameAdvisoryStatus === 'same_name_and_institution') &&
+                          !validationErrors.fullName && (
+                            <AlertTriangle className="w-4 h-4 text-amber-600" />
+                          )}
+                      </div>
                     </div>
-                    {validationErrors.fullName && (
-                      <span className="text-[11px] text-red-600 font-medium block mt-1">
-                        {validationErrors.fullName}
-                      </span>
-                    )}
+                    <div aria-live="polite" className="min-h-[16px] mt-1">
+                      {validationErrors.fullName ? (
+                        <span className="text-[11px] text-red-600 font-medium block">
+                          {validationErrors.fullName}
+                        </span>
+                      ) : nameAdvisoryStatus === 'same_name_and_institution' ? (
+                        <div className="p-2 rounded-lg bg-amber-50 border border-amber-300 text-[11px] text-amber-900 font-medium flex items-start gap-1.5 leading-snug">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <span>{nameAdvisoryMessage || SAME_NAME_AND_INSTITUTION_WARNING_MESSAGE}</span>
+                        </div>
+                      ) : nameAdvisoryStatus === 'similar_name' ? (
+                        <div className="p-2 rounded-lg bg-amber-50/90 border border-amber-200 text-[11px] text-amber-800 font-medium flex items-start gap-1.5 leading-snug">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <span>{nameAdvisoryMessage || SIMILAR_NAME_WARNING_MESSAGE}</span>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
 
-                  {/* Email Address */}
+                  {/* Email Address (with Real-Time Duplicate Check) */}
                   <div>
-                    <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
+                    <label
+                      htmlFor="registration-email-input"
+                      className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                    >
                       Email Address <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
@@ -1486,30 +1855,97 @@ export const RegistrationView: React.FC = () => {
                         <Mail className="w-4 h-4" />
                       </div>
                       <input
+                        id="registration-email-input"
                         type="email"
                         placeholder="delegate@institution.edu"
                         value={email}
                         onChange={(e) => {
-                          setEmail(e.target.value);
+                          const nextVal = e.target.value;
+                          setEmail(nextVal);
                           if (validationErrors.email) {
                             setValidationErrors((prev) => ({ ...prev, email: '' }));
                           }
+                          if (
+                            normalizeEmail(nextVal) !== lastCheckedNormalizedEmail &&
+                            emailCheckStatus !== 'idle'
+                          ) {
+                            setEmailCheckStatus('idle');
+                            setEmailCheckMessage('');
+                          }
                         }}
-                        className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] transition-colors ${
-                          validationErrors.email ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
+                        onBlur={() => {
+                          const trimmed = email.trim();
+                          if (
+                            trimmed &&
+                            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) &&
+                            (normalizeEmail(trimmed) !== lastCheckedNormalizedEmail ||
+                              emailCheckStatus === 'idle' ||
+                              emailCheckStatus === 'error')
+                          ) {
+                            void runEmailAvailabilityCheck(trimmed);
+                          }
+                        }}
+                        aria-invalid={emailCheckStatus === 'duplicate' || !!validationErrors.email}
+                        className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-9 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
+                          emailCheckStatus === 'duplicate' || validationErrors.email
+                            ? 'border-red-400 bg-red-50/20 focus:ring-red-500/20 focus:border-red-500'
+                            : emailCheckStatus === 'available'
+                            ? 'border-emerald-400 bg-emerald-50/15 focus:ring-emerald-500/20 focus:border-emerald-500'
+                            : 'border-[#D8D2F8] focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
                         }`}
                       />
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        {emailCheckStatus === 'checking' && (
+                          <RefreshCw
+                            aria-label="Checking email address"
+                            className="w-4 h-4 text-[#713CE0] animate-spin"
+                          />
+                        )}
+                        {emailCheckStatus === 'available' && !validationErrors.email && (
+                          <CheckCircle2
+                            aria-label="Email address is available"
+                            className="w-4 h-4 text-emerald-600"
+                          />
+                        )}
+                        {(emailCheckStatus === 'duplicate' || validationErrors.email) && (
+                          <AlertCircle
+                            aria-label="Duplicate or invalid email address"
+                            className="w-4 h-4 text-red-600"
+                          />
+                        )}
+                      </div>
                     </div>
-                    {validationErrors.email && (
-                      <span className="text-[11px] text-red-600 font-medium block mt-1">
-                        {validationErrors.email}
-                      </span>
-                    )}
+                    <div aria-live="polite" className="min-h-[16px] mt-1">
+                      {emailCheckStatus === 'checking' ? (
+                        <span className="text-[11px] text-[#713CE0] font-medium flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+                          <span>{CHECKING_EMAIL_MESSAGE}</span>
+                        </span>
+                      ) : emailCheckStatus === 'duplicate' || validationErrors.email ? (
+                        <span className="text-[11px] text-red-600 font-semibold flex items-start gap-1 leading-snug">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+                          <span>{validationErrors.email || DUPLICATE_EMAIL_MESSAGE}</span>
+                        </span>
+                      ) : emailCheckStatus === 'available' ? (
+                        <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{EMAIL_AVAILABLE_MESSAGE}</span>
+                        </span>
+                      ) : emailCheckStatus === 'error' && emailCheckMessage ? (
+                        <span className="text-[11px] text-amber-700 font-medium flex items-start gap-1 leading-snug">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <span>{emailCheckMessage}</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
-                  {/* Mobile Number */}
+                  {/* Mobile Number (with Country-Aware International Normalization & Real-Time Duplicate Check) */}
                   <div>
-                    <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
+                    <label
+                      htmlFor="registration-mobile-input"
+                      className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                    >
                       Mobile Number <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
@@ -1517,25 +1953,90 @@ export const RegistrationView: React.FC = () => {
                         <Phone className="w-4 h-4" />
                       </div>
                       <input
+                        id="registration-mobile-input"
                         type="tel"
                         placeholder="+91 98765 43210"
                         value={mobile}
                         onChange={(e) => {
-                          setMobile(e.target.value);
+                          const nextVal = e.target.value;
+                          setMobile(nextVal);
                           if (validationErrors.mobile) {
                             setValidationErrors((prev) => ({ ...prev, mobile: '' }));
                           }
+                          if (
+                            normalizeMobileInternational(nextVal, country) !==
+                              lastCheckedNormalizedMobile &&
+                            mobileCheckStatus !== 'idle'
+                          ) {
+                            setMobileCheckStatus('idle');
+                            setMobileCheckMessage('');
+                          }
                         }}
-                        className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] transition-colors ${
-                          validationErrors.mobile ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
+                        onBlur={() => {
+                          const trimmed = mobile.trim();
+                          if (
+                            trimmed.replace(/\D/g, '').length >= 8 &&
+                            (normalizeMobileInternational(trimmed, country) !==
+                              lastCheckedNormalizedMobile ||
+                              mobileCheckStatus === 'idle' ||
+                              mobileCheckStatus === 'error')
+                          ) {
+                            void runMobileAvailabilityCheck(trimmed, country);
+                          }
+                        }}
+                        aria-invalid={mobileCheckStatus === 'duplicate' || !!validationErrors.mobile}
+                        className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-9 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
+                          mobileCheckStatus === 'duplicate' || validationErrors.mobile
+                            ? 'border-red-400 bg-red-50/20 focus:ring-red-500/20 focus:border-red-500'
+                            : mobileCheckStatus === 'available'
+                            ? 'border-emerald-400 bg-emerald-50/15 focus:ring-emerald-500/20 focus:border-emerald-500'
+                            : 'border-[#D8D2F8] focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
                         }`}
                       />
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        {mobileCheckStatus === 'checking' && (
+                          <RefreshCw
+                            aria-label="Checking mobile number"
+                            className="w-4 h-4 text-[#713CE0] animate-spin"
+                          />
+                        )}
+                        {mobileCheckStatus === 'available' && !validationErrors.mobile && (
+                          <CheckCircle2
+                            aria-label="Mobile number is available"
+                            className="w-4 h-4 text-emerald-600"
+                          />
+                        )}
+                        {(mobileCheckStatus === 'duplicate' || validationErrors.mobile) && (
+                          <AlertCircle
+                            aria-label="Duplicate or invalid mobile number"
+                            className="w-4 h-4 text-red-600"
+                          />
+                        )}
+                      </div>
                     </div>
-                    {validationErrors.mobile && (
-                      <span className="text-[11px] text-red-600 font-medium block mt-1">
-                        {validationErrors.mobile}
-                      </span>
-                    )}
+                    <div aria-live="polite" className="min-h-[16px] mt-1">
+                      {mobileCheckStatus === 'checking' ? (
+                        <span className="text-[11px] text-[#713CE0] font-medium flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+                          <span>{CHECKING_MOBILE_MESSAGE}</span>
+                        </span>
+                      ) : mobileCheckStatus === 'duplicate' || validationErrors.mobile ? (
+                        <span className="text-[11px] text-red-600 font-semibold flex items-start gap-1 leading-snug">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+                          <span>{validationErrors.mobile || DUPLICATE_MOBILE_MESSAGE}</span>
+                        </span>
+                      ) : mobileCheckStatus === 'available' ? (
+                        <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{MOBILE_AVAILABLE_MESSAGE}</span>
+                        </span>
+                      ) : mobileCheckStatus === 'error' && mobileCheckMessage ? (
+                        <span className="text-[11px] text-amber-700 font-medium flex items-start gap-1 leading-snug">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <span>{mobileCheckMessage}</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   {/* Course / Designation */}
@@ -2512,12 +3013,22 @@ export const RegistrationView: React.FC = () => {
             )}
 
             {/* =================================================================
-                REGISTER NOW BUTTON (Mockup-identical prominent pill gradient CTA)
+                REGISTER NOW BUTTON & LIVE UNIQUENESS VERIFICATION SUMMARY
                ================================================================= */}
-            <div className="flex flex-col items-center justify-center pt-2 pb-4 space-y-2">
+            <div className="flex flex-col items-center justify-center pt-2 pb-4 space-y-2.5">
+              {allStrictDetailsVerified && (
+                <div
+                  role="status"
+                  className="px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[12.5px] font-semibold flex items-center gap-2 shadow-2xs"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{DETAILS_VERIFIED_MESSAGE}</span>
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={submitting || utrCheckStatus === 'checking' || utrCheckStatus === 'duplicate'}
+                disabled={submitting || isCheckingAnyDuplicate || hasAnyStrictDuplicate}
                 className="w-full sm:w-auto min-w-[260px] sm:min-w-[300px] h-[48px] px-8 rounded-full bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[15px] sm:text-[16px] shadow-[0_8px_25px_rgba(109,60,226,0.3)] hover:shadow-[0_10px_28px_rgba(109,60,226,0.4)] hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
                 {submitting ? (
@@ -2525,10 +3036,10 @@ export const RegistrationView: React.FC = () => {
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>Processing Submission...</span>
                   </>
-                ) : utrCheckStatus === 'checking' ? (
+                ) : isCheckingAnyDuplicate ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Verifying Transaction ID...</span>
+                    <span>Verifying Participant Details...</span>
                   </>
                 ) : (
                   <>
@@ -2537,10 +3048,17 @@ export const RegistrationView: React.FC = () => {
                   </>
                 )}
               </button>
-              {utrCheckStatus === 'duplicate' && (
-                <p className="text-[12px] text-red-600 font-semibold text-center max-w-md flex items-center justify-center gap-1.5">
+
+              {hasAnyStrictDuplicate && (
+                <p className="text-[12px] text-red-600 font-semibold text-center max-w-lg flex items-center justify-center gap-1.5">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{UTR_DUPLICATE_MESSAGE}</span>
+                  <span>
+                    {emailCheckStatus === 'duplicate'
+                      ? DUPLICATE_EMAIL_MESSAGE
+                      : mobileCheckStatus === 'duplicate'
+                      ? DUPLICATE_MOBILE_MESSAGE
+                      : DUPLICATE_UTR_MESSAGE}
+                  </span>
                 </p>
               )}
             </div>

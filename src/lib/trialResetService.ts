@@ -409,6 +409,7 @@ export async function executeTrialRunReset(
     regDocs,
     absDocs,
     paymentTxDocs,
+    uniquenessResDocs,
     emailDocs,
     regCounterBefore,
     absCounterBefore,
@@ -417,6 +418,7 @@ export async function executeTrialRunReset(
     fetchAllCollectionDocs('registrations'),
     fetchAllCollectionDocs('abstractSubmissions'),
     fetchAllCollectionDocs('paymentTransactions'),
+    fetchAllCollectionDocs('uniquenessReservations'),
     fetchAllCollectionDocs('emailLogs'),
     readCounterSeq('registrationCounter'),
     readCounterSeq('abstractCounter'),
@@ -473,6 +475,10 @@ export async function executeTrialRunReset(
   await deleteDocRefsInBatches(
     paymentTxDocs.map((d) => d.ref),
     'paymentTransactions'
+  );
+  await deleteDocRefsInBatches(
+    uniquenessResDocs.map((d) => d.ref),
+    'uniquenessReservations'
   );
 
   // Best-effort cleanup of referenced Firebase Storage objects (non-fatal)

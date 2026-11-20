@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SCIENTIFIC_TRACKS } from '../data/conferenceData';
 import { IMAGES } from '../lib/images';
 import {
@@ -47,6 +47,17 @@ import {
   RegistrationRecord,
 } from '../lib/managementService';
 import { triggerAbstractSubmittedEmail } from '../lib/emailService';
+import {
+  CHECKING_ABSTRACT_MESSAGE,
+  DUPLICATE_ABSTRACT_CONTENT_MESSAGE,
+  DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE,
+  checkAbstractDuplicateAvailability,
+  isDuplicateRecordError,
+  normalizeAbstractContent,
+  normalizeAbstractTitle,
+  normalizeEmail,
+  type AbstractDuplicateCheckStatus,
+} from '../lib/duplicatePreventionService';
 
 interface AbstractsViewProps {
   initialTrackId?: string;
@@ -83,6 +94,13 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
   const [regVerificationError, setRegVerificationError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<'not_found' | 'already_submitted' | 'general' | null>(null);
   const [linkedExistingAbstractId, setLinkedExistingAbstractId] = useState<string | null>(null);
+  const [existingAbstractIds, setExistingAbstractIds] = useState<string[]>([]);
+
+  // Real-time abstract duplicate checking states
+  const [abstractDupStatus, setAbstractDupStatus] = useState<AbstractDuplicateCheckStatus>('idle');
+  const [abstractDupMessage, setAbstractDupMessage] = useState<string>('');
+  const [lastCheckedAbstractSig, setLastCheckedAbstractSig] = useState<string>('');
+  const abstractDupSeqRef = useRef(0);
 
   // Presenting Author Details (Pre-filled from verified registration)
   const [fullName, setFullName] = useState('');
@@ -162,12 +180,107 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
   const isWordCountValidRange = wordCount >= 250 && wordCount <= 300;
   const isWordCountExceeded = wordCount > 300;
 
+  // Real-time duplicate check for abstract title + content (prevents identical resubmissions)
+  const runAbstractDuplicateCheck = useCallback(
+    async (rawTitle: string, rawContent: string, rawAuthorEmail: string) => {
+      const normTitle = normalizeAbstractTitle(rawTitle);
+      const normContent = normalizeAbstractContent(rawContent);
+      const normEmail = normalizeEmail(rawAuthorEmail);
+
+      if (normTitle.length < 5 && normContent.length < 25) {
+        abstractDupSeqRef.current += 1;
+        setAbstractDupStatus('idle');
+        setAbstractDupMessage('');
+        setLastCheckedAbstractSig('');
+        return null;
+      }
+
+      const sig = `${normEmail}::${normTitle}::${normContent}`;
+      const requestSeq = ++abstractDupSeqRef.current;
+      setAbstractDupStatus('checking');
+      setAbstractDupMessage(CHECKING_ABSTRACT_MESSAGE);
+
+      const result = await checkAbstractDuplicateAvailability({
+        title: rawTitle,
+        content: rawContent,
+        authorEmail: rawAuthorEmail,
+      });
+
+      if (requestSeq !== abstractDupSeqRef.current) {
+        return null;
+      }
+
+      setAbstractDupStatus(result.status);
+      setAbstractDupMessage(result.message);
+      setLastCheckedAbstractSig(sig);
+
+      if (result.status === 'duplicate_content') {
+        setFormErrors((prev) => ({ ...prev, abstract: DUPLICATE_ABSTRACT_CONTENT_MESSAGE }));
+      } else if (result.status === 'duplicate_title_author') {
+        setFormErrors((prev) => ({ ...prev, title: DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE }));
+      } else if (result.status === 'available') {
+        setFormErrors((prev) => {
+          const next = { ...prev };
+          if (next.title === DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE) next.title = '';
+          if (next.abstract === DUPLICATE_ABSTRACT_CONTENT_MESSAGE) next.abstract = '';
+          return next;
+        });
+      }
+
+      return result;
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!verifiedRegistration) return;
+    const normTitle = normalizeAbstractTitle(title);
+    const normContent = normalizeAbstractContent(abstractText);
+    const normEmail = normalizeEmail(email);
+
+    if (normTitle.length < 5 && normContent.length < 25) {
+      abstractDupSeqRef.current += 1;
+      setAbstractDupStatus('idle');
+      setAbstractDupMessage('');
+      setLastCheckedAbstractSig('');
+      return;
+    }
+
+    const sig = `${normEmail}::${normTitle}::${normContent}`;
+    if (
+      sig === lastCheckedAbstractSig &&
+      abstractDupStatus !== 'idle' &&
+      abstractDupStatus !== 'error'
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runAbstractDuplicateCheck(title, abstractText, email);
+    }, 550);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    verifiedRegistration,
+    title,
+    abstractText,
+    email,
+    lastCheckedAbstractSig,
+    abstractDupStatus,
+    runAbstractDuplicateCheck,
+  ]);
+
+  const isAbstractDuplicateBlocked =
+    abstractDupStatus === 'duplicate_content' ||
+    abstractDupStatus === 'duplicate_title_author';
+
   // Verify Registration ID handler
   const handleVerifyRegistration = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setRegVerificationError(null);
     setErrorType(null);
     setLinkedExistingAbstractId(null);
+    setExistingAbstractIds([]);
 
     const cleanInput = registrationIdInput.trim().toUpperCase();
     if (!cleanInput) {
@@ -181,6 +294,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       const res = await verifyRegistrationForAbstractSubmission(cleanInput);
       const reg = res.registration;
       setVerifiedRegistration(reg);
+      setExistingAbstractIds(res.existingAbstractIds || []);
 
       // Pre-populate presenting author details
       setFullName(reg.fullName || '');
@@ -226,6 +340,11 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     setRegVerificationError(null);
     setErrorType(null);
     setLinkedExistingAbstractId(null);
+    setExistingAbstractIds([]);
+    abstractDupSeqRef.current += 1;
+    setAbstractDupStatus('idle');
+    setAbstractDupMessage('');
+    setLastCheckedAbstractSig('');
   };
 
   // Co-authors handlers
@@ -418,6 +537,12 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       errors.track = 'Please select a Scientific Track.';
     }
 
+    if (abstractDupStatus === 'duplicate_content') {
+      errors.abstract = DUPLICATE_ABSTRACT_CONTENT_MESSAGE;
+    } else if (abstractDupStatus === 'duplicate_title_author') {
+      errors.title = DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE;
+    }
+
     if (!declarationAccepted) {
       errors.declaration = 'You must accept the originality and co-author consent declaration.';
     }
@@ -432,7 +557,13 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     setGeneralError(null);
 
     if (!validateForm()) {
-      setGeneralError('Please review the form and correct the indicated fields before submitting.');
+      setGeneralError(
+        abstractDupStatus === 'duplicate_content'
+          ? DUPLICATE_ABSTRACT_CONTENT_MESSAGE
+          : abstractDupStatus === 'duplicate_title_author'
+          ? DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE
+          : 'Please review the form and correct the indicated fields before submitting.'
+      );
       window.scrollTo({ top: 350, behavior: 'smooth' });
       return;
     }
@@ -442,6 +573,22 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     setSubmitting(true);
 
     try {
+      // Mandatory live duplicate check immediately prior to submission
+      const currentSig = `${normalizeEmail(email)}::${normalizeAbstractTitle(title)}::${normalizeAbstractContent(abstractText)}`;
+      if (currentSig !== lastCheckedAbstractSig || abstractDupStatus !== 'available') {
+        const liveDupCheck = await runAbstractDuplicateCheck(title, abstractText, email);
+        if (
+          liveDupCheck &&
+          (liveDupCheck.status === 'duplicate_content' ||
+            liveDupCheck.status === 'duplicate_title_author')
+        ) {
+          setGeneralError(liveDupCheck.message);
+          setSubmitting(false);
+          window.scrollTo({ top: 350, behavior: 'smooth' });
+          return;
+        }
+      }
+
       const regId = verifiedRegistration.registrationId || registrationIdInput.trim().toUpperCase();
 
       const validCoAuthors = coAuthors
@@ -501,13 +648,33 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
         console.warn('Background abstract submission email note:', emailErr);
       });
 
+      setExistingAbstractIds((prev) =>
+        prev.includes(allocatedAbstractId) ? prev : [...prev, allocatedAbstractId]
+      );
       setSubmittedAbstractData(submittedRecord);
       setShowConfirmationModal(true);
       confetti({ particleCount: 90, spread: 75, origin: { y: 0.55 } });
       window.scrollTo({ top: 150, behavior: 'smooth' });
     } catch (err: any) {
-      console.error('Abstract submission error:', err);
-      setGeneralError(err.message || 'Abstract submission failed. Please verify your Registration ID.');
+      if (isDuplicateRecordError(err)) {
+        if (err.code === 'DUPLICATE_ABSTRACT_CONTENT') {
+          setAbstractDupStatus('duplicate_content');
+          setAbstractDupMessage(DUPLICATE_ABSTRACT_CONTENT_MESSAGE);
+          setFormErrors((prev) => ({ ...prev, abstract: DUPLICATE_ABSTRACT_CONTENT_MESSAGE }));
+          setGeneralError(DUPLICATE_ABSTRACT_CONTENT_MESSAGE);
+        } else if (err.code === 'DUPLICATE_ABSTRACT_TITLE') {
+          setAbstractDupStatus('duplicate_title_author');
+          setAbstractDupMessage(DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE);
+          setFormErrors((prev) => ({ ...prev, title: DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE }));
+          setGeneralError(DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE);
+        } else {
+          setGeneralError(err.message || 'A duplicate abstract submission was detected.');
+        }
+        window.scrollTo({ top: 350, behavior: 'smooth' });
+      } else {
+        console.error('Abstract submission error:', err);
+        setGeneralError(err.message || 'Abstract submission failed. Please verify your Registration ID.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -946,7 +1113,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                     <div className="p-4 sm:p-5 bg-[#F6F3FE] border border-[#E2DAF8] rounded-2xl text-xs sm:text-sm text-[#384162] flex items-start gap-3 leading-relaxed">
                       <Info className="w-5 h-5 text-[#7C3AED] shrink-0 mt-0.5" />
                       <div>
-                        <strong className="text-[#101B4B]">Delegate Registration Notice:</strong> Any participant with a valid conference Registration ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDDxxx</span>) may submit one abstract immediately, even while payment verification is pending. Do not enter an Abstract ID here — your sequential Abstract ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDD-ABS-xxx</span>) will be generated automatically upon submission.
+                        <strong className="text-[#101B4B]">Delegate Registration Notice:</strong> Any participant with a valid conference Registration ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDDxxx</span>) may submit distinct research abstracts immediately, even while payment verification is pending. Duplicate or repeated submissions of the same abstract are automatically prevented. Do not enter an Abstract ID here — your sequential Abstract ID (<span className="font-mono font-semibold text-[#5B21B6]">AICONDD-ABS-xxx</span>) will be generated automatically upon submission.
                       </div>
                     </div>
                   </div>
@@ -1007,6 +1174,19 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                         <strong className="text-slate-900">{verifiedRegistration.email}</strong>
                       </div>
                     </div>
+
+                    {existingAbstractIds.length > 0 && (
+                      <div className="p-3 rounded-xl bg-white/90 border border-emerald-200 text-xs text-slate-700 flex items-start gap-2.5">
+                        <Info className="w-4 h-4 text-[#7C3AED] shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-[#101B4B]">Existing Abstract on Record:</strong>{' '}
+                          <span className="font-mono font-semibold text-[#5B21B6]">
+                            {existingAbstractIds.join(', ')}
+                          </span>
+                          . You may submit an additional genuinely distinct research abstract using this Registration ID; duplicate titles or identical abstract content will be automatically prevented.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1257,14 +1437,36 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                           onChange={(e) => {
                             setTitle(e.target.value);
                             if (formErrors.title) setFormErrors((prev) => ({ ...prev, title: '' }));
+                            if (abstractDupStatus !== 'idle') {
+                              setAbstractDupStatus('idle');
+                              setAbstractDupMessage('');
+                            }
+                          }}
+                          onBlur={() => {
+                            if (normalizeAbstractTitle(title).length >= 5) {
+                              void runAbstractDuplicateCheck(title, abstractText, email);
+                            }
                           }}
                           placeholder="Enter the complete title of your research abstract"
-                          className={`h-12 sm:h-[52px] pl-12 pr-4 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
-                            formErrors.title ? 'border-red-400' : 'border-[#D4D9EC] focus:border-[#7C3AED]'
+                          className={`h-12 sm:h-[52px] pl-12 pr-10 w-full rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition ${
+                            formErrors.title || abstractDupStatus === 'duplicate_title_author'
+                              ? 'border-red-400 bg-red-50/20'
+                              : 'border-[#D4D9EC] focus:border-[#7C3AED]'
                           }`}
                         />
+                        {abstractDupStatus === 'checking' && (
+                          <RefreshCw className="w-4 h-4 text-[#7C3AED] animate-spin absolute right-4 pointer-events-none" />
+                        )}
+                        {abstractDupStatus === 'duplicate_title_author' && (
+                          <AlertCircle className="w-4 h-4 text-red-600 absolute right-4 pointer-events-none" />
+                        )}
                       </div>
-                      {formErrors.title && <p className="text-xs text-red-500 font-medium">{formErrors.title}</p>}
+                      {(formErrors.title || abstractDupStatus === 'duplicate_title_author') && (
+                        <p className="text-xs text-red-600 font-semibold flex items-start gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>{formErrors.title || DUPLICATE_ABSTRACT_TITLE_AUTHOR_MESSAGE}</span>
+                        </p>
+                      )}
                     </div>
 
                     {/* Presenting Author Name & Affiliation Summary */}
@@ -1369,11 +1571,22 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                         onChange={(e) => {
                           setAbstractText(e.target.value);
                           if (formErrors.abstract) setFormErrors((prev) => ({ ...prev, abstract: '' }));
+                          if (abstractDupStatus !== 'idle') {
+                            setAbstractDupStatus('idle');
+                            setAbstractDupMessage('');
+                          }
+                        }}
+                        onBlur={() => {
+                          if (normalizeAbstractContent(abstractText).length >= 25) {
+                            void runAbstractDuplicateCheck(title, abstractText, email);
+                          }
                         }}
                         placeholder="Write your abstract here as a single, continuous paragraph without subheadings (250–300 words)..."
                         className={`w-full p-4 sm:p-5 rounded-xl border bg-white text-sm sm:text-[15px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/15 transition leading-relaxed ${
-                          formErrors.abstract || isWordCountExceeded
-                            ? 'border-red-400'
+                          formErrors.abstract ||
+                          isWordCountExceeded ||
+                          abstractDupStatus === 'duplicate_content'
+                            ? 'border-red-400 bg-red-50/15'
                             : isWordCountValidRange
                             ? 'border-emerald-400 focus:border-emerald-500'
                             : 'border-[#D4D9EC] focus:border-[#7C3AED]'
@@ -1414,9 +1627,24 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                         </span>
                       </div>
 
-                      {formErrors.abstract && (
-                        <p className="text-xs text-red-500 font-medium pt-0.5">{formErrors.abstract}</p>
-                      )}
+                      <div aria-live="polite" className="min-h-[18px]">
+                        {abstractDupStatus === 'checking' ? (
+                          <p className="text-xs text-[#7C3AED] font-medium flex items-center gap-1.5">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                            <span>{CHECKING_ABSTRACT_MESSAGE}</span>
+                          </p>
+                        ) : abstractDupStatus === 'duplicate_content' || formErrors.abstract ? (
+                          <p className="text-xs text-red-600 font-semibold flex items-start gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>{formErrors.abstract || DUPLICATE_ABSTRACT_CONTENT_MESSAGE}</span>
+                          </p>
+                        ) : abstractDupStatus === 'available' && abstractText.trim().length >= 25 ? (
+                          <p className="text-xs text-emerald-700 font-semibold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>{abstractDupMessage || 'Abstract content and title verified as unique.'}</span>
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
 
                     {/* Keywords */}
@@ -1753,16 +1981,25 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                     </label>
                     {formErrors.declaration && <p className="text-xs text-red-500 font-medium">{formErrors.declaration}</p>}
 
-                    <div className="pt-4 border-t border-slate-100 text-center">
+                    <div className="pt-4 border-t border-slate-100 text-center space-y-2.5">
                       <button
                         type="submit"
-                        disabled={submitting}
-                        className="inline-flex items-center justify-center gap-3 px-12 py-4 rounded-full bg-gradient-to-r from-[#7C3AED] via-[#6366F1] to-[#14B8D4] text-white text-base sm:text-lg font-bold shadow-[0_12px_30px_rgba(109,40,217,0.3)] hover:shadow-[0_16px_36px_rgba(109,40,217,0.38)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-60"
+                        disabled={
+                          submitting ||
+                          abstractDupStatus === 'checking' ||
+                          isAbstractDuplicateBlocked
+                        }
+                        className="inline-flex items-center justify-center gap-3 px-12 py-4 rounded-full bg-gradient-to-r from-[#7C3AED] via-[#6366F1] to-[#14B8D4] text-white text-base sm:text-lg font-bold shadow-[0_12px_30px_rgba(109,40,217,0.3)] hover:shadow-[0_16px_36px_rgba(109,40,217,0.38)] hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
                       >
                         {submitting ? (
                           <>
                             <RefreshCw className="w-5 h-5 animate-spin" />
-                            <span>Allocating Abstract ID & Submitting...</span>
+                            <span>Allocating Abstract ID &amp; Submitting...</span>
+                          </>
+                        ) : abstractDupStatus === 'checking' ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            <span>Checking Abstract Originality...</span>
                           </>
                         ) : (
                           <>
@@ -1771,6 +2008,12 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                           </>
                         )}
                       </button>
+                      {isAbstractDuplicateBlocked && (
+                        <p className="text-xs text-red-600 font-semibold max-w-lg mx-auto flex items-center justify-center gap-1.5">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>{abstractDupMessage}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

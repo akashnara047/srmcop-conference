@@ -36,13 +36,39 @@ import {
   computeTransactionReferenceKey,
   type PaymentTransactionLockRecord,
 } from './utrValidationService';
+import {
+  UNIQUENESS_RESERVATIONS_COLLECTION,
+  DuplicateRecordError,
+  isDuplicateRecordError,
+  normalizeEmail,
+  normalizeMobileInternational,
+  normalizePersonName,
+  normalizeAbstractTitle,
+  normalizeAbstractContent,
+  extractAbstractBodyText,
+  computeEmailReservationKey,
+  computeMobileReservationKey,
+  computeNameAdvisoryKey,
+  computeInstitutionHash,
+  computeAbstractContentReservationKey,
+  computeAbstractTitleAuthorKey,
+  type UniquenessReservationRecord,
+} from './duplicatePreventionService';
 
 export interface RegistrationRecord {
   id: string; // Document ID (e.g. REG-...)
   registrationId?: string | null; // Official sequential ID: AICONDD001
   fullName: string;
+  normalizedFullName?: string;
+  nameAdvisoryKey?: string;
+  possibleDuplicateNameFlag?: boolean;
+  duplicateNameMatchLevel?: 'none' | 'similar_name' | 'same_name_and_institution';
   email: string;
+  normalizedEmail?: string;
+  emailReservationKey?: string;
   mobile: string;
+  normalizedMobile?: string;
+  mobileReservationKey?: string;
   courseOrDesignation?: string;
   institution: string;
   institutionCategory?: 'internal' | 'external' | null;
@@ -81,6 +107,7 @@ export interface RegistrationRecord {
   createdAt: string;
   updatedAt?: string;
   linkedAbstractId?: string | null;
+  linkedAbstractIds?: string[];
   abstractSubmitted?: boolean;
   abstractSubmissionDate?: string | null;
   recordType?: 'live' | 'test';
@@ -97,6 +124,9 @@ export interface AbstractRecord {
   registrationId: string; // Mandatory linked registration ID: AICONDD001
   registrationDocId?: string;
   title: string;
+  normalizedTitle?: string;
+  abstractContentKey?: string;
+  abstractTitleAuthorKey?: string;
   trackId: string;
   presentationPreference: 'Oral Presentation' | 'Poster Presentation' | 'E-Poster Presentation' | string;
   presentationType?: string;
@@ -143,29 +173,85 @@ export interface AbstractRecord {
 
 // ---------------------------------------------------------------------------
 // 0. AUTOMATIC ATOMIC REGISTRATION ID ALLOCATION & SUBMISSION (AICONDDxxx)
-//    WITH MANDATORY SERVER-SIDE / TRANSACTIONAL UTR UNIQUENESS ENFORCEMENT
+//    WITH MANDATORY SERVER-SIDE / TRANSACTIONAL EMAIL, MOBILE & UTR UNIQUENESS
 // ---------------------------------------------------------------------------
 export async function submitConferenceRegistration(
   registrationData: Omit<RegistrationRecord, 'id' | 'registrationId' | 'createdAt'>
 ): Promise<{ regDoc: RegistrationRecord; regId: string }> {
+  const trimmedName = (registrationData.fullName || '').trim().replace(/\s+/g, ' ');
+  const trimmedEmail = (registrationData.email || '').trim();
+  const trimmedMobile = (registrationData.mobile || '').trim();
+  const trimmedInstitution = (registrationData.institution || '').trim().replace(/\s+/g, ' ');
   const trimmedUtr = (registrationData.transactionReference || '').trim();
+  const country = (registrationData.country || 'India').trim();
+
+  const normalizedEmail = normalizeEmail(trimmedEmail);
+  const normalizedMobile = normalizeMobileInternational(trimmedMobile, country);
   const normalizedUtr = normalizeTransactionReference(trimmedUtr);
+  const normalizedFullName = normalizePersonName(trimmedName);
+
+  if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    throw new Error('A valid email address is required.');
+  }
+  if (!normalizedMobile || normalizedMobile.replace(/\D/g, '').length < 8) {
+    throw new Error('A valid mobile number is required.');
+  }
   if (!normalizedUtr) {
     throw new Error('Transaction / Reference Number is required.');
   }
 
-  const utrKey = await computeTransactionReferenceKey(normalizedUtr);
+  const [emailKey, mobileKey, utrKey, nameAdvisoryKey, institutionHash] = await Promise.all([
+    computeEmailReservationKey(normalizedEmail),
+    computeMobileReservationKey(normalizedMobile, country),
+    computeTransactionReferenceKey(normalizedUtr),
+    normalizedFullName.length >= 3 ? computeNameAdvisoryKey(normalizedFullName) : Promise.resolve(''),
+    trimmedInstitution ? computeInstitutionHash(trimmedInstitution) : Promise.resolve(''),
+  ]);
+
+  const emailLockRef = doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, emailKey);
+  const mobileLockRef = doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, mobileKey);
   const utrLockRef = doc(db, PAYMENT_TRANSACTIONS_COLLECTION, utrKey);
+  const nameAdvisoryRef = nameAdvisoryKey
+    ? doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, nameAdvisoryKey)
+    : null;
   const counterRef = doc(db, 'systemCounters', 'registrationCounter');
   const timestamp = new Date().toISOString();
 
   try {
     const result = await runTransaction(db, async (transaction) => {
-      // 1. Atomically verify UTR uniqueness BEFORE reading/incrementing the registration ID counter.
-      //    If two concurrent submissions attempt the same UTR, Firestore's serializable transaction
-      //    commits at most one and retries the other, which sees utrLockSnap.exists() === true
-      //    and rejects immediately without saving a duplicate or wasting a registration sequence ID.
-      const utrLockSnap = await transaction.get(utrLockRef);
+      // 1. Atomically verify Email, Mobile, and UTR uniqueness BEFORE reading/incrementing the ID counter.
+      //    Firestore serializable transactions guarantee that under concurrent identical submissions,
+      //    at most one commits and the second retries, immediately detecting the lock and aborting
+      //    without wasting a sequential Registration ID.
+      const [emailLockSnap, mobileLockSnap, utrLockSnap, nameAdvisorySnap] = await Promise.all([
+        transaction.get(emailLockRef),
+        transaction.get(mobileLockRef),
+        transaction.get(utrLockRef),
+        nameAdvisoryRef ? transaction.get(nameAdvisoryRef) : Promise.resolve(null),
+      ]);
+
+      if (emailLockSnap.exists()) {
+        const existingLock = emailLockSnap.data() as Partial<UniquenessReservationRecord>;
+        throw new DuplicateRecordError({
+          code: 'DUPLICATE_EMAIL',
+          field: 'email',
+          normalizedValue: normalizedEmail,
+          reservationKey: emailKey,
+          conflictingRecordId: existingLock.ownerId,
+        });
+      }
+
+      if (mobileLockSnap.exists()) {
+        const existingLock = mobileLockSnap.data() as Partial<UniquenessReservationRecord>;
+        throw new DuplicateRecordError({
+          code: 'DUPLICATE_MOBILE',
+          field: 'mobile',
+          normalizedValue: normalizedMobile,
+          reservationKey: mobileKey,
+          conflictingRecordId: existingLock.ownerId,
+        });
+      }
+
       if (utrLockSnap.exists()) {
         const existingLock = utrLockSnap.data() as Partial<PaymentTransactionLockRecord>;
         throw new DuplicateTransactionReferenceError({
@@ -175,18 +261,44 @@ export async function submitConferenceRegistration(
         });
       }
 
-      // 2. Fetch current sequence counter atomically (no read of registrations collection)
+      // 2. Evaluate non-blocking Name Advisory index (different contact details allowed, flagged for Org. Secretary review)
+      let possibleDuplicateNameFlag = false;
+      let duplicateNameMatchLevel: 'none' | 'similar_name' | 'same_name_and_institution' = 'none';
+      let nextNameCount = 1;
+      let nextInstitutionHashes: string[] = institutionHash ? [institutionHash] : [];
+      let nameCreatedAt = timestamp;
+
+      if (nameAdvisorySnap && nameAdvisorySnap.exists()) {
+        const existingNameData = nameAdvisorySnap.data() as Partial<UniquenessReservationRecord>;
+        possibleDuplicateNameFlag = true;
+        const prevHashes = Array.isArray(existingNameData.institutionHashes)
+          ? existingNameData.institutionHashes
+          : [];
+        if (institutionHash && prevHashes.includes(institutionHash)) {
+          duplicateNameMatchLevel = 'same_name_and_institution';
+        } else {
+          duplicateNameMatchLevel = 'similar_name';
+        }
+        nextNameCount = Math.min(10000, (existingNameData.registrationIdsCount || 1) + 1);
+        nextInstitutionHashes =
+          institutionHash && !prevHashes.includes(institutionHash) && prevHashes.length < 50
+            ? [...prevHashes, institutionHash]
+            : prevHashes.slice(0, 50);
+        nameCreatedAt = existingNameData.createdAt || timestamp;
+      }
+
+      // 3. Fetch current sequence counter atomically
       const counterSnap = await transaction.get(counterRef);
       const currentSeq = counterSnap.exists()
         ? (counterSnap.data()?.lastSequenceNumber || 0)
         : 0;
       const nextSeq = currentSeq + 1;
 
-      // Format: AICONDD001, AICONDD002, AICONDD003... (monotonically increasing, 3-digit minimum zero padding)
+      // Format: AICONDD001, AICONDD002, AICONDD003... (monotonically increasing, never reused)
       const newRegId = `AICONDD${String(nextSeq).padStart(3, '0')}`;
       const regRef = doc(db, 'registrations', newRegId);
 
-      // 3. Increment atomic counter (never decremented, numbers never reused even if records are deleted)
+      // 4. Increment atomic counter
       transaction.set(
         counterRef,
         {
@@ -196,22 +308,84 @@ export async function submitConferenceRegistration(
         { merge: true }
       );
 
-      // 4. Claim atomic PII-free UTR lock document
-      const lockDoc: PaymentTransactionLockRecord = {
+      // 5. Claim atomic PII-free UTR, Email, and Mobile locks
+      const utrLockDoc: PaymentTransactionLockRecord = {
         id: utrKey,
         normalizedTransactionReference: normalizedUtr,
         registrationId: newRegId,
         createdAt: timestamp,
         updatedAt: timestamp,
       };
-      transaction.set(utrLockRef, lockDoc);
+      transaction.set(utrLockRef, utrLockDoc);
 
-      // 5. Construct and save the official registration record
+      const emailLockDoc: UniquenessReservationRecord = {
+        id: emailKey,
+        type: 'email',
+        ownerId: newRegId,
+        ownerCollection: 'registrations',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      transaction.set(emailLockRef, emailLockDoc);
+
+      const mobileLockDoc: UniquenessReservationRecord = {
+        id: mobileKey,
+        type: 'mobile',
+        ownerId: newRegId,
+        ownerCollection: 'registrations',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      transaction.set(mobileLockRef, mobileLockDoc);
+
+      // 6. Create or update non-blocking Name Advisory record
+      if (nameAdvisoryRef && nameAdvisoryKey) {
+        const nameAdvisoryDoc: UniquenessReservationRecord = {
+          id: nameAdvisoryKey,
+          type: 'name',
+          ownerId: newRegId,
+          ownerCollection: 'registrations',
+          registrationIdsCount: nextNameCount,
+          institutionHashes: nextInstitutionHashes,
+          createdAt: nameCreatedAt,
+          updatedAt: timestamp,
+        };
+        transaction.set(nameAdvisoryRef, nameAdvisoryDoc);
+      }
+
+      // 7. Construct and save the official registration record (preserving original displayed name).
+      //    Always enforce safe initial statuses and exclude admin-only verification fields
+      //    regardless of whether a browser session happens to be signed into the Admin Portal.
+      const {
+        verifiedBy: _ignoredVerifiedBy,
+        verifiedAt: _ignoredVerifiedAt,
+        duplicateUtrExceptionApproved: _ignoredDupApproved,
+        duplicateUtrExceptionReason: _ignoredDupReason,
+        duplicateUtrExceptionApprovedBy: _ignoredDupBy,
+        duplicateUtrExceptionApprovedAt: _ignoredDupAt,
+        ...safeRegistrationData
+      } = registrationData;
+
       const regDoc: RegistrationRecord = {
-        ...registrationData,
+        ...safeRegistrationData,
+        fullName: trimmedName,
+        ...(normalizedFullName ? { normalizedFullName } : {}),
+        ...(nameAdvisoryKey ? { nameAdvisoryKey } : {}),
+        possibleDuplicateNameFlag,
+        duplicateNameMatchLevel,
+        email: trimmedEmail,
+        normalizedEmail,
+        emailReservationKey: emailKey,
+        mobile: trimmedMobile,
+        normalizedMobile,
+        mobileReservationKey: mobileKey,
+        institution: trimmedInstitution,
         transactionReference: trimmedUtr,
         normalizedTransactionReference: normalizedUtr,
         transactionReferenceKey: utrKey,
+        paymentStatus: 'Pending Verification',
+        registrationStatus: 'Awaiting Approval',
+        adminRemarks: '',
         id: newRegId,
         registrationId: newRegId,
         createdAt: timestamp,
@@ -223,7 +397,7 @@ export async function submitConferenceRegistration(
 
     return result;
   } catch (error) {
-    if (isDuplicateTransactionReferenceError(error)) {
+    if (isDuplicateTransactionReferenceError(error) || isDuplicateRecordError(error)) {
       throw error;
     }
     console.error('Error submitting conference registration:', error);
@@ -233,7 +407,10 @@ export async function submitConferenceRegistration(
 }
 
 // ---------------------------------------------------------------------------
-// 0B. ATOMIC REJECTED-PAYMENT UTR RESUBMISSION (ALLOWS OWN UTR, BLOCKS OTHERS)
+// 0B. ATOMIC REJECTED-PAYMENT UTR RESUBMISSION
+//     ALLOWS OWN UTR OR A BRAND-NEW UNIQUE UTR; BLOCKS OTHERS' UTRs.
+//     CRITICAL POLICY: NEVER SILENTLY RELEASES AN OLD REJECTED UTR LOCK
+//     FOR REUSE BY ANOTHER PARTICIPANT.
 // ---------------------------------------------------------------------------
 export async function resubmitRejectedRegistrationUtr(params: {
   regDocId: string;
@@ -292,29 +469,8 @@ export async function resubmitRejectedRegistrationUtr(params: {
         needCreateNewLock = false;
       }
 
-      // 3. Determine if an old UTR lock owned by this same registration should be released
-      const oldUtrKey =
-        regData.transactionReferenceKey ||
-        (regData.transactionReference
-          ? await computeTransactionReferenceKey(regData.transactionReference)
-          : '');
-      let oldLockRefToDelete: ReturnType<typeof doc> | null = null;
-      if (oldUtrKey && oldUtrKey !== newUtrKey) {
-        const candidateOldRef = doc(db, PAYMENT_TRANSACTIONS_COLLECTION, oldUtrKey);
-        const oldLockSnap = await transaction.get(candidateOldRef);
-        if (oldLockSnap.exists()) {
-          const oldOwnerUpper = (
-            (oldLockSnap.data() as Partial<PaymentTransactionLockRecord>).registrationId || ''
-          )
-            .trim()
-            .toUpperCase();
-          if (oldOwnerUpper === regDocIdUpper) {
-            oldLockRefToDelete = candidateOldRef;
-          }
-        }
-      }
-
-      // 4. Commit all writes atomically
+      // 3. Commit new lock (if needed) and update registration atomically.
+      //    Intentionally keep the previous rejected UTR lock intact so it cannot be silently reused by another participant.
       if (needCreateNewLock) {
         const lockDoc: PaymentTransactionLockRecord = {
           id: newUtrKey,
@@ -324,10 +480,6 @@ export async function resubmitRejectedRegistrationUtr(params: {
           updatedAt: timestamp,
         };
         transaction.set(newLockRef, lockDoc);
-      }
-
-      if (oldLockRefToDelete) {
-        transaction.delete(oldLockRefToDelete);
       }
 
       transaction.update(regRef, {
@@ -347,10 +499,352 @@ export async function resubmitRejectedRegistrationUtr(params: {
       updatedAt: timestamp,
     };
   } catch (error) {
-    if (isDuplicateTransactionReferenceError(error)) {
+    if (isDuplicateTransactionReferenceError(error) || isDuplicateRecordError(error)) {
       throw error;
     }
     console.error('Error resubmitting rejected registration UTR:', error);
+    handleFirestoreError(error, OperationType.UPDATE, `registrations/${regDocId}`);
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 0C. ATOMIC REGISTRATION IDENTIFIER EDIT (PRESERVES UNCHANGED IDENTIFIERS,
+//     BLOCKS COLLISIONS, SWAPS LOCKS ATOMICALLY AFTER COMMIT, WRITES AUDIT LOG)
+// ---------------------------------------------------------------------------
+export async function updateRegistrationIdentifiers(params: {
+  regDocId: string;
+  updates: {
+    fullName?: string;
+    email?: string;
+    mobile?: string;
+    country?: string;
+    institution?: string;
+    transactionReference?: string;
+  };
+  adminEmail: string;
+  auditReason?: string;
+  releaseOldUtrAfterInvestigation?: boolean;
+}): Promise<RegistrationRecord> {
+  const regDocId = params.regDocId.trim();
+  if (!regDocId) {
+    throw new Error('Registration ID is required for editing.');
+  }
+
+  const regRef = doc(db, 'registrations', regDocId);
+  const nowIso = new Date().toISOString();
+
+  // Pre-read current document to compute deterministic keys for transaction reads
+  const preSnap = await getDoc(regRef);
+  if (!preSnap.exists()) {
+    throw new Error('Registration record not found.');
+  }
+  const preData = preSnap.data() as RegistrationRecord;
+
+  const nextFullName =
+    params.updates.fullName !== undefined
+      ? params.updates.fullName.trim().replace(/\s+/g, ' ')
+      : preData.fullName;
+  const nextCountry =
+    params.updates.country !== undefined
+      ? params.updates.country.trim()
+      : preData.country || 'India';
+  const nextEmail =
+    params.updates.email !== undefined ? params.updates.email.trim() : preData.email;
+  const nextMobile =
+    params.updates.mobile !== undefined ? params.updates.mobile.trim() : preData.mobile;
+  const nextInstitution =
+    params.updates.institution !== undefined
+      ? params.updates.institution.trim().replace(/\s+/g, ' ')
+      : preData.institution;
+  const nextUtr =
+    params.updates.transactionReference !== undefined
+      ? params.updates.transactionReference.trim()
+      : preData.transactionReference;
+
+  const nextNormEmail = normalizeEmail(nextEmail);
+  const nextNormMobile = normalizeMobileInternational(nextMobile, nextCountry);
+  const nextNormUtr = normalizeTransactionReference(nextUtr);
+  const nextNormName = normalizePersonName(nextFullName);
+
+  if (!nextNormEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextNormEmail)) {
+    throw new Error('Please provide a valid email address.');
+  }
+  if (!nextNormMobile || nextNormMobile.replace(/\D/g, '').length < 8) {
+    throw new Error('Please provide a valid mobile number.');
+  }
+  if (!nextNormUtr) {
+    throw new Error('Transaction / Reference Number cannot be empty.');
+  }
+
+  const oldNormEmail = normalizeEmail(preData.normalizedEmail || preData.email);
+  const oldNormMobile = normalizeMobileInternational(
+    preData.normalizedMobile || preData.mobile,
+    preData.country || 'India'
+  );
+  const oldNormUtr = normalizeTransactionReference(
+    preData.normalizedTransactionReference || preData.transactionReference
+  );
+
+  const utrChanged = nextNormUtr !== oldNormUtr;
+  if (utrChanged && (!params.auditReason || params.auditReason.trim().length < 5)) {
+    throw new Error(
+      'A documented investigation reason is required before modifying a payment UTR.'
+    );
+  }
+
+  const [
+    oldEmailKey,
+    newEmailKey,
+    oldMobileKey,
+    newMobileKey,
+    oldUtrKey,
+    newUtrKey,
+    newNameKey,
+  ] = await Promise.all([
+    preData.emailReservationKey
+      ? Promise.resolve(preData.emailReservationKey)
+      : oldNormEmail
+      ? computeEmailReservationKey(oldNormEmail)
+      : Promise.resolve(''),
+    computeEmailReservationKey(nextNormEmail),
+    preData.mobileReservationKey
+      ? Promise.resolve(preData.mobileReservationKey)
+      : oldNormMobile
+      ? computeMobileReservationKey(oldNormMobile, preData.country || 'India')
+      : Promise.resolve(''),
+    computeMobileReservationKey(nextNormMobile, nextCountry),
+    preData.transactionReferenceKey
+      ? Promise.resolve(preData.transactionReferenceKey)
+      : oldNormUtr
+      ? computeTransactionReferenceKey(oldNormUtr)
+      : Promise.resolve(''),
+    computeTransactionReferenceKey(nextNormUtr),
+    nextNormName.length >= 3 ? computeNameAdvisoryKey(nextNormName) : Promise.resolve(''),
+  ]);
+
+  const emailChanged = newEmailKey !== oldEmailKey;
+  const mobileChanged = newMobileKey !== oldMobileKey;
+  const regDocIdUpper = regDocId.toUpperCase();
+
+  try {
+    const updatedRecord = await runTransaction(db, async (transaction) => {
+      const regSnap = await transaction.get(regRef);
+      if (!regSnap.exists()) {
+        throw new Error('Registration record not found.');
+      }
+      const current = regSnap.data() as RegistrationRecord;
+
+      const newEmailRef = doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, newEmailKey);
+      const oldEmailRef = oldEmailKey
+        ? doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, oldEmailKey)
+        : null;
+      const newMobileRef = doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, newMobileKey);
+      const oldMobileRef = oldMobileKey
+        ? doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, oldMobileKey)
+        : null;
+      const newUtrRef = doc(db, PAYMENT_TRANSACTIONS_COLLECTION, newUtrKey);
+      const oldUtrRef = oldUtrKey ? doc(db, PAYMENT_TRANSACTIONS_COLLECTION, oldUtrKey) : null;
+
+      // Read all involved locks before performing any writes
+      const [
+        newEmailSnap,
+        oldEmailSnap,
+        newMobileSnap,
+        oldMobileSnap,
+        newUtrSnap,
+        oldUtrSnap,
+      ] = await Promise.all([
+        transaction.get(newEmailRef),
+        emailChanged && oldEmailRef ? transaction.get(oldEmailRef) : Promise.resolve(null),
+        transaction.get(newMobileRef),
+        mobileChanged && oldMobileRef ? transaction.get(oldMobileRef) : Promise.resolve(null),
+        transaction.get(newUtrRef),
+        utrChanged && oldUtrRef && params.releaseOldUtrAfterInvestigation
+          ? transaction.get(oldUtrRef)
+          : Promise.resolve(null),
+      ]);
+
+      // 1. Validate new Email reservation (allow own unchanged reservation; block anyone else's)
+      if (newEmailSnap.exists()) {
+        const owner = ((newEmailSnap.data() as Partial<UniquenessReservationRecord>).ownerId || '')
+          .trim()
+          .toUpperCase();
+        if (owner && owner !== regDocIdUpper) {
+          throw new DuplicateRecordError({
+            code: 'DUPLICATE_EMAIL',
+            field: 'email',
+            normalizedValue: nextNormEmail,
+            reservationKey: newEmailKey,
+            conflictingRecordId: (newEmailSnap.data() as Partial<UniquenessReservationRecord>).ownerId,
+          });
+        }
+      }
+
+      // 2. Validate new Mobile reservation
+      if (newMobileSnap.exists()) {
+        const owner = ((newMobileSnap.data() as Partial<UniquenessReservationRecord>).ownerId || '')
+          .trim()
+          .toUpperCase();
+        if (owner && owner !== regDocIdUpper) {
+          throw new DuplicateRecordError({
+            code: 'DUPLICATE_MOBILE',
+            field: 'mobile',
+            normalizedValue: nextNormMobile,
+            reservationKey: newMobileKey,
+            conflictingRecordId: (newMobileSnap.data() as Partial<UniquenessReservationRecord>).ownerId,
+          });
+        }
+      }
+
+      // 3. Validate new UTR reservation
+      if (newUtrSnap.exists()) {
+        const owner = ((newUtrSnap.data() as Partial<PaymentTransactionLockRecord>).registrationId || '')
+          .trim()
+          .toUpperCase();
+        if (owner && owner !== regDocIdUpper) {
+          throw new DuplicateTransactionReferenceError({
+            normalizedUtr: nextNormUtr,
+            utrKey: newUtrKey,
+            conflictingRegistrationId: (newUtrSnap.data() as Partial<PaymentTransactionLockRecord>)
+              .registrationId,
+          });
+        }
+      }
+
+      // 4. Write new/missing reservations atomically
+      if (!newEmailSnap.exists()) {
+        const emailDoc: UniquenessReservationRecord = {
+          id: newEmailKey,
+          type: 'email',
+          ownerId: regDocId,
+          ownerCollection: 'registrations',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        transaction.set(newEmailRef, emailDoc);
+      }
+
+      if (!newMobileSnap.exists()) {
+        const mobileDoc: UniquenessReservationRecord = {
+          id: newMobileKey,
+          type: 'mobile',
+          ownerId: regDocId,
+          ownerCollection: 'registrations',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        transaction.set(newMobileRef, mobileDoc);
+      }
+
+      if (!newUtrSnap.exists()) {
+        const utrDoc: PaymentTransactionLockRecord = {
+          id: newUtrKey,
+          normalizedTransactionReference: nextNormUtr,
+          registrationId: regDocId,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        transaction.set(newUtrRef, utrDoc);
+      }
+
+      // 5. Release old email/mobile reservations ONLY when changed AND strictly owned by this registration
+      if (emailChanged && oldEmailRef && oldEmailSnap?.exists()) {
+        const oldOwner = ((oldEmailSnap.data() as Partial<UniquenessReservationRecord>).ownerId || '')
+          .trim()
+          .toUpperCase();
+        if (oldOwner === regDocIdUpper) {
+          transaction.delete(oldEmailRef);
+        }
+      }
+
+      if (mobileChanged && oldMobileRef && oldMobileSnap?.exists()) {
+        const oldOwner = ((oldMobileSnap.data() as Partial<UniquenessReservationRecord>).ownerId || '')
+          .trim()
+          .toUpperCase();
+        if (oldOwner === regDocIdUpper) {
+          transaction.delete(oldMobileRef);
+        }
+      }
+
+      // Old UTR lock is NEVER released unless explicitly instructed after documented admin investigation
+      if (
+        utrChanged &&
+        params.releaseOldUtrAfterInvestigation &&
+        oldUtrRef &&
+        oldUtrSnap?.exists()
+      ) {
+        const oldOwner = (
+          (oldUtrSnap.data() as Partial<PaymentTransactionLockRecord>).registrationId || ''
+        )
+          .trim()
+          .toUpperCase();
+        if (oldOwner === regDocIdUpper) {
+          transaction.delete(oldUtrRef);
+        }
+      }
+
+      // 6. Commit updated registration fields
+      const patch: Partial<RegistrationRecord> = {
+        fullName: nextFullName,
+        ...(nextNormName ? { normalizedFullName: nextNormName } : {}),
+        ...(newNameKey ? { nameAdvisoryKey: newNameKey } : {}),
+        email: nextEmail,
+        normalizedEmail: nextNormEmail,
+        emailReservationKey: newEmailKey,
+        mobile: nextMobile,
+        normalizedMobile: nextNormMobile,
+        mobileReservationKey: newMobileKey,
+        country: nextCountry,
+        institution: nextInstitution,
+        transactionReference: nextUtr,
+        normalizedTransactionReference: nextNormUtr,
+        transactionReferenceKey: newUtrKey,
+        updatedAt: nowIso,
+      };
+      transaction.update(regRef, patch);
+
+      return {
+        ...current,
+        ...patch,
+      } as RegistrationRecord;
+    });
+
+    // Write immutable audit trail entry for identifier edit
+    try {
+      const auditId = `EDIT_REG_IDENT_${Date.now()}_${regDocId}`;
+      const changedFields: string[] = [];
+      if (emailChanged) changedFields.push(`email (${preData.email} -> ${nextEmail})`);
+      if (mobileChanged) changedFields.push(`mobile (${preData.mobile} -> ${nextMobile})`);
+      if (utrChanged)
+        changedFields.push(`UTR (${preData.transactionReference} -> ${nextUtr})`);
+      if (nextFullName !== preData.fullName)
+        changedFields.push(`name (${preData.fullName} -> ${nextFullName})`);
+      if (nextInstitution !== preData.institution)
+        changedFields.push(`institution updated`);
+
+      if (changedFields.length > 0) {
+        await setDoc(doc(db, 'adminAuditLogs', auditId), {
+          id: auditId,
+          adminEmail: params.adminEmail,
+          action: 'EDIT_REGISTRATION_IDENTIFIERS',
+          targetId: regDocId,
+          details: `Updated ${regDocId}: ${changedFields.join('; ')}.${
+            params.auditReason ? ` Reason: ${params.auditReason.trim()}` : ''
+          }`,
+          timestamp: nowIso,
+        });
+      }
+    } catch (auditErr) {
+      console.warn('[managementService] Non-fatal audit log warning on registration edit:', auditErr);
+    }
+
+    return updatedRecord;
+  } catch (error) {
+    if (isDuplicateTransactionReferenceError(error) || isDuplicateRecordError(error)) {
+      throw error;
+    }
+    console.error('Error updating registration identifiers:', error);
     handleFirestoreError(error, OperationType.UPDATE, `registrations/${regDocId}`);
     throw error;
   }
@@ -480,12 +974,19 @@ export async function verifyPaymentAndAllocateRegId(
 }
 
 // ---------------------------------------------------------------------------
-// 2. VERIFY REGISTRATION FOR ABSTRACT SUBMISSION (STRICT 1:1 ENFORCEMENT)
+// 2. VERIFY REGISTRATION FOR ABSTRACT SUBMISSION
+//    Validates Registration ID & allows genuinely different abstracts by the
+//    same participant while duplicate content/titles are blocked atomically.
 // ---------------------------------------------------------------------------
 export async function verifyRegistrationForAbstractSubmission(
   enteredRegId: string,
   enteredEmail?: string
-): Promise<{ valid: boolean; registration: RegistrationRecord; regDocId: string }> {
+): Promise<{
+  valid: boolean;
+  registration: RegistrationRecord;
+  regDocId: string;
+  existingAbstractIds: string[];
+}> {
   const cleanId = enteredRegId.trim().toUpperCase();
 
   if (!cleanId) {
@@ -514,25 +1015,27 @@ export async function verifyRegistrationForAbstractSubmission(
       }
     }
 
-    // Validation Check 3: Strict 1:1 check (Already submitted)
-    if (regData.linkedAbstractId || regData.abstractSubmitted) {
-      const linkedId = regData.linkedAbstractId || 'on record';
-      throw new Error(
-        `An abstract has already been submitted using Registration ID ${cleanId} (Abstract ID: ${linkedId}). Each registration is permitted exactly one abstract submission.`
-      );
-    }
+    // Collect any already-linked abstracts without blocking genuinely distinct new submissions
+    const existingAbstractIds = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(regData.linkedAbstractIds) ? regData.linkedAbstractIds : []),
+          ...(regData.linkedAbstractId ? [regData.linkedAbstractId] : []),
+        ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      )
+    );
 
     return {
       valid: true,
       registration: regData,
       regDocId: cleanId,
+      existingAbstractIds,
     };
   } catch (error: any) {
     if (
       error.message &&
       (error.message.includes('not found') ||
         error.message.includes('does not match') ||
-        error.message.includes('already been submitted') ||
         error.message.includes('Registration ID'))
     ) {
       throw error;
@@ -545,6 +1048,7 @@ export async function verifyRegistrationForAbstractSubmission(
 
 // ---------------------------------------------------------------------------
 // 3. ATOMIC ABSTRACT ID ALLOCATION & SUBMISSION (AICONDD-ABS-xxx)
+//    WITH ATOMIC CONTENT & TITLE+AUTHOR DUPLICATE PREVENTION
 // ---------------------------------------------------------------------------
 export async function submitAbstractWithAtomicId(params: {
   registrationId: string;
@@ -566,8 +1070,31 @@ export async function submitAbstractWithAtomicId(params: {
   supportingDocumentData?: string;
   recordType?: 'live' | 'test';
 }): Promise<string> {
+  const trimmedTitle = params.title.trim().replace(/\s+/g, ' ');
+  const trimmedContent = params.abstractContent.trim();
+  const normalizedTitle = normalizeAbstractTitle(trimmedTitle);
+  const normalizedContent = normalizeAbstractContent(trimmedContent);
+  const normalizedAuthorEmail = normalizeEmail(params.presentingAuthor.email);
+
+  if (!normalizedTitle) {
+    throw new Error('Title of the Abstract is required.');
+  }
+  if (!normalizedContent) {
+    throw new Error('Abstract content is required.');
+  }
+  if (!normalizedAuthorEmail) {
+    throw new Error('Presenting author email is required.');
+  }
+
+  const [abstractContentKey, abstractTitleAuthorKey] = await Promise.all([
+    computeAbstractContentReservationKey(normalizedContent),
+    computeAbstractTitleAuthorKey(normalizedTitle, normalizedAuthorEmail),
+  ]);
+
   const counterRef = doc(db, 'systemCounters', 'abstractCounter');
   const regRef = doc(db, 'registrations', params.regDocId);
+  const contentLockRef = doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, abstractContentKey);
+  const titleAuthorLockRef = doc(db, UNIQUENESS_RESERVATIONS_COLLECTION, abstractTitleAuthorKey);
 
   // Attempt optional supporting document storage outside the Firestore transaction
   let supportingDocumentUrl: string | undefined;
@@ -597,16 +1124,39 @@ export async function submitAbstractWithAtomicId(params: {
 
   try {
     const allocatedAbstractId = await runTransaction(db, async (transaction) => {
-      // 1. Verify registration again inside transaction to prevent race conditions
-      const regSnap = await transaction.get(regRef);
+      // 1. Atomically verify registration AND duplicate content / title+author reservations
+      //    BEFORE reading/incrementing the abstract sequence counter.
+      const [regSnap, contentLockSnap, titleAuthorLockSnap] = await Promise.all([
+        transaction.get(regRef),
+        transaction.get(contentLockRef),
+        transaction.get(titleAuthorLockRef),
+      ]);
+
       if (!regSnap.exists()) {
         throw new Error('Associated registration could not be found.');
       }
       const regData = regSnap.data() as RegistrationRecord;
-      if (regData.linkedAbstractId || regData.abstractSubmitted) {
-        throw new Error(
-          `An abstract has already been submitted for Registration ID ${params.registrationId}.`
-        );
+
+      if (contentLockSnap.exists()) {
+        const existingLock = contentLockSnap.data() as Partial<UniquenessReservationRecord>;
+        throw new DuplicateRecordError({
+          code: 'DUPLICATE_ABSTRACT_CONTENT',
+          field: 'abstractContent',
+          normalizedValue: normalizedContent.slice(0, 120),
+          reservationKey: abstractContentKey,
+          conflictingRecordId: existingLock.ownerId,
+        });
+      }
+
+      if (titleAuthorLockSnap.exists()) {
+        const existingLock = titleAuthorLockSnap.data() as Partial<UniquenessReservationRecord>;
+        throw new DuplicateRecordError({
+          code: 'DUPLICATE_ABSTRACT_TITLE',
+          field: 'abstractTitle',
+          normalizedValue: normalizedTitle,
+          reservationKey: abstractTitleAuthorKey,
+          conflictingRecordId: existingLock.ownerId,
+        });
       }
 
       // 2. Fetch abstract sequence counter
@@ -619,24 +1169,48 @@ export async function submitAbstractWithAtomicId(params: {
       // Format: AICONDD-ABS-001, AICONDD-ABS-002, etc.
       const newAbstractId = `AICONDD-ABS-${String(nextSeq).padStart(3, '0')}`;
       const abstractDocRef = doc(db, 'abstractSubmissions', newAbstractId);
+      const timestamp = new Date().toISOString();
 
       // 3. Increment counter
       transaction.set(
         counterRef,
         {
           lastSequenceNumber: nextSeq,
-          updatedAt: new Date().toISOString(),
+          updatedAt: timestamp,
         },
         { merge: true }
       );
 
-      // 4. Create abstract document
-      const timestamp = new Date().toISOString();
+      // 4. Claim atomic abstract content & title+author reservations
+      const contentLockDoc: UniquenessReservationRecord = {
+        id: abstractContentKey,
+        type: 'abstract_content',
+        ownerId: newAbstractId,
+        ownerCollection: 'abstractSubmissions',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      transaction.set(contentLockRef, contentLockDoc);
+
+      const titleAuthorLockDoc: UniquenessReservationRecord = {
+        id: abstractTitleAuthorKey,
+        type: 'abstract_title_author',
+        ownerId: newAbstractId,
+        ownerCollection: 'abstractSubmissions',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      transaction.set(titleAuthorLockRef, titleAuthorLockDoc);
+
+      // 5. Create abstract document
       const abstractData: AbstractRecord = {
         id: newAbstractId,
         registrationId: params.registrationId,
         registrationDocId: params.regDocId,
-        title: params.title.trim(),
+        title: trimmedTitle,
+        normalizedTitle,
+        abstractContentKey,
+        abstractTitleAuthorKey,
         trackId: params.trackId,
         presentationPreference: params.presentationPreference,
         presentationType: params.presentationPreference,
@@ -648,7 +1222,7 @@ export async function submitAbstractWithAtomicId(params: {
         },
         coAuthors: params.coAuthors,
         abstractContent: {
-          text: params.abstractContent.trim(),
+          text: trimmedContent,
         },
         keywords: params.keywords,
         ...(supportingDocumentName ? { supportingDocumentName } : {}),
@@ -665,11 +1239,22 @@ export async function submitAbstractWithAtomicId(params: {
 
       transaction.set(abstractDocRef, abstractData);
 
-      // 5. Update linked registration record
+      // 6. Update linked registration record (supports multiple distinct abstracts cleanly while preserving linkedAbstractId)
+      const prevIds = Array.from(
+        new Set(
+          [
+            ...(Array.isArray(regData.linkedAbstractIds) ? regData.linkedAbstractIds : []),
+            ...(regData.linkedAbstractId ? [regData.linkedAbstractId] : []),
+          ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        )
+      );
+      const nextLinkedIds = [...prevIds, newAbstractId];
+
       transaction.update(regRef, {
-        linkedAbstractId: newAbstractId,
+        linkedAbstractId: regData.linkedAbstractId || newAbstractId,
+        linkedAbstractIds: nextLinkedIds,
         abstractSubmitted: true,
-        abstractSubmissionDate: timestamp,
+        abstractSubmissionDate: regData.abstractSubmissionDate || timestamp,
         updatedAt: timestamp,
       });
 
@@ -678,6 +1263,9 @@ export async function submitAbstractWithAtomicId(params: {
 
     return allocatedAbstractId;
   } catch (error) {
+    if (isDuplicateRecordError(error)) {
+      throw error;
+    }
     console.error('Error allocating abstract ID and submitting:', error);
     handleFirestoreError(error, OperationType.WRITE, 'abstractSubmissions');
     throw error;
@@ -685,7 +1273,7 @@ export async function submitAbstractWithAtomicId(params: {
 }
 
 // ---------------------------------------------------------------------------
-// 4. DELETION LOGIC (SAFE UNLINKING & PRESERVING COUNTER NUMBERS)
+// 4. DELETION LOGIC (SAFE UNLINKING, OWNER-ONLY LOCK RELEASE & AUDIT TRAIL)
 // ---------------------------------------------------------------------------
 async function deleteEmailLogIdsSafely(logIds: string[]): Promise<void> {
   const uniqueIds = Array.from(
@@ -700,23 +1288,86 @@ async function deleteEmailLogIdsSafely(logIds: string[]): Promise<void> {
   }
 }
 
+async function releaseOwnedReservationSafely(
+  collectionName: string,
+  key: string,
+  expectedOwnerId: string,
+  ownerField: 'ownerId' | 'registrationId'
+): Promise<boolean> {
+  if (!key || !expectedOwnerId) return false;
+  try {
+    const ref = doc(db, collectionName, key);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return false;
+    const ownerVal = String((snap.data() as Record<string, unknown>)[ownerField] || '')
+      .trim()
+      .toUpperCase();
+    if (ownerVal === expectedOwnerId.trim().toUpperCase()) {
+      await deleteDoc(ref);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn(`[managementService] Non-fatal reservation release warning (${key}):`, err);
+    return false;
+  }
+}
+
 export async function deleteAbstractRecord(
   abstractId: string,
   registrationDocId?: string,
-  registrationId?: string
+  registrationId?: string,
+  adminEmail?: string
 ): Promise<void> {
   try {
-    // 1. Delete abstract document
+    // 1. Inspect abstract reservations before deleting so we only release locks owned by this abstract
+    let contentKeyToRelease = '';
+    let titleAuthorKeyToRelease = '';
+    try {
+      const absSnap = await getDoc(doc(db, 'abstractSubmissions', abstractId));
+      if (absSnap.exists()) {
+        const absData = absSnap.data() as Partial<AbstractRecord>;
+        const bodyText = extractAbstractBodyText(absData.abstractContent);
+        contentKeyToRelease =
+          absData.abstractContentKey ||
+          (bodyText ? await computeAbstractContentReservationKey(bodyText) : '');
+        titleAuthorKeyToRelease =
+          absData.abstractTitleAuthorKey ||
+          (absData.title && absData.presentingAuthor?.email
+            ? await computeAbstractTitleAuthorKey(absData.title, absData.presentingAuthor.email)
+            : '');
+      }
+    } catch (lookupErr) {
+      console.warn('[managementService] Non-fatal abstract reservation lookup warning:', lookupErr);
+    }
+
+    // 2. Delete abstract document
     await deleteDoc(doc(db, 'abstractSubmissions', abstractId));
 
-    // 2. Remove associated abstract email logs so stale notifications are not orphaned
+    // 3. Release abstract content & title+author locks ONLY if owned by this deleted abstract
+    await Promise.all([
+      releaseOwnedReservationSafely(
+        UNIQUENESS_RESERVATIONS_COLLECTION,
+        contentKeyToRelease,
+        abstractId,
+        'ownerId'
+      ),
+      releaseOwnedReservationSafely(
+        UNIQUENESS_RESERVATIONS_COLLECTION,
+        titleAuthorKeyToRelease,
+        abstractId,
+        'ownerId'
+      ),
+    ]);
+
+    // 4. Remove associated abstract email logs so stale notifications are not orphaned
     const absKey = abstractId.trim().toUpperCase();
     await deleteEmailLogIdsSafely([
       `EMAIL_ABS_SUBMITTED_${absKey}`,
       `EMAIL_ABS_ACCEPTED_${absKey}`,
     ]);
 
-    // 3. Unlink the registration document so the delegate can submit a replacement
+    // 5. Unlink only this abstract ID from the registration document (preserving any other distinct abstracts)
     let targetRegDocId = registrationDocId;
     if (!targetRegDocId && registrationId) {
       const q = query(
@@ -730,12 +1381,43 @@ export async function deleteAbstractRecord(
     }
 
     if (targetRegDocId) {
-      await updateDoc(doc(db, 'registrations', targetRegDocId), {
-        linkedAbstractId: null,
-        abstractSubmitted: false,
-        abstractSubmissionDate: null,
-        updatedAt: new Date().toISOString(),
-      });
+      const regRef = doc(db, 'registrations', targetRegDocId);
+      const regSnap = await getDoc(regRef);
+      if (regSnap.exists()) {
+        const regData = regSnap.data() as RegistrationRecord;
+        const remainingIds = (
+          Array.isArray(regData.linkedAbstractIds)
+            ? regData.linkedAbstractIds
+            : regData.linkedAbstractId
+            ? [regData.linkedAbstractId]
+            : []
+        ).filter((id) => id.trim().toUpperCase() !== absKey);
+
+        await updateDoc(regRef, {
+          linkedAbstractId: remainingIds[0] || null,
+          linkedAbstractIds: remainingIds,
+          abstractSubmitted: remainingIds.length > 0,
+          abstractSubmissionDate: remainingIds.length > 0 ? regData.abstractSubmissionDate || null : null,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    // 6. Write deletion audit entry
+    if (adminEmail) {
+      try {
+        const auditId = `DEL_ABS_${Date.now()}_${absKey}`;
+        await setDoc(doc(db, 'adminAuditLogs', auditId), {
+          id: auditId,
+          adminEmail,
+          action: 'DELETE_ABSTRACT_RECORD',
+          targetId: abstractId,
+          details: `Deleted abstract ${abstractId} (Linked Reg: ${registrationId || registrationDocId || 'N/A'}) and released its owned content/title reservations.`,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (auditErr) {
+        console.warn('[managementService] Non-fatal abstract deletion audit log warning:', auditErr);
+      }
     }
   } catch (error) {
     console.error('Error deleting abstract:', error);
@@ -748,25 +1430,17 @@ export async function deleteRegistrationRecord(
   regDocId: string,
   linkedAbstractId?: string | null,
   deleteLinkedAbstract: boolean = false,
-  registrationId?: string | null
+  registrationId?: string | null,
+  adminEmail?: string
 ): Promise<void> {
   try {
-    // 1. If linked abstract exists and user opted to delete it
-    if (linkedAbstractId && deleteLinkedAbstract) {
-      try {
-        await deleteDoc(doc(db, 'abstractSubmissions', linkedAbstractId));
-        const absKey = linkedAbstractId.trim().toUpperCase();
-        await deleteEmailLogIdsSafely([
-          `EMAIL_ABS_SUBMITTED_${absKey}`,
-          `EMAIL_ABS_ACCEPTED_${absKey}`,
-        ]);
-      } catch (e) {
-        console.warn('Could not delete linked abstract during registration deletion:', e);
-      }
-    }
-
-    // 1B. Inspect registration's UTR lock before deleting so we only release locks owned by this record
+    // 1. Inspect registration's owned reservations before deleting
     let utrKeyToRelease = '';
+    let emailKeyToRelease = '';
+    let mobileKeyToRelease = '';
+    let allLinkedAbstracts: string[] = linkedAbstractId ? [linkedAbstractId] : [];
+    let snapshotSummary = '';
+
     try {
       const existingRegSnap = await getDoc(doc(db, 'registrations', regDocId));
       if (existingRegSnap.exists()) {
@@ -776,35 +1450,65 @@ export async function deleteRegistrationRecord(
           (regData.transactionReference
             ? await computeTransactionReferenceKey(regData.transactionReference)
             : '');
+        emailKeyToRelease =
+          regData.emailReservationKey ||
+          (regData.email ? await computeEmailReservationKey(regData.email) : '');
+        mobileKeyToRelease =
+          regData.mobileReservationKey ||
+          (regData.mobile
+            ? await computeMobileReservationKey(regData.mobile, regData.country || 'India')
+            : '');
+        if (Array.isArray(regData.linkedAbstractIds)) {
+          allLinkedAbstracts = Array.from(
+            new Set([...allLinkedAbstracts, ...regData.linkedAbstractIds])
+          ).filter(Boolean);
+        }
+        snapshotSummary = `${regData.fullName || ''} (${regData.email || ''}, UTR: ${
+          regData.transactionReference || 'N/A'
+        })`;
       }
     } catch (lookupErr) {
-      console.warn('[managementService] Non-fatal UTR lock lookup warning before deletion:', lookupErr);
+      console.warn('[managementService] Non-fatal lock lookup warning before deletion:', lookupErr);
     }
 
-    // 2. Delete registration document
-    await deleteDoc(doc(db, 'registrations', regDocId));
-
-    // 2B. Release associated UTR lock ONLY if this deleted registration owned it
-    if (utrKeyToRelease) {
-      try {
-        const lockRef = doc(db, PAYMENT_TRANSACTIONS_COLLECTION, utrKeyToRelease);
-        const lockSnap = await getDoc(lockRef);
-        if (lockSnap.exists()) {
-          const lockOwner = (
-            (lockSnap.data() as Partial<PaymentTransactionLockRecord>).registrationId || ''
-          )
-            .trim()
-            .toUpperCase();
-          if (lockOwner === regDocId.trim().toUpperCase()) {
-            await deleteDoc(lockRef);
-          }
+    // 2. If linked abstract(s) exist and admin opted to delete them
+    if (deleteLinkedAbstract && allLinkedAbstracts.length > 0) {
+      for (const absId of allLinkedAbstracts) {
+        try {
+          await deleteAbstractRecord(absId, undefined, undefined, adminEmail);
+        } catch (e) {
+          console.warn(`Could not delete linked abstract ${absId} during registration deletion:`, e);
         }
-      } catch (lockErr) {
-        console.warn('[managementService] Non-fatal UTR lock cleanup warning:', lockErr);
       }
     }
 
-    // 3. Remove associated registration email logs so stale notifications are not orphaned
+    // 3. Delete registration document (counter is NEVER decremented; Registration ID is never reused)
+    await deleteDoc(doc(db, 'registrations', regDocId));
+
+    // 4. Release associated reservations ONLY if this deleted registration owned them
+    //    (Never touches reservations belonging to any other registration)
+    await Promise.all([
+      releaseOwnedReservationSafely(
+        PAYMENT_TRANSACTIONS_COLLECTION,
+        utrKeyToRelease,
+        regDocId,
+        'registrationId'
+      ),
+      releaseOwnedReservationSafely(
+        UNIQUENESS_RESERVATIONS_COLLECTION,
+        emailKeyToRelease,
+        regDocId,
+        'ownerId'
+      ),
+      releaseOwnedReservationSafely(
+        UNIQUENESS_RESERVATIONS_COLLECTION,
+        mobileKeyToRelease,
+        regDocId,
+        'ownerId'
+      ),
+    ]);
+
+    // 5. Remove associated registration email logs so stale notifications are not orphaned
     const regKeys = [regDocId, registrationId || '']
       .map((v) => v.trim().toUpperCase())
       .filter(Boolean);
@@ -813,6 +1517,23 @@ export async function deleteRegistrationRecord(
       `EMAIL_REG_CONFIRMED_${key}`,
     ]);
     await deleteEmailLogIdsSafely(regLogIds);
+
+    // 6. Write immutable cancellation/deletion audit trail entry preserving historical trace
+    if (adminEmail) {
+      try {
+        const auditId = `DEL_REG_${Date.now()}_${regDocId.trim().toUpperCase()}`;
+        await setDoc(doc(db, 'adminAuditLogs', auditId), {
+          id: auditId,
+          adminEmail,
+          action: 'DELETE_REGISTRATION_RECORD',
+          targetId: registrationId || regDocId,
+          details: `Admin deleted registration ${registrationId || regDocId} [${snapshotSummary}]. Registration ID counter preserved (ID never reused); owned email/mobile/UTR locks released.`,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (auditErr) {
+        console.warn('[managementService] Non-fatal registration deletion audit log warning:', auditErr);
+      }
+    }
   } catch (error) {
     console.error('Error deleting registration:', error);
     handleFirestoreError(error, OperationType.DELETE, `registrations/${regDocId}`);

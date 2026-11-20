@@ -21,24 +21,61 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function formatSeq3(n) {
+      return n is int && n >= 1
+        ? (n < 10 ? ('00' + string(n)) : (n < 100 ? ('0' + string(n)) : string(n)))
+        : '';
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;
     }
 
     // System Counters for Atomic Sequential ID Allocation
+    // Public registration/abstract transactions may ONLY monotonically increment lastSequenceNumber by +1;
+    // arbitrary values, decrements, resets, and deletions remain strictly admin-only.
     match /systemCounters/{counterId} {
       allow read: if true;
-      allow write: if isAdmin() || counterId == 'abstractCounter' || counterId == 'registrationCounter';
+      allow create: if (
+        counterId in ['abstractCounter', 'registrationCounter'] &&
+        request.resource.data.keys().hasAll(['lastSequenceNumber', 'updatedAt']) &&
+        request.resource.data.keys().hasOnly(['lastSequenceNumber', 'updatedAt']) &&
+        request.resource.data.lastSequenceNumber is int &&
+        request.resource.data.lastSequenceNumber == 1 &&
+        request.resource.data.updatedAt is string &&
+        request.resource.data.updatedAt.size() <= 50
+      ) || isAdmin();
+      allow update: if (
+        counterId in ['abstractCounter', 'registrationCounter'] &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSequenceNumber', 'updatedAt']) &&
+        request.resource.data.lastSequenceNumber is int &&
+        resource.data.lastSequenceNumber is int &&
+        request.resource.data.lastSequenceNumber == resource.data.lastSequenceNumber + 1 &&
+        request.resource.data.updatedAt is string &&
+        request.resource.data.updatedAt.size() <= 50
+      ) || isAdmin();
+      allow delete: if isAdmin();
     }
 
     // Abstract Submissions
-    // Public can create abstracts and look up their own abstract by ID for tracking
+    // Public can create abstracts atomically paired with monotonic counter + content + title/author uniqueness reservations
     match /abstractSubmissions/{abstractId} {
       allow create: if isValidId(abstractId) &&
-        request.resource.data.keys().hasAll(['id', 'registrationId', 'title', 'trackId', 'presentationPreference', 'presentingAuthor', 'status', 'createdAt']) &&
-        request.resource.data.title is string && request.resource.data.title.size() <= 500 &&
-        request.resource.data.registrationId is string && request.resource.data.registrationId.size() <= 50;
+        abstractId.matches('^AICONDD-ABS-[0-9]{3,}$') &&
+        request.resource.data.keys().hasAll([
+          'id', 'registrationId', 'title', 'abstractContentKey', 'abstractTitleAuthorKey',
+          'trackId', 'presentationPreference', 'presentingAuthor', 'status', 'createdAt'
+        ]) &&
+        request.resource.data.id == abstractId &&
+        request.resource.data.status == 'Submitted' &&
+        request.resource.data.title is string && request.resource.data.title.size() >= 3 && request.resource.data.title.size() <= 500 &&
+        request.resource.data.registrationId is string && request.resource.data.registrationId.size() <= 50 &&
+        isValidReservationKey(request.resource.data.abstractContentKey, 'abstract_content') &&
+        isValidReservationKey(request.resource.data.abstractTitleAuthorKey, 'abstract_title_author') &&
+        abstractId == 'AICONDD-ABS-' + formatSeq3(getAfter(/databases/$(database)/documents/systemCounters/abstractCounter).data.lastSequenceNumber) &&
+        getAfter(/databases/$(database)/documents/uniquenessReservations/$(request.resource.data.abstractContentKey)).data.ownerId == abstractId &&
+        getAfter(/databases/$(database)/documents/uniquenessReservations/$(request.resource.data.abstractTitleAuthorKey)).data.ownerId == abstractId;
 
       allow get: if isValidId(abstractId);
       allow list: if isAdmin();
@@ -68,60 +105,166 @@ service cloud.firestore {
       // Exact-key lookup allows privacy-preserving real-time UTR availability checks without enumerating records
       allow get: if isValidId(utrKey);
       allow list: if isAdmin();
-      // Atomic uniqueness guarantee: cannot overwrite an existing UTR lock; public creates must pair atomically with a registration write
+      // Atomic uniqueness guarantee: allow create only fires when document does not yet exist;
+      // public creates must pair atomically with a registration write referencing this exact utrKey
       allow create: if isValidUtrKey(utrKey) &&
         isValidPaymentTransactionLock(request.resource.data, utrKey) &&
-        !exists(/databases/$(database)/documents/paymentTransactions/$(utrKey)) &&
         (
           isAdmin() ||
-          (
-            existsAfter(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)) &&
-            getAfter(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.transactionReferenceKey == utrKey
-          )
+          getAfter(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.transactionReferenceKey == utrKey
         );
       allow update: if isAdmin() &&
         isValidUtrKey(utrKey) &&
         isValidPaymentTransactionLock(request.resource.data, utrKey);
-      // Admins may delete locks on record deletion/reset; rejected registrations may atomically release their old lock only when replacing it with a new key
-      allow delete: if isValidId(utrKey) && (
-        isAdmin() ||
-        (
-          exists(/databases/$(database)/documents/registrations/$(resource.data.registrationId)) &&
-          get(/databases/$(database)/documents/registrations/$(resource.data.registrationId)).data.paymentStatus == 'Rejected' &&
-          getAfter(/databases/$(database)/documents/registrations/$(resource.data.registrationId)).data.transactionReferenceKey != utrKey
-        )
+      // STRICT POLICY: Rejected or pending registrations can NEVER silently free a UTR for another participant.
+      // Only authenticated Organising Secretary admins may release a UTR lock after documented investigation/deletion.
+      allow delete: if isAdmin() && isValidId(utrKey);
+    }
+
+    // Unified PII-Free Atomic Uniqueness Reservations (Email, International Mobile, Name Advisory, Abstract Content/Title)
+    function isValidReservationKey(key, type) {
+      return key is string && (
+        (type == 'email' && key.matches('^EMAIL_[a-f0-9]{64}$')) ||
+        (type == 'mobile' && key.matches('^MOBILE_[a-f0-9]{64}$')) ||
+        (type == 'name' && key.matches('^NAME_[a-f0-9]{64}$')) ||
+        (type == 'abstract_content' && key.matches('^ABS_CONTENT_[a-f0-9]{64}$')) ||
+        (type == 'abstract_title_author' && key.matches('^ABS_TITLE_AUTHOR_[a-f0-9]{64}$'))
       );
     }
 
-    // Registrations
-    // Public can create with initial 'Pending Verification' and 'Awaiting Approval' only alongside an atomic unique UTR lock
-    // Public can get their own registration by ID (no public list to protect PII)
-    // Admins can list, update verification, assign registrationId, and delete
-    match /registrations/{registrationId} {
-      allow create: if isValidId(registrationId) &&
-        request.resource.data.keys().hasAll([
-          'id', 'fullName', 'email', 'mobile', 'institution', 'category',
+    function isValidUniquenessReservation(data, key) {
+      return data.keys().hasAll(['id', 'type', 'ownerId', 'ownerCollection', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id', 'type', 'ownerId', 'ownerCollection',
+          'registrationIdsCount', 'institutionHashes', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == key &&
+        data.type in ['email', 'mobile', 'name', 'abstract_content', 'abstract_title_author'] &&
+        isValidReservationKey(key, data.type) &&
+        isValidId(data.ownerId) &&
+        data.ownerCollection in ['registrations', 'abstractSubmissions'] &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.updatedAt is string && data.updatedAt.size() <= 50 &&
+        (!('registrationIdsCount' in data) || (data.registrationIdsCount is int && data.registrationIdsCount >= 1 && data.registrationIdsCount <= 10000)) &&
+        (!('institutionHashes' in data) || (data.institutionHashes is list && data.institutionHashes.size() <= 50));
+    }
+
+    match /uniquenessReservations/{reservationKey} {
+      // Exact-key get allows zero-PII real-time duplicate checks without listing participant records
+      allow get: if isValidId(reservationKey);
+      allow list: if isAdmin();
+
+      // Atomic create: allow create only fires when document does not yet exist;
+      // public writes must pair atomically with their owning record
+      allow create: if isValidUniquenessReservation(request.resource.data, reservationKey) &&
+        (
+          isAdmin() ||
+          (
+            request.resource.data.type == 'email' &&
+            request.resource.data.ownerCollection == 'registrations' &&
+            getAfter(/databases/$(database)/documents/registrations/$(request.resource.data.ownerId)).data.emailReservationKey == reservationKey
+          ) ||
+          (
+            request.resource.data.type == 'mobile' &&
+            request.resource.data.ownerCollection == 'registrations' &&
+            getAfter(/databases/$(database)/documents/registrations/$(request.resource.data.ownerId)).data.mobileReservationKey == reservationKey
+          ) ||
+          (
+            request.resource.data.type == 'name' &&
+            request.resource.data.ownerCollection == 'registrations' &&
+            getAfter(/databases/$(database)/documents/registrations/$(request.resource.data.ownerId)).data.nameAdvisoryKey == reservationKey
+          ) ||
+          (
+            request.resource.data.type == 'abstract_content' &&
+            request.resource.data.ownerCollection == 'abstractSubmissions' &&
+            getAfter(/databases/$(database)/documents/abstractSubmissions/$(request.resource.data.ownerId)).data.abstractContentKey == reservationKey
+          ) ||
+          (
+            request.resource.data.type == 'abstract_title_author' &&
+            request.resource.data.ownerCollection == 'abstractSubmissions' &&
+            getAfter(/databases/$(database)/documents/abstractSubmissions/$(request.resource.data.ownerId)).data.abstractTitleAuthorKey == reservationKey
+          )
+        );
+
+      // Admins may update; public transactions may only increment non-blocking 'name' advisory records paired with a new registration
+      allow update: if isValidUniquenessReservation(request.resource.data, reservationKey) && (
+        isAdmin() ||
+        (
+          resource.data.type == 'name' &&
+          request.resource.data.type == 'name' &&
+          request.resource.data.ownerCollection == 'registrations' &&
+          request.resource.data.registrationIdsCount is int &&
+          (!('registrationIdsCount' in resource.data) || request.resource.data.registrationIdsCount >= resource.data.registrationIdsCount) &&
+          getAfter(/databases/$(database)/documents/registrations/$(request.resource.data.ownerId)).data.nameAdvisoryKey == reservationKey
+        )
+      );
+
+      // Strict policy: only authenticated Organising Secretary admins may release reservations on edit/deletion/reset
+      allow delete: if isAdmin() && isValidId(reservationKey);
+    }
+
+    // Registration create validation helper
+    // Enforces mandatory fields, valid reservation key formats, safe initial status, and blocks forged admin verification metadata
+    function isValidRegistrationCreate(data, registrationId) {
+      return isValidId(registrationId) &&
+        registrationId.matches('^AICONDD[0-9]{3,}$') &&
+        data.keys().hasAll([
+          'id', 'registrationId', 'fullName', 'email', 'normalizedEmail', 'emailReservationKey',
+          'mobile', 'normalizedMobile', 'mobileReservationKey',
+          'institution', 'category',
           'transactionReference', 'normalizedTransactionReference', 'transactionReferenceKey',
           'paymentStatus', 'registrationStatus', 'createdAt'
         ]) &&
-        request.resource.data.id == registrationId &&
-        request.resource.data.fullName is string && request.resource.data.fullName.size() <= 200 &&
-        request.resource.data.email is string && request.resource.data.email.size() <= 150 &&
-        request.resource.data.transactionReference is string && request.resource.data.transactionReference.size() >= 1 && request.resource.data.transactionReference.size() <= 120 &&
-        request.resource.data.normalizedTransactionReference is string && request.resource.data.normalizedTransactionReference.size() >= 1 && request.resource.data.normalizedTransactionReference.size() <= 120 &&
-        isValidUtrKey(request.resource.data.transactionReferenceKey) &&
-        request.resource.data.paymentStatus in ['Pending Verification', 'Under Verification'] &&
-        request.resource.data.registrationStatus == 'Awaiting Approval' &&
-        existsAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)) &&
-        getAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)).data.registrationId == registrationId;
+        data.id == registrationId &&
+        data.registrationId == registrationId &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 200 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 150 &&
+        data.normalizedEmail is string && data.normalizedEmail.size() >= 3 && data.normalizedEmail.size() <= 150 &&
+        isValidReservationKey(data.emailReservationKey, 'email') &&
+        data.mobile is string && data.mobile.size() >= 6 && data.mobile.size() <= 40 &&
+        data.normalizedMobile is string && data.normalizedMobile.size() >= 8 && data.normalizedMobile.size() <= 32 &&
+        isValidReservationKey(data.mobileReservationKey, 'mobile') &&
+        data.institution is string && data.institution.size() >= 1 && data.institution.size() <= 250 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 150 &&
+        data.transactionReference is string && data.transactionReference.size() >= 1 && data.transactionReference.size() <= 120 &&
+        data.normalizedTransactionReference is string && data.normalizedTransactionReference.size() >= 1 && data.normalizedTransactionReference.size() <= 120 &&
+        isValidUtrKey(data.transactionReferenceKey) &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.paymentStatus in ['Pending Verification', 'Under Verification'] &&
+        data.registrationStatus == 'Awaiting Approval' &&
+        (!('verifiedBy' in data) || data.verifiedBy == null) &&
+        (!('verifiedAt' in data) || data.verifiedAt == null) &&
+        (!('adminRemarks' in data) || data.adminRemarks == '' || data.adminRemarks == null) &&
+        (!('duplicateUtrExceptionApproved' in data) || data.duplicateUtrExceptionApproved == false) &&
+        !('duplicateUtrExceptionReason' in data) &&
+        !('duplicateUtrExceptionApprovedBy' in data) &&
+        !('duplicateUtrExceptionApprovedAt' in data);
+    }
+
+    // Registrations
+    // Public (or any signed-in user testing the public form) can create ONLY with:
+    // - validated mandatory fields & unverified initial status,
+    // - exact next monotonic Registration ID allocated from systemCounters/registrationCounter,
+    // - atomic unique Email, Mobile & UTR locks created in the same transaction.
+    // Public can get their own registration by ID (no public list to protect PII).
+    // Admins can list, update verification/approval status, edit identifiers atomically, and delete.
+    match /registrations/{registrationId} {
+      allow create: if isValidRegistrationCreate(request.resource.data, registrationId) &&
+        registrationId == 'AICONDD' + formatSeq3(getAfter(/databases/$(database)/documents/systemCounters/registrationCounter).data.lastSequenceNumber) &&
+        getAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)).data.registrationId == registrationId &&
+        getAfter(/databases/$(database)/documents/uniquenessReservations/$(request.resource.data.emailReservationKey)).data.ownerId == registrationId &&
+        getAfter(/databases/$(database)/documents/uniquenessReservations/$(request.resource.data.mobileReservationKey)).data.ownerId == registrationId;
 
       allow get: if isValidId(registrationId);
       allow list: if isAdmin();
       allow update: if isAdmin() || (
-        // Allow abstract submission transaction to update linkedAbstractId and abstractSubmitted
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedAbstractId', 'abstractSubmitted', 'abstractSubmissionDate', 'updatedAt'])
+        // Allow abstract submission transaction to link abstract ID(s) to the participant's registration
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'linkedAbstractId', 'linkedAbstractIds', 'abstractSubmitted', 'abstractSubmissionDate', 'updatedAt'
+        ])
       ) || (
         // Allow participant to resubmit transaction ref if status was Rejected, enforcing atomic UTR uniqueness
+        // (Old rejected UTR lock is NEVER silently deleted for reuse by another participant)
         resource.data.paymentStatus == 'Rejected' &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'transactionReference', 'normalizedTransactionReference', 'transactionReferenceKey',
@@ -131,7 +274,6 @@ service cloud.firestore {
         request.resource.data.transactionReference is string && request.resource.data.transactionReference.size() >= 1 && request.resource.data.transactionReference.size() <= 120 &&
         request.resource.data.normalizedTransactionReference is string && request.resource.data.normalizedTransactionReference.size() >= 1 && request.resource.data.normalizedTransactionReference.size() <= 120 &&
         isValidUtrKey(request.resource.data.transactionReferenceKey) &&
-        existsAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)) &&
         getAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)).data.registrationId == registrationId
       );
       allow delete: if isAdmin();

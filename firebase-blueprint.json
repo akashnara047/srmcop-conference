@@ -8,6 +8,9 @@
         "id": { "type": "string", "description": "Unique Abstract ID (e.g. AICONDD-ABS-001)" },
         "registrationId": { "type": "string", "description": "Linked Verified Registration ID (e.g. AICONDD001)" },
         "title": { "type": "string", "maxLength": 400, "description": "Title of the scientific abstract" },
+        "normalizedTitle": { "type": "string", "maxLength": 400, "description": "Normalized abstract title for duplicate checks" },
+        "abstractContentKey": { "type": "string", "maxLength": 128, "pattern": "^ABS_CONTENT_[a-f0-9]{64}$", "description": "Deterministic SHA-256 lock ID for normalized abstract content" },
+        "abstractTitleAuthorKey": { "type": "string", "maxLength": 128, "pattern": "^ABS_TITLE_AUTHOR_[a-f0-9]{64}$", "description": "Deterministic SHA-256 lock ID for normalized author email + title" },
         "trackId": { "type": "string", "description": "Scientific track identifier" },
         "presentationPreference": { "type": "string", "enum": ["Oral Presentation", "Poster Presentation", "E-Poster Presentation"] },
         "presentingAuthor": {
@@ -32,7 +35,7 @@
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "registrationId", "title", "trackId", "presentationPreference", "presentingAuthor", "status", "createdAt"]
+      "required": ["id", "registrationId", "title", "abstractContentKey", "abstractTitleAuthorKey", "trackId", "presentationPreference", "presentingAuthor", "status", "createdAt"]
     },
     "Registration": {
       "title": "Registration",
@@ -42,8 +45,16 @@
         "id": { "type": "string", "description": "Internal document ID (e.g. REG-1741...)" },
         "registrationId": { "type": "string", "description": "Official Registration ID (e.g. AICONDD001), generated sequentially upon registration submission" },
         "fullName": { "type": "string", "maxLength": 150 },
+        "normalizedFullName": { "type": "string", "maxLength": 150, "description": "Normalized participant name used strictly for duplicate warning comparisons" },
+        "nameAdvisoryKey": { "type": "string", "maxLength": 128, "pattern": "^NAME_[a-f0-9]{64}$" },
+        "possibleDuplicateNameFlag": { "type": "boolean", "description": "True when submitted with a similar name to an existing registration but distinct verified contact details" },
+        "duplicateNameMatchLevel": { "type": "string", "enum": ["none", "similar_name", "same_name_and_institution"] },
         "email": { "type": "string", "format": "email" },
+        "normalizedEmail": { "type": "string", "maxLength": 150, "description": "Trimmed lowercase email for atomic uniqueness enforcement" },
+        "emailReservationKey": { "type": "string", "maxLength": 128, "pattern": "^EMAIL_[a-f0-9]{64}$" },
         "mobile": { "type": "string", "maxLength": 25 },
+        "normalizedMobile": { "type": "string", "maxLength": 32, "description": "Canonical international E.164 mobile number including country code" },
+        "mobileReservationKey": { "type": "string", "maxLength": 128, "pattern": "^MOBILE_[a-f0-9]{64}$" },
         "institution": { "type": "string", "maxLength": 250 },
         "city": { "type": "string", "maxLength": 100 },
         "country": { "type": "string", "maxLength": 100 },
@@ -58,14 +69,15 @@
         "specialRequirements": { "type": "string" },
         "paymentMode": { "type": "string" },
         "transactionReference": { "type": "string", "maxLength": 120 },
-        "normalizedTransactionReference": { "type": "string", "maxLength": 120, "description": "Trimmed, case-normalized UTR / transaction reference for duplicate detection" },
+        "normalizedTransactionReference": { "type": "string", "maxLength": 120, "description": "Space-stripped uppercase UTR / transaction reference for duplicate detection" },
         "transactionReferenceKey": { "type": "string", "maxLength": 128, "pattern": "^UTR_[a-f0-9]{64}$", "description": "Deterministic SHA-256 lock document ID in /paymentTransactions" },
         "amount": { "type": "number" },
         "paymentReceiptName": { "type": "string" },
         "paymentReceiptData": { "type": "string" },
         "paymentStatus": { "type": "string", "enum": ["Pending Verification", "Under Verification", "Verified", "Rejected"] },
         "registrationStatus": { "type": "string", "enum": ["Awaiting Approval", "Approved", "Rejected"] },
-        "linkedAbstractId": { "type": "string", "description": "Assigned Abstract ID if participant submitted one" },
+        "linkedAbstractId": { "type": "string", "description": "Primary linked Abstract ID if participant submitted one" },
+        "linkedAbstractIds": { "type": "array", "description": "All distinct Abstract IDs linked to this participant registration" },
         "abstractSubmitted": { "type": "boolean" },
         "abstractSubmissionDate": { "type": "string", "format": "date-time" },
         "recordType": { "type": "string", "enum": ["live", "test"] },
@@ -79,7 +91,7 @@
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "fullName", "email", "mobile", "institution", "category", "transactionReference", "normalizedTransactionReference", "transactionReferenceKey", "paymentStatus", "registrationStatus", "createdAt"]
+      "required": ["id", "fullName", "email", "normalizedEmail", "emailReservationKey", "mobile", "normalizedMobile", "mobileReservationKey", "institution", "category", "transactionReference", "normalizedTransactionReference", "transactionReferenceKey", "paymentStatus", "registrationStatus", "createdAt"]
     },
     "SystemCounter": {
       "title": "SystemCounter",
@@ -223,6 +235,22 @@
         "updatedAt": { "type": "string", "format": "date-time", "maxLength": 50 }
       },
       "required": ["id", "normalizedTransactionReference", "registrationId", "createdAt", "updatedAt"]
+    },
+    "UniquenessReservation": {
+      "title": "UniquenessReservation",
+      "description": "PII-free atomic uniqueness lock and name-advisory index preventing duplicate emails, international mobile numbers, and repeated identical abstract submissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^(EMAIL|MOBILE|NAME|ABS_CONTENT|ABS_TITLE_AUTHOR)_[a-f0-9]{64}$" },
+        "type": { "type": "string", "enum": ["email", "mobile", "name", "abstract_content", "abstract_title_author"] },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerCollection": { "type": "string", "enum": ["registrations", "abstractSubmissions"] },
+        "registrationIdsCount": { "type": "number" },
+        "institutionHashes": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 50 }
+      },
+      "required": ["id", "type", "ownerId", "ownerCollection", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -241,6 +269,10 @@
     "/paymentTransactions/{utrKey}": {
       "schema": "PaymentTransactionLock",
       "description": "Atomic uniqueness locks preventing duplicate UTR / payment transaction ID submissions"
+    },
+    "/uniquenessReservations/{reservationKey}": {
+      "schema": "UniquenessReservation",
+      "description": "PII-free atomic uniqueness reservations for email, international mobile, name advisory warnings, and abstract content/title deduplication"
     },
     "/contactEnquiries/{enquiryId}": {
       "schema": "ContactEnquiry",

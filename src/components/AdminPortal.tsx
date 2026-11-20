@@ -57,9 +57,15 @@ import {
   Building2,
   Database,
   Utensils,
+  Columns,
 } from 'lucide-react';
 import { AdminHospitalityManager } from './AdminHospitalityManager';
 import { AdminBackupManager } from './AdminBackupManager';
+import {
+  DuplicateComparisonModal,
+  type ComparisonModalTarget,
+} from './DuplicateComparisonModal';
+import { EditRegistrationIdentifiersPanel } from './EditRegistrationIdentifiersPanel';
 import {
   AUTHORIZED_ADMIN_EMAILS,
   isAuthorizedAdminUser,
@@ -86,9 +92,11 @@ import {
 import {
   analyzeDuplicateTransactionReferences,
   getConflictingRegistrationsForRecord,
-  normalizeTransactionReference,
-  syncMissingPaymentTransactionLocks,
 } from '../lib/utrValidationService';
+import {
+  runFullDuplicateAudit,
+  syncMissingUniquenessReservations,
+} from '../lib/duplicatePreventionService';
 import {
   exportAllAbstractsToWord,
   ABSTRACT_WORD_FILENAME,
@@ -215,15 +223,23 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [absToDelete, setAbsToDelete] = useState<AbstractRecord | null>(null);
   const [deleteBothLinked, setDeleteBothLinked] = useState(true);
 
-  // Duplicate UTR Audit Filter & Authorised Exception Modal State
-  const [showDuplicateUtrsOnly, setShowDuplicateUtrsOnly] = useState(false);
+  // Comprehensive Duplicate & Data Integrity Audit Filter, Comparison Modal & Exception State
+  type RegDuplicateFilterValue =
+    | 'all'
+    | 'any_flagged'
+    | 'duplicate_utr'
+    | 'duplicate_contact'
+    | 'similar_name';
+  const [regDuplicateFilter, setRegDuplicateFilter] = useState<RegDuplicateFilterValue>('all');
+  const [showFlaggedAbstractsOnly, setShowFlaggedAbstractsOnly] = useState(false);
+  const [comparisonTarget, setComparisonTarget] = useState<ComparisonModalTarget | null>(null);
   const [duplicateExceptionTarget, setDuplicateExceptionTarget] = useState<{
     reg: RegistrationRecord;
     conflicts: RegistrationRecord[];
   } | null>(null);
   const [duplicateExceptionConfirmed, setDuplicateExceptionConfirmed] = useState(false);
   const [duplicateExceptionReason, setDuplicateExceptionReason] = useState('');
-  const syncedUtrLockKeysRef = useRef<Set<string>>(new Set());
+  const syncedUniquenessSignatureRef = useRef<string>('');
 
   // Settings / Password update
   const [newPasswordInput, setNewPasswordInput] = useState('');
@@ -327,7 +343,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       setAbsSnapshotReady(false);
       setEmailLogsSnapshotReady(false);
       cleanedOrphanedLogIdsRef.current.clear();
-      syncedUtrLockKeysRef.current.clear();
+      syncedUniquenessSignatureRef.current = '';
       return;
     }
 
@@ -431,35 +447,26 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     });
   }, [isAdminAuth, regsSnapshotReady, absSnapshotReady, emailLogsSnapshotReady, emailLogs, registrations, abstracts]);
 
-  // Idempotent, non-destructive backfill of missing /paymentTransactions/{utrKey} locks
-  // so legacy registrations are covered by real-time public duplicate UTR checks without altering existing records
+  // Idempotent, non-destructive backfill of missing /paymentTransactions and /uniquenessReservations
+  // so legacy registrations & abstracts are covered by real-time duplicate checks without altering records
   useEffect(() => {
-    if (!isAdminAuth || !regsSnapshotReady || registrations.length === 0) {
+    if (!isAdminAuth || !regsSnapshotReady || !absSnapshotReady) {
+      return;
+    }
+    if (registrations.length === 0 && abstracts.length === 0) {
       return;
     }
 
-    const pendingToIndex = registrations.filter((reg) => {
-      const norm = normalizeTransactionReference(
-        reg.normalizedTransactionReference || reg.transactionReference
-      );
-      if (!norm) return false;
-      const syncKey = `${reg.id}::${norm}`;
-      return !syncedUtrLockKeysRef.current.has(syncKey);
-    });
-
-    if (pendingToIndex.length === 0) return;
-
-    for (const reg of pendingToIndex) {
-      const norm = normalizeTransactionReference(
-        reg.normalizedTransactionReference || reg.transactionReference
-      );
-      if (norm) {
-        syncedUtrLockKeysRef.current.add(`${reg.id}::${norm}`);
-      }
+    const syncSig = `${registrations.map((r) => `${r.id}:${r.updatedAt || ''}`).join('|')}##${abstracts
+      .map((a) => `${a.id}:${a.updatedAt || ''}`)
+      .join('|')}`;
+    if (syncSig === syncedUniquenessSignatureRef.current) {
+      return;
     }
+    syncedUniquenessSignatureRef.current = syncSig;
 
-    void syncMissingPaymentTransactionLocks(pendingToIndex);
-  }, [isAdminAuth, regsSnapshotReady, registrations]);
+    void syncMissingUniquenessReservations(registrations, abstracts);
+  }, [isAdminAuth, regsSnapshotReady, absSnapshotReady, registrations, abstracts]);
 
   // Handle Org. Secretary Login
   const handleOrgSecretaryLogin = async (e: React.FormEvent) => {
@@ -554,18 +561,34 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     setIsAdminAuth(false);
   };
 
-  // Full-database Duplicate UTR analysis (scans ALL registrations regardless of status or active UI filters)
+  // Full-database Duplicate UTR & Comprehensive Data Integrity Audit
+  // (scans ALL registrations and ALL abstracts across every status regardless of active UI filters)
   const duplicateUtrAnalysis = useMemo(
     () => analyzeDuplicateTransactionReferences(registrations),
     [registrations]
   );
 
+  const fullDuplicateAudit = useMemo(
+    () => runFullDuplicateAudit(registrations, abstracts),
+    [registrations, abstracts]
+  );
+
   // Payment Verification Handler: Generates AICONDDxxx atomically & dispatches Event 2 email
-  // Blocks direct verification if a duplicate UTR exists unless an explicit authorised exception is provided
+  // Hard-blocks duplicate Registration IDs (no exception permitted); blocks duplicate UTRs unless authorised exception is logged
   const handleVerifyPayment = async (
     reg: RegistrationRecord,
     duplicateException?: DuplicateUtrExceptionPayload
   ) => {
+    const regFlags = fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || [];
+    const dupRegIdGroup = regFlags.find((g) => g.type === 'duplicate_reg_id');
+    if (dupRegIdGroup) {
+      setActionSuccessMsg(
+        `Verification blocked: Registration ID "${reg.registrationId || reg.id}" is duplicated across multiple records. Exceptions are never permitted for duplicate Registration IDs.`
+      );
+      setComparisonTarget({ kind: 'registration', group: dupRegIdGroup });
+      return;
+    }
+
     const conflicts = getConflictingRegistrationsForRecord(
       reg,
       registrations,
@@ -822,14 +845,16 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     if (!regToDelete) return;
     setProcessingAction(true);
     try {
+      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
       await deleteRegistrationRecord(
         regToDelete.id,
         regToDelete.linkedAbstractId,
         deleteBothLinked,
-        regToDelete.registrationId
+        regToDelete.registrationId,
+        adminIdentity
       );
       setRegToDelete(null);
-      setActionSuccessMsg('Registration record successfully deleted.');
+      setActionSuccessMsg('Registration record successfully deleted and logged to audit trail.');
     } catch (err: any) {
       console.error('Error deleting registration:', err);
       alert('Error deleting registration from Firestore.');
@@ -843,10 +868,12 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     if (!absToDelete) return;
     setProcessingAction(true);
     try {
+      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
       await deleteAbstractRecord(
         absToDelete.id,
         absToDelete.registrationDocId,
-        absToDelete.registrationId
+        absToDelete.registrationId,
+        adminIdentity
       );
       setAbsToDelete(null);
       setActionSuccessMsg(
@@ -1165,8 +1192,24 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       regFoodPreferenceFilter
     );
 
-    const matchesDuplicateUtr =
-      !showDuplicateUtrsOnly || duplicateUtrAnalysis.conflictingRecordIds.has(r.id);
+    const regFlags = fullDuplicateAudit.registrationFlagsByDocId.get(r.id) || [];
+    const matchesDuplicateFilter =
+      regDuplicateFilter === 'all'
+        ? true
+        : regDuplicateFilter === 'any_flagged'
+        ? regFlags.length > 0
+        : regDuplicateFilter === 'duplicate_utr'
+        ? duplicateUtrAnalysis.conflictingRecordIds.has(r.id)
+        : regDuplicateFilter === 'duplicate_contact'
+        ? regFlags.some(
+            (g) =>
+              g.type === 'duplicate_reg_id' ||
+              g.type === 'duplicate_email' ||
+              g.type === 'duplicate_mobile'
+          )
+        : regFlags.some(
+            (g) => g.type === 'similar_name' || g.type === 'same_name_institution'
+          );
 
     return (
       matchesSearch &&
@@ -1175,7 +1218,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       matchesInstitution &&
       matchesParticipationMode &&
       matchesFoodPreference &&
-      matchesDuplicateUtr
+      matchesDuplicateFilter
     );
   });
 
@@ -1277,7 +1320,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       matchesDashboardCard = presentationMetrics.eposterAllottedAbstractIdSet.has(a.id);
     }
 
-    return matchesSearch && matchesStatus && matchesTrack && matchesInstitution && matchesDashboardCard;
+    const matchesFlaggedAbstracts =
+      !showFlaggedAbstractsOnly || fullDuplicateAudit.flaggedAbstractDocIds.has(a.id);
+
+    return (
+      matchesSearch &&
+      matchesStatus &&
+      matchesTrack &&
+      matchesInstitution &&
+      matchesDashboardCard &&
+      matchesFlaggedAbstracts
+    );
   });
 
   // Roster rows used when a registration-inclusive presentation filter is active
@@ -2163,46 +2216,150 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
               </div>
 
-              {/* Duplicate UTR / Payment Transaction ID Audit Alert (scans ALL Firestore registrations) */}
-              {duplicateUtrAnalysis.totalDuplicateGroups > 0 && (
-                <div className="bg-red-50/90 border border-red-200 rounded-xl p-4 shadow-2xs space-y-2.5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              {/* Comprehensive Registration Data Integrity & Duplicate Audit Panel (scans ALL Firestore registrations) */}
+              {fullDuplicateAudit.totalRegistrationIssues > 0 && (
+                <div className="bg-red-50/85 border border-red-200 rounded-xl p-4 shadow-2xs space-y-3">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
                     <div className="flex items-start gap-2.5">
                       <div className="w-8 h-8 rounded-lg bg-red-100 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
                         <AlertTriangle className="w-4 h-4" />
                       </div>
                       <div>
-                        <h3 className="text-xs sm:text-sm font-bold text-red-900">
-                          Duplicate Payment Transaction IDs Detected ({duplicateUtrAnalysis.totalDuplicateGroups} UTR{duplicateUtrAnalysis.totalDuplicateGroups === 1 ? '' : 's'} · {duplicateUtrAnalysis.totalAffectedRecords} Registrations)
+                        <h3 className="text-xs sm:text-sm font-bold text-red-950">
+                          Registration Data Integrity Alerts ({fullDuplicateAudit.totalRegistrationIssues} Group{fullDuplicateAudit.totalRegistrationIssues === 1 ? '' : 's'} · {fullDuplicateAudit.flaggedRegistrationDocIds.size} Registration{fullDuplicateAudit.flaggedRegistrationDocIds.size === 1 ? '' : 's'} Flagged)
                         </h3>
-                        <p className="text-[11px] text-red-800/90 mt-0.5 leading-relaxed">
-                          Existing records are preserved intact. Direct verification is automatically blocked on duplicate UTRs unless the Organising Secretary completes the Authorised Exception process.
+                        <p className="text-[11px] text-red-900/85 mt-0.5 leading-relaxed">
+                          Existing records are preserved intact and never auto-deleted. Duplicate Registration IDs cannot be approved; compare flagged records side-by-side before taking audited action.
                         </p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowDuplicateUtrsOnly((prev) => !prev)}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer shrink-0 border ${
-                        showDuplicateUtrsOnly
-                          ? 'bg-red-700 text-white border-red-800 hover:bg-red-800'
-                          : 'bg-white text-red-700 border-red-300 hover:bg-red-100/70'
-                      }`}
-                    >
-                      {showDuplicateUtrsOnly ? 'Showing Duplicate UTRs · Clear Filter' : 'Filter Duplicate UTRs'}
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-0.5">
-                    {duplicateUtrAnalysis.duplicateGroups.map((group) => (
-                      <div
-                        key={group.normalizedUtr}
-                        className="text-[11px] bg-white border border-red-200/90 rounded-lg px-2.5 py-1 flex items-center gap-1.5"
+
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRegDuplicateFilter((prev) =>
+                            prev === 'any_flagged' ? 'all' : 'any_flagged'
+                          )
+                        }
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer border ${
+                          regDuplicateFilter === 'any_flagged'
+                            ? 'bg-red-700 text-white border-red-800'
+                            : 'bg-white text-red-700 border-red-300 hover:bg-red-100/70'
+                        }`}
                       >
-                        <span className="font-mono font-bold text-red-800">{group.displayUtr}</span>
-                        <span className="text-slate-400">→</span>
+                        All Flagged ({fullDuplicateAudit.flaggedRegistrationDocIds.size})
+                      </button>
+                      {fullDuplicateAudit.duplicateUtrGroups.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRegDuplicateFilter((prev) =>
+                              prev === 'duplicate_utr' ? 'all' : 'duplicate_utr'
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer border ${
+                            regDuplicateFilter === 'duplicate_utr'
+                              ? 'bg-red-700 text-white border-red-800'
+                              : 'bg-white text-red-700 border-red-300 hover:bg-red-100/70'
+                          }`}
+                        >
+                          Repeated UTR ({fullDuplicateAudit.duplicateUtrGroups.length})
+                        </button>
+                      )}
+                      {(fullDuplicateAudit.duplicateRegistrationIdGroups.length > 0 ||
+                        fullDuplicateAudit.duplicateEmailGroups.length > 0 ||
+                        fullDuplicateAudit.duplicateMobileGroups.length > 0) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRegDuplicateFilter((prev) =>
+                              prev === 'duplicate_contact' ? 'all' : 'duplicate_contact'
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer border ${
+                            regDuplicateFilter === 'duplicate_contact'
+                              ? 'bg-red-700 text-white border-red-800'
+                              : 'bg-white text-red-700 border-red-300 hover:bg-red-100/70'
+                          }`}
+                        >
+                          ID / Email / Mobile (
+                          {fullDuplicateAudit.duplicateRegistrationIdGroups.length +
+                            fullDuplicateAudit.duplicateEmailGroups.length +
+                            fullDuplicateAudit.duplicateMobileGroups.length}
+                          )
+                        </button>
+                      )}
+                      {fullDuplicateAudit.similarNameGroups.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRegDuplicateFilter((prev) =>
+                              prev === 'similar_name' ? 'all' : 'similar_name'
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer border ${
+                            regDuplicateFilter === 'similar_name'
+                              ? 'bg-amber-700 text-white border-amber-800'
+                              : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100/70'
+                          }`}
+                        >
+                          Similar Names ({fullDuplicateAudit.similarNameGroups.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick metric breakdown */}
+                  <div className="flex flex-wrap gap-2 text-[10.5px] font-semibold">
+                    <span className="px-2 py-0.5 rounded bg-white border border-red-200 text-red-800">
+                      Duplicate Reg IDs: {fullDuplicateAudit.duplicateRegistrationIdGroups.length}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-white border border-red-200 text-red-800">
+                      Duplicate Emails: {fullDuplicateAudit.duplicateEmailGroups.length}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-white border border-red-200 text-red-800">
+                      Duplicate Mobiles: {fullDuplicateAudit.duplicateMobileGroups.length}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-white border border-red-200 text-red-800">
+                      Repeated UTRs: {fullDuplicateAudit.duplicateUtrGroups.length}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-white border border-amber-200 text-amber-900">
+                      Similar / Same Names: {fullDuplicateAudit.similarNameGroups.length}
+                    </span>
+                  </div>
+
+                  {/* Clickable groups with Side-by-Side Comparison */}
+                  <div className="flex flex-wrap gap-2 pt-0.5">
+                    {fullDuplicateAudit.allRegistrationGroups.map((group) => (
+                      <div
+                        key={group.groupId}
+                        className={`text-[11px] bg-white rounded-lg px-2.5 py-1.5 flex flex-wrap items-center gap-2 border ${
+                          group.severity === 'critical'
+                            ? 'border-red-200/90'
+                            : 'border-amber-200/90'
+                        }`}
+                      >
+                        <span
+                          className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                            group.severity === 'critical'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
+                          {group.label}
+                        </span>
                         <span className="font-mono text-slate-700">
                           {group.records.map((r) => r.registrationId || r.id).join(', ')}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => setComparisonTarget({ kind: 'registration', group })}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold cursor-pointer"
+                        >
+                          <Columns className="w-3 h-3" />
+                          <span>Compare</span>
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -2281,7 +2438,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   regInstitutionFilter !== 'all' ||
                   regParticipationModeFilter !== 'all' ||
                   regFoodPreferenceFilter !== 'all' ||
-                  showDuplicateUtrsOnly) && (
+                  regDuplicateFilter !== 'all') && (
                   <button
                     type="button"
                     onClick={() => {
@@ -2291,7 +2448,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       setRegInstitutionFilter('all');
                       setRegParticipationModeFilter('all');
                       setRegFoodPreferenceFilter('all');
-                      setShowDuplicateUtrsOnly(false);
+                      setRegDuplicateFilter('all');
                     }}
                     className="px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer inline-flex items-center gap-1"
                   >
@@ -2361,7 +2518,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               <div className="text-[11px] text-slate-500 leading-snug">
                                 {reg.institution}
                               </div>
-                              <div className="mt-1 flex items-center gap-1.5">
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {normalizeInstitutionCategory(reg.institutionCategory) ? (
                                   <span
                                     className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
@@ -2390,6 +2547,31 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                     <option value="external">External</option>
                                   </select>
                                 )}
+
+                                {/* Non-UTR Duplicate & Similar-Name Audit Badges */}
+                                {(fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || [])
+                                  .filter((g) => g.type !== 'duplicate_utr')
+                                  .map((flagGroup) => (
+                                    <button
+                                      key={flagGroup.groupId}
+                                      type="button"
+                                      onClick={() =>
+                                        setComparisonTarget({
+                                          kind: 'registration',
+                                          group: flagGroup,
+                                        })
+                                      }
+                                      title="Click to compare flagged records side by side"
+                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold border cursor-pointer ${
+                                        flagGroup.severity === 'critical'
+                                          ? 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
+                                          : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                      }`}
+                                    >
+                                      <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                                      <span>{flagGroup.label}</span>
+                                    </button>
+                                  ))}
                               </div>
                             </td>
 
@@ -2434,15 +2616,27 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 const conflictIds = conflicts
                                   .map((c) => c.registrationId || c.id)
                                   .join(', ');
+                                const utrGroup = (
+                                  fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || []
+                                ).find((g) => g.type === 'duplicate_utr');
                                 return (
                                   <div className="mt-1 space-y-1 font-sans">
-                                    <span
-                                      title={`Duplicate UTR detected. Matches: ${conflictIds}`}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 text-[10px] font-bold"
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (utrGroup) {
+                                          setComparisonTarget({
+                                            kind: 'registration',
+                                            group: utrGroup,
+                                          });
+                                        }
+                                      }}
+                                      title={`Duplicate UTR detected. Click to compare side by side. Matches: ${conflictIds}`}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-800 border border-red-300 text-[10px] font-bold cursor-pointer"
                                     >
-                                      <AlertTriangle className="w-3 h-3 shrink-0" />
+                                      <Columns className="w-3 h-3 shrink-0" />
                                       <span>Duplicate UTR ({conflicts.length + 1})</span>
-                                    </span>
+                                    </button>
                                     <div className="text-[10px] text-red-700 font-mono whitespace-normal max-w-[200px]">
                                       Matches: {conflictIds}
                                     </div>
@@ -3228,6 +3422,75 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 )}
               </div>
 
+              {/* Suspected Duplicate Abstracts Data Integrity Panel */}
+              {fullDuplicateAudit.totalAbstractIssues > 0 && (
+                <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-4 shadow-2xs space-y-2.5">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-xs sm:text-sm font-bold text-amber-950">
+                          Suspected Duplicate Abstracts Detected ({fullDuplicateAudit.totalAbstractIssues} Group{fullDuplicateAudit.totalAbstractIssues === 1 ? '' : 's'} · {fullDuplicateAudit.flaggedAbstractDocIds.size} Abstract{fullDuplicateAudit.flaggedAbstractDocIds.size === 1 ? '' : 's'})
+                        </h3>
+                        <p className="text-[11px] text-amber-900/85 mt-0.5 leading-relaxed">
+                          Flags duplicate Abstract IDs, repeated titles, and identical or substantially similar abstract content (&ge;70% overlap). Distinct abstracts by the same author or collaborative papers sharing co-authors are never flagged.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowFlaggedAbstractsOnly((prev) => !prev)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer shrink-0 border ${
+                        showFlaggedAbstractsOnly
+                          ? 'bg-amber-700 text-white border-amber-800'
+                          : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100/70'
+                      }`}
+                    >
+                      {showFlaggedAbstractsOnly
+                        ? 'Showing Flagged Abstracts · Clear'
+                        : `Filter Flagged Abstracts (${fullDuplicateAudit.flaggedAbstractDocIds.size})`}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {fullDuplicateAudit.allAbstractGroups.map((group) => (
+                      <div
+                        key={group.groupId}
+                        className={`text-[11px] bg-white rounded-lg px-2.5 py-1.5 flex flex-wrap items-center gap-2 border ${
+                          group.severity === 'critical'
+                            ? 'border-red-200'
+                            : 'border-amber-200'
+                        }`}
+                      >
+                        <span
+                          className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                            group.severity === 'critical'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
+                          {group.label}
+                        </span>
+                        <span className="font-mono text-slate-700">
+                          {group.records.map((a) => a.id).join(', ')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setComparisonTarget({ kind: 'abstract', group })}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold cursor-pointer"
+                        >
+                          <Columns className="w-3 h-3" />
+                          <span>Compare</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Filter and Search Bar */}
               <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row gap-3">
                 <div className="relative flex-1">
@@ -3522,6 +3785,36 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 <div className="font-semibold text-slate-900 leading-snug">
                                   {abs.title}
                                 </div>
+                                {(() => {
+                                  const absFlags =
+                                    fullDuplicateAudit.abstractFlagsByDocId.get(abs.id) || [];
+                                  if (absFlags.length === 0) return null;
+                                  return (
+                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                      {absFlags.map((flagGroup) => (
+                                        <button
+                                          key={flagGroup.groupId}
+                                          type="button"
+                                          onClick={() =>
+                                            setComparisonTarget({
+                                              kind: 'abstract',
+                                              group: flagGroup,
+                                            })
+                                          }
+                                          title="Click to compare suspected duplicate abstracts side by side"
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold border cursor-pointer ${
+                                            flagGroup.severity === 'critical'
+                                              ? 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
+                                              : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                          }`}
+                                        >
+                                          <Columns className="w-2.5 h-2.5 shrink-0" />
+                                          <span>{flagGroup.label}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </td>
 
                               {/* Track */}
@@ -4426,6 +4719,18 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   );
                 })()}
               </div>
+
+              {/* Atomic Participant Identity / Contact Details Editor */}
+              <EditRegistrationIdentifiersPanel
+                registration={selectedReg}
+                adminEmail={user?.email || 'org.secy.cp@srmist.edu.in'}
+                onUpdated={(updated) => {
+                  setSelectedReg(updated);
+                  setActionSuccessMsg(
+                    `Updated participant identity/contact details for ${updated.registrationId || updated.id} with atomic uniqueness checks.`
+                  );
+                }}
+              />
 
               {/* Email Notification Status Panel */}
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
@@ -5619,6 +5924,26 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           </div>
         </div>
       )}
+
+      {/* ===================================================================== */}
+      {/* MODAL 6: SIDE-BY-SIDE DUPLICATE COMPARISON MODAL */}
+      {/* ===================================================================== */}
+      <DuplicateComparisonModal
+        target={comparisonTarget}
+        onClose={() => setComparisonTarget(null)}
+        onInspectRegistration={(reg) => {
+          setSelectedReg(reg);
+          setActionRemarks(reg.adminRemarks || '');
+        }}
+        onInspectAbstract={(abs) => {
+          setSelectedAbs(abs);
+          setActionRemarks(abs.reviewNotes || '');
+          setAllottedFormatSelection(
+            abs.allottedPresentationFormat || abs.finalPresentationFormat || ''
+          );
+          setAllocationSavedSuccess(false);
+        }}
+      />
     </div>
   );
 };

@@ -899,6 +899,7 @@ export async function executeFullDatabaseBackup(
 
   // Fetch secondary/other conference collections
   const otherCollectionNames = [
+    'paymentTransactions',
     'contactEnquiries',
     'emailLogs',
     'accommodationProperties',

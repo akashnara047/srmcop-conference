@@ -408,6 +408,7 @@ export async function executeTrialRunReset(
   const [
     regDocs,
     absDocs,
+    paymentTxDocs,
     emailDocs,
     regCounterBefore,
     absCounterBefore,
@@ -415,6 +416,7 @@ export async function executeTrialRunReset(
   ] = await Promise.all([
     fetchAllCollectionDocs('registrations'),
     fetchAllCollectionDocs('abstractSubmissions'),
+    fetchAllCollectionDocs('paymentTransactions'),
     fetchAllCollectionDocs('emailLogs'),
     readCounterSeq('registrationCounter'),
     readCounterSeq('abstractCounter'),
@@ -467,6 +469,10 @@ export async function executeTrialRunReset(
   const abstractsDeleted = await deleteDocRefsInBatches(
     absDocs.map((d) => d.ref),
     'abstractSubmissions'
+  );
+  await deleteDocRefsInBatches(
+    paymentTxDocs.map((d) => d.ref),
+    'paymentTransactions'
   );
 
   // Best-effort cleanup of referenced Firebase Storage objects (non-fatal)

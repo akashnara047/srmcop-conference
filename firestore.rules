@@ -45,17 +45,75 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // Payment Transaction Reference (UTR) Atomic Uniqueness Locks
+    // PII-free lock registry preventing duplicate UTR / payment transaction IDs across all registrations
+    function isValidUtrKey(utrKey) {
+      return utrKey is string && utrKey.matches('^UTR_[a-f0-9]{64}$');
+    }
+
+    function isValidPaymentTransactionLock(data, utrKey) {
+      return data.keys().hasAll(['id', 'normalizedTransactionReference', 'registrationId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'normalizedTransactionReference', 'registrationId', 'createdAt', 'updatedAt']) &&
+        data.id == utrKey &&
+        isValidUtrKey(utrKey) &&
+        data.normalizedTransactionReference is string &&
+        data.normalizedTransactionReference.size() >= 1 &&
+        data.normalizedTransactionReference.size() <= 120 &&
+        isValidId(data.registrationId) &&
+        data.createdAt is string && data.createdAt.size() <= 50 &&
+        data.updatedAt is string && data.updatedAt.size() <= 50;
+    }
+
+    match /paymentTransactions/{utrKey} {
+      // Exact-key lookup allows privacy-preserving real-time UTR availability checks without enumerating records
+      allow get: if isValidId(utrKey);
+      allow list: if isAdmin();
+      // Atomic uniqueness guarantee: cannot overwrite an existing UTR lock; public creates must pair atomically with a registration write
+      allow create: if isValidUtrKey(utrKey) &&
+        isValidPaymentTransactionLock(request.resource.data, utrKey) &&
+        !exists(/databases/$(database)/documents/paymentTransactions/$(utrKey)) &&
+        (
+          isAdmin() ||
+          (
+            existsAfter(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)) &&
+            getAfter(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.transactionReferenceKey == utrKey
+          )
+        );
+      allow update: if isAdmin() &&
+        isValidUtrKey(utrKey) &&
+        isValidPaymentTransactionLock(request.resource.data, utrKey);
+      // Admins may delete locks on record deletion/reset; rejected registrations may atomically release their old lock only when replacing it with a new key
+      allow delete: if isValidId(utrKey) && (
+        isAdmin() ||
+        (
+          exists(/databases/$(database)/documents/registrations/$(resource.data.registrationId)) &&
+          get(/databases/$(database)/documents/registrations/$(resource.data.registrationId)).data.paymentStatus == 'Rejected' &&
+          getAfter(/databases/$(database)/documents/registrations/$(resource.data.registrationId)).data.transactionReferenceKey != utrKey
+        )
+      );
+    }
+
     // Registrations
-    // Public can create with initial 'Pending Verification' and 'Awaiting Approval'
-    // Public can get their own registration by ID (or query by email/ID for tracking)
+    // Public can create with initial 'Pending Verification' and 'Awaiting Approval' only alongside an atomic unique UTR lock
+    // Public can get their own registration by ID (no public list to protect PII)
     // Admins can list, update verification, assign registrationId, and delete
     match /registrations/{registrationId} {
       allow create: if isValidId(registrationId) &&
-        request.resource.data.keys().hasAll(['id', 'fullName', 'email', 'mobile', 'institution', 'category', 'transactionReference', 'paymentStatus', 'registrationStatus', 'createdAt']) &&
+        request.resource.data.keys().hasAll([
+          'id', 'fullName', 'email', 'mobile', 'institution', 'category',
+          'transactionReference', 'normalizedTransactionReference', 'transactionReferenceKey',
+          'paymentStatus', 'registrationStatus', 'createdAt'
+        ]) &&
+        request.resource.data.id == registrationId &&
         request.resource.data.fullName is string && request.resource.data.fullName.size() <= 200 &&
         request.resource.data.email is string && request.resource.data.email.size() <= 150 &&
+        request.resource.data.transactionReference is string && request.resource.data.transactionReference.size() >= 1 && request.resource.data.transactionReference.size() <= 120 &&
+        request.resource.data.normalizedTransactionReference is string && request.resource.data.normalizedTransactionReference.size() >= 1 && request.resource.data.normalizedTransactionReference.size() <= 120 &&
+        isValidUtrKey(request.resource.data.transactionReferenceKey) &&
         request.resource.data.paymentStatus in ['Pending Verification', 'Under Verification'] &&
-        request.resource.data.registrationStatus == 'Awaiting Approval';
+        request.resource.data.registrationStatus == 'Awaiting Approval' &&
+        existsAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)) &&
+        getAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)).data.registrationId == registrationId;
 
       allow get: if isValidId(registrationId);
       allow list: if isAdmin();
@@ -63,10 +121,18 @@ service cloud.firestore {
         // Allow abstract submission transaction to update linkedAbstractId and abstractSubmitted
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedAbstractId', 'abstractSubmitted', 'abstractSubmissionDate', 'updatedAt'])
       ) || (
-        // Allow participant to resubmit transaction ref if status was Rejected
+        // Allow participant to resubmit transaction ref if status was Rejected, enforcing atomic UTR uniqueness
         resource.data.paymentStatus == 'Rejected' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['transactionReference', 'paymentReceiptName', 'paymentReceiptData', 'paymentStatus', 'updatedAt']) &&
-        request.resource.data.paymentStatus == 'Pending Verification'
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'transactionReference', 'normalizedTransactionReference', 'transactionReferenceKey',
+          'paymentReceiptName', 'paymentReceiptData', 'paymentStatus', 'updatedAt'
+        ]) &&
+        request.resource.data.paymentStatus == 'Pending Verification' &&
+        request.resource.data.transactionReference is string && request.resource.data.transactionReference.size() >= 1 && request.resource.data.transactionReference.size() <= 120 &&
+        request.resource.data.normalizedTransactionReference is string && request.resource.data.normalizedTransactionReference.size() >= 1 && request.resource.data.normalizedTransactionReference.size() <= 120 &&
+        isValidUtrKey(request.resource.data.transactionReferenceKey) &&
+        existsAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)) &&
+        getAfter(/databases/$(database)/documents/paymentTransactions/$(request.resource.data.transactionReferenceKey)).data.registrationId == registrationId
       );
       allow delete: if isAdmin();
     }

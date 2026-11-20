@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   collection,
   onSnapshot,
@@ -67,6 +67,7 @@ import {
 import {
   RegistrationRecord,
   AbstractRecord,
+  DuplicateUtrExceptionPayload,
   verifyPaymentAndAllocateRegId,
   deleteAbstractRecord,
   deleteRegistrationRecord,
@@ -82,6 +83,12 @@ import {
   createAbstractSubmissionAckPreviewUrl,
   createAbstractAcceptanceLetterPreviewUrl,
 } from '../lib/managementService';
+import {
+  analyzeDuplicateTransactionReferences,
+  getConflictingRegistrationsForRecord,
+  normalizeTransactionReference,
+  syncMissingPaymentTransactionLocks,
+} from '../lib/utrValidationService';
 import {
   exportAllAbstractsToWord,
   ABSTRACT_WORD_FILENAME,
@@ -109,6 +116,8 @@ import {
   EMAIL_EVENT_LABELS,
   type EmailEventType,
   type EmailLogRecord,
+  cleanupOrphanedFailedEmailLogs,
+  findOrphanedFailedEmailLogs,
   getAbstractAcceptedEventId,
   getAbstractSubmittedEventId,
   getRegistrationConfirmedEventId,
@@ -148,6 +157,10 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
   const [abstracts, setAbstracts] = useState<AbstractRecord[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLogRecord[]>([]);
+  const [regsSnapshotReady, setRegsSnapshotReady] = useState(false);
+  const [absSnapshotReady, setAbsSnapshotReady] = useState(false);
+  const [emailLogsSnapshotReady, setEmailLogsSnapshotReady] = useState(false);
+  const cleanedOrphanedLogIdsRef = useRef<Set<string>>(new Set());
   const [retryingEmailEventId, setRetryingEmailEventId] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(true);
 
@@ -201,6 +214,16 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [regToDelete, setRegToDelete] = useState<RegistrationRecord | null>(null);
   const [absToDelete, setAbsToDelete] = useState<AbstractRecord | null>(null);
   const [deleteBothLinked, setDeleteBothLinked] = useState(true);
+
+  // Duplicate UTR Audit Filter & Authorised Exception Modal State
+  const [showDuplicateUtrsOnly, setShowDuplicateUtrsOnly] = useState(false);
+  const [duplicateExceptionTarget, setDuplicateExceptionTarget] = useState<{
+    reg: RegistrationRecord;
+    conflicts: RegistrationRecord[];
+  } | null>(null);
+  const [duplicateExceptionConfirmed, setDuplicateExceptionConfirmed] = useState(false);
+  const [duplicateExceptionReason, setDuplicateExceptionReason] = useState('');
+  const syncedUtrLockKeysRef = useRef<Set<string>>(new Set());
 
   // Settings / Password update
   const [newPasswordInput, setNewPasswordInput] = useState('');
@@ -299,9 +322,19 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
   // Real-time Firestore streaming when authenticated
   useEffect(() => {
-    if (!isAdminAuth) return;
+    if (!isAdminAuth) {
+      setRegsSnapshotReady(false);
+      setAbsSnapshotReady(false);
+      setEmailLogsSnapshotReady(false);
+      cleanedOrphanedLogIdsRef.current.clear();
+      syncedUtrLockKeysRef.current.clear();
+      return;
+    }
 
     setLoadingData(true);
+    setRegsSnapshotReady(false);
+    setAbsSnapshotReady(false);
+    setEmailLogsSnapshotReady(false);
 
     // 1. Stream Registrations
     const regUnsub = onSnapshot(
@@ -314,6 +347,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         // Sort newest first
         list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         setRegistrations(list);
+        setRegsSnapshotReady(true);
         setLoadingData(false);
       },
       (error) => {
@@ -333,6 +367,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         })) as AbstractRecord[];
         list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         setAbstracts(list);
+        setAbsSnapshotReady(true);
       },
       (error) => {
         console.error('Error streaming abstracts:', error);
@@ -354,6 +389,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
             new Date(a.lastAttemptedAt || a.createdAt || a.timestamp || 0).getTime()
         );
         setEmailLogs(list);
+        setEmailLogsSnapshotReady(true);
       },
       (error) => {
         console.error('Error streaming email logs:', error);
@@ -367,6 +403,63 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       emailUnsub();
     };
   }, [isAdminAuth]);
+
+  // Automatically remove obsolete orphaned failed email logs from Firestore once
+  // all three collections have hydrated (preserves Sent logs and any logs for existing records)
+  useEffect(() => {
+    if (!isAdminAuth || !regsSnapshotReady || !absSnapshotReady || !emailLogsSnapshotReady) {
+      return;
+    }
+
+    const orphaned = findOrphanedFailedEmailLogs({
+      emailLogs,
+      registrations,
+      abstracts,
+    }).filter((log) => !cleanedOrphanedLogIdsRef.current.has((log.id || log.eventId || '').trim()));
+
+    if (orphaned.length === 0) return;
+
+    for (const log of orphaned) {
+      const id = (log.id || log.eventId || '').trim();
+      if (id) cleanedOrphanedLogIdsRef.current.add(id);
+    }
+
+    void cleanupOrphanedFailedEmailLogs({
+      emailLogs: orphaned,
+      registrations,
+      abstracts,
+    });
+  }, [isAdminAuth, regsSnapshotReady, absSnapshotReady, emailLogsSnapshotReady, emailLogs, registrations, abstracts]);
+
+  // Idempotent, non-destructive backfill of missing /paymentTransactions/{utrKey} locks
+  // so legacy registrations are covered by real-time public duplicate UTR checks without altering existing records
+  useEffect(() => {
+    if (!isAdminAuth || !regsSnapshotReady || registrations.length === 0) {
+      return;
+    }
+
+    const pendingToIndex = registrations.filter((reg) => {
+      const norm = normalizeTransactionReference(
+        reg.normalizedTransactionReference || reg.transactionReference
+      );
+      if (!norm) return false;
+      const syncKey = `${reg.id}::${norm}`;
+      return !syncedUtrLockKeysRef.current.has(syncKey);
+    });
+
+    if (pendingToIndex.length === 0) return;
+
+    for (const reg of pendingToIndex) {
+      const norm = normalizeTransactionReference(
+        reg.normalizedTransactionReference || reg.transactionReference
+      );
+      if (norm) {
+        syncedUtrLockKeysRef.current.add(`${reg.id}::${norm}`);
+      }
+    }
+
+    void syncMissingPaymentTransactionLocks(pendingToIndex);
+  }, [isAdminAuth, regsSnapshotReady, registrations]);
 
   // Handle Org. Secretary Login
   const handleOrgSecretaryLogin = async (e: React.FormEvent) => {
@@ -461,8 +554,31 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     setIsAdminAuth(false);
   };
 
+  // Full-database Duplicate UTR analysis (scans ALL registrations regardless of status or active UI filters)
+  const duplicateUtrAnalysis = useMemo(
+    () => analyzeDuplicateTransactionReferences(registrations),
+    [registrations]
+  );
+
   // Payment Verification Handler: Generates AICONDDxxx atomically & dispatches Event 2 email
-  const handleVerifyPayment = async (reg: RegistrationRecord) => {
+  // Blocks direct verification if a duplicate UTR exists unless an explicit authorised exception is provided
+  const handleVerifyPayment = async (
+    reg: RegistrationRecord,
+    duplicateException?: DuplicateUtrExceptionPayload
+  ) => {
+    const conflicts = getConflictingRegistrationsForRecord(
+      reg,
+      registrations,
+      duplicateUtrAnalysis
+    );
+
+    if (conflicts.length > 0 && !duplicateException?.approved) {
+      setDuplicateExceptionTarget({ reg, conflicts });
+      setDuplicateExceptionConfirmed(false);
+      setDuplicateExceptionReason('');
+      return;
+    }
+
     setProcessingAction(true);
     setActionSuccessMsg(null);
     try {
@@ -471,7 +587,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       const allocatedId = await verifyPaymentAndAllocateRegId(
         reg.id,
         adminIdentity,
-        remarksText
+        remarksText,
+        duplicateException
       );
 
       const nowIso = new Date().toISOString();
@@ -480,7 +597,20 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         registrationId: allocatedId,
         paymentStatus: 'Verified',
         registrationStatus: 'Approved',
-        adminRemarks: remarksText,
+        adminRemarks: duplicateException?.approved
+          ? `[DUPLICATE UTR EXCEPTION AUTHORISED: ${duplicateException.reason.trim()}] ${remarksText}`.slice(
+              0,
+              500
+            )
+          : remarksText,
+        ...(duplicateException?.approved
+          ? {
+              duplicateUtrExceptionApproved: true,
+              duplicateUtrExceptionReason: duplicateException.reason.trim(),
+              duplicateUtrExceptionApprovedBy: adminIdentity,
+              duplicateUtrExceptionApprovedAt: nowIso,
+            }
+          : {}),
         verifiedBy: adminIdentity,
         verifiedAt: nowIso,
         updatedAt: nowIso,
@@ -503,13 +633,18 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       }
 
       setActionSuccessMsg(
-        `Payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).${emailNote}`
+        duplicateException?.approved
+          ? `Authorised duplicate UTR exception logged & payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).${emailNote}`
+          : `Payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).${emailNote}`
       );
       setSelectedReg(null);
+      setDuplicateExceptionTarget(null);
+      setDuplicateExceptionConfirmed(false);
+      setDuplicateExceptionReason('');
       setActionRemarks('');
     } catch (err: any) {
       console.error('Failed to verify payment:', err);
-      alert(`Payment verification failed: ${err.message || 'Firestore error'}`);
+      setActionSuccessMsg(`Payment verification failed: ${err.message || 'Firestore error'}`);
     } finally {
       setProcessingAction(false);
     }
@@ -690,7 +825,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       await deleteRegistrationRecord(
         regToDelete.id,
         regToDelete.linkedAbstractId,
-        deleteBothLinked
+        deleteBothLinked,
+        regToDelete.registrationId
       );
       setRegToDelete(null);
       setActionSuccessMsg('Registration record successfully deleted.');
@@ -1029,13 +1165,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       regFoodPreferenceFilter
     );
 
+    const matchesDuplicateUtr =
+      !showDuplicateUtrsOnly || duplicateUtrAnalysis.conflictingRecordIds.has(r.id);
+
     return (
       matchesSearch &&
       matchesStatus &&
       matchesCategory &&
       matchesInstitution &&
       matchesParticipationMode &&
-      matchesFoodPreference
+      matchesFoodPreference &&
+      matchesDuplicateUtr
     );
   });
 
@@ -1382,7 +1522,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-['Inter',sans-serif] flex flex-col">
       {/* Top Header Bar */}
       <header className="bg-[#0B112C] text-white border-b border-[#1E2954] sticky top-0 z-30 shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="max-w-[1680px] mx-auto px-4 sm:px-5 lg:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={onExit}
@@ -1467,7 +1607,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       {/* Global Success Notification Strip */}
       {actionSuccessMsg && (
         <div className="bg-emerald-600 text-white px-4 py-2 text-xs flex items-center justify-between shadow-xs">
-          <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
+          <div className="flex items-center gap-2 max-w-[1680px] mx-auto w-full">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span className="font-medium">{actionSuccessMsg}</span>
             <button
@@ -1481,9 +1621,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       )}
 
       {/* Main Dashboard Layout: Sidebar + Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full flex-1 flex flex-col md:flex-row gap-6">
-        {/* Left Sidebar Navigation (7 Modules) */}
-        <aside className="w-full md:w-64 shrink-0 space-y-2">
+      <div className="max-w-[1680px] mx-auto px-4 sm:px-5 lg:px-6 py-5 w-full flex-1 flex flex-col md:flex-row gap-5">
+        {/* Left Sidebar Navigation (Modules) */}
+        <aside className="w-full md:w-56 lg:w-60 shrink-0 space-y-2">
           <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-2xs space-y-1">
             {[
               { id: 'overview', label: 'Dashboard Overview', icon: LayoutDashboard },
@@ -1491,7 +1631,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               { id: 'abstracts', label: 'Abstract Management', icon: FileText, badge: underReviewAbs > 0 ? `${underReviewAbs}` : null },
               { id: 'search', label: 'Participant Search', icon: Search },
               { id: 'reports', label: 'Reports & Excel Export', icon: FileSpreadsheet },
-              { id: 'hospitality', label: 'Accommodation & Places', icon: Building2 },
+              { id: 'hospitality', label: 'Accommodation', icon: Building2 },
               { id: 'backup', label: 'Database Backup & Recovery', icon: Database },
               { id: 'settings', label: 'Account Settings', icon: Settings },
             ].map((tab) => {
@@ -2023,6 +2163,52 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 </div>
               </div>
 
+              {/* Duplicate UTR / Payment Transaction ID Audit Alert (scans ALL Firestore registrations) */}
+              {duplicateUtrAnalysis.totalDuplicateGroups > 0 && (
+                <div className="bg-red-50/90 border border-red-200 rounded-xl p-4 shadow-2xs space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-red-100 text-red-700 flex items-center justify-center shrink-0 mt-0.5">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-xs sm:text-sm font-bold text-red-900">
+                          Duplicate Payment Transaction IDs Detected ({duplicateUtrAnalysis.totalDuplicateGroups} UTR{duplicateUtrAnalysis.totalDuplicateGroups === 1 ? '' : 's'} · {duplicateUtrAnalysis.totalAffectedRecords} Registrations)
+                        </h3>
+                        <p className="text-[11px] text-red-800/90 mt-0.5 leading-relaxed">
+                          Existing records are preserved intact. Direct verification is automatically blocked on duplicate UTRs unless the Organising Secretary completes the Authorised Exception process.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowDuplicateUtrsOnly((prev) => !prev)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer shrink-0 border ${
+                        showDuplicateUtrsOnly
+                          ? 'bg-red-700 text-white border-red-800 hover:bg-red-800'
+                          : 'bg-white text-red-700 border-red-300 hover:bg-red-100/70'
+                      }`}
+                    >
+                      {showDuplicateUtrsOnly ? 'Showing Duplicate UTRs · Clear Filter' : 'Filter Duplicate UTRs'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-0.5">
+                    {duplicateUtrAnalysis.duplicateGroups.map((group) => (
+                      <div
+                        key={group.normalizedUtr}
+                        className="text-[11px] bg-white border border-red-200/90 rounded-lg px-2.5 py-1 flex items-center gap-1.5"
+                      >
+                        <span className="font-mono font-bold text-red-800">{group.displayUtr}</span>
+                        <span className="text-slate-400">→</span>
+                        <span className="font-mono text-slate-700">
+                          {group.records.map((r) => r.registrationId || r.id).join(', ')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Filter and Search Bar */}
               <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row flex-wrap gap-2.5">
                 <div className="relative flex-1 min-w-[210px]">
@@ -2094,7 +2280,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   regCategoryFilter !== 'all' ||
                   regInstitutionFilter !== 'all' ||
                   regParticipationModeFilter !== 'all' ||
-                  regFoodPreferenceFilter !== 'all') && (
+                  regFoodPreferenceFilter !== 'all' ||
+                  showDuplicateUtrsOnly) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -2104,6 +2291,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       setRegInstitutionFilter('all');
                       setRegParticipationModeFilter('all');
                       setRegFoodPreferenceFilter('all');
+                      setShowDuplicateUtrsOnly(false);
                     }}
                     className="px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer inline-flex items-center gap-1"
                   >
@@ -2117,7 +2305,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200">
+                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 whitespace-nowrap">
                       <tr>
                         <th className="p-3.5">Registration ID</th>
                         <th className="p-3.5">Participant</th>
@@ -2147,9 +2335,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                         filteredRegistrations.map((reg) => {
                           const foodPrefLabel = formatFoodPreferenceDisplay(reg);
                           return (
-                          <tr key={reg.id} className="hover:bg-slate-50/80 transition-colors">
+                          <tr key={reg.id} className="hover:bg-slate-50/80 transition-colors align-top">
                             {/* Registration ID */}
-                            <td className="p-3.5 whitespace-nowrap">
+                            <td className="p-3.5 whitespace-nowrap min-w-[140px]">
                               {reg.registrationId ? (
                                 <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">
                                   {reg.registrationId}
@@ -2165,10 +2353,13 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             </td>
 
                             {/* Participant */}
-                            <td className="p-3.5">
+                            <td className="p-3.5 min-w-[260px]">
                               <div className="font-bold text-slate-900">{reg.fullName}</div>
-                              <div className="text-[11px] text-slate-500 truncate max-w-xs">
-                                {reg.email} · {reg.institution}
+                              <div className="text-[11px] text-slate-600 break-all">
+                                {reg.email}
+                              </div>
+                              <div className="text-[11px] text-slate-500 leading-snug">
+                                {reg.institution}
                               </div>
                               <div className="mt-1 flex items-center gap-1.5">
                                 {normalizeInstitutionCategory(reg.institutionCategory) ? (
@@ -2226,17 +2417,50 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                             </td>
 
                             {/* UTR / Fee */}
-                            <td className="p-3.5 whitespace-nowrap font-mono">
+                            <td className="p-3.5 whitespace-nowrap font-mono min-w-[180px]">
                               <div className="font-semibold text-slate-800">
                                 ₹{reg.paymentAmount || reg.amount || 2000}
                               </div>
-                              <div className="text-[11px] text-slate-500 truncate max-w-[120px]">
+                              <div className="text-[11px] text-slate-600 break-all">
                                 {reg.transactionReference}
                               </div>
+                              {(() => {
+                                const conflicts = getConflictingRegistrationsForRecord(
+                                  reg,
+                                  registrations,
+                                  duplicateUtrAnalysis
+                                );
+                                if (conflicts.length === 0) return null;
+                                const conflictIds = conflicts
+                                  .map((c) => c.registrationId || c.id)
+                                  .join(', ');
+                                return (
+                                  <div className="mt-1 space-y-1 font-sans">
+                                    <span
+                                      title={`Duplicate UTR detected. Matches: ${conflictIds}`}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 text-[10px] font-bold"
+                                    >
+                                      <AlertTriangle className="w-3 h-3 shrink-0" />
+                                      <span>Duplicate UTR ({conflicts.length + 1})</span>
+                                    </span>
+                                    <div className="text-[10px] text-red-700 font-mono whitespace-normal max-w-[200px]">
+                                      Matches: {conflictIds}
+                                    </div>
+                                    {reg.duplicateUtrExceptionApproved && (
+                                      <span
+                                        title={`Authorised exception by ${reg.duplicateUtrExceptionApprovedBy || 'Org. Secretary'}: ${reg.duplicateUtrExceptionReason || ''}`}
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[9.5px] font-bold"
+                                      >
+                                        Exception Approved
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
 
                             {/* Status */}
-                            <td className="p-3.5 whitespace-nowrap">
+                            <td className="p-3.5 whitespace-nowrap min-w-[175px]">
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                   reg.paymentStatus === 'Verified'
@@ -3088,13 +3312,16 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                         ) : (
                           filteredPresentationRosterRows.map(({ reg, linkedAbs }) => (
                             <tr key={reg.id} className="hover:bg-slate-50/80 transition-colors">
-                              <td className="p-3.5 whitespace-nowrap font-mono font-bold text-purple-700">
+                              <td className="p-3.5 whitespace-nowrap min-w-[140px] font-mono font-bold text-purple-700">
                                 {reg.registrationId || reg.id}
                               </td>
-                              <td className="p-3.5">
+                              <td className="p-3.5 min-w-[260px]">
                                 <div className="font-bold text-slate-900">{reg.fullName}</div>
-                                <div className="text-[11px] text-slate-500 truncate max-w-xs">
-                                  {reg.email} · {reg.institution}
+                                <div className="text-[11px] text-slate-600 break-all">
+                                  {reg.email}
+                                </div>
+                                <div className="text-[11px] text-slate-500 leading-snug">
+                                  {reg.institution}
                                 </div>
                                 <div className="mt-0.5 text-[10px] font-semibold text-slate-600">
                                   {formatInstitutionCategoryLabel(reg.institutionCategory)}
@@ -3118,7 +3345,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                   {reg.paymentStatus}
                                 </span>
                               </td>
-                              <td className="p-3.5 max-w-xs">
+                              <td className="p-3.5 min-w-[250px] max-w-[360px]">
                                 {linkedAbs ? (
                                   <div className="space-y-1">
                                     <div className="flex items-center gap-1.5">
@@ -3139,7 +3366,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                         {linkedAbs.status}
                                       </span>
                                     </div>
-                                    <div className="text-[11px] text-slate-600 line-clamp-1">
+                                    <div className="text-[11px] text-slate-600 leading-snug">
                                       {linkedAbs.title}
                                     </div>
                                   </div>
@@ -3207,7 +3434,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200">
+                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 whitespace-nowrap">
                       <tr>
                         <th className="p-3.5">Abstract ID</th>
                         <th className="p-3.5">Linked Reg ID</th>
@@ -3240,15 +3467,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                           const author = abs.presentingAuthor || {};
                           const linkedReg = getLinkedRegistrationForAbstract(abs);
                           const paymentStatus = linkedReg?.paymentStatus;
+                          const trackLabel =
+                            SCIENTIFIC_TRACKS.find((t) => t.id === abs.trackId)?.title || abs.trackId;
                           return (
-                            <tr key={abs.id} className="hover:bg-slate-50/80 transition-colors">
+                            <tr key={abs.id} className="hover:bg-slate-50/80 transition-colors align-top">
                               {/* Abstract ID */}
-                              <td className="p-3.5 whitespace-nowrap font-mono font-bold text-purple-700">
+                              <td className="p-3.5 whitespace-nowrap min-w-[145px] font-mono font-bold text-purple-700">
                                 {abs.id}
                               </td>
 
                               {/* Registration ID & Linked Institution Classification */}
-                              <td className="p-3.5 whitespace-nowrap">
+                              <td className="p-3.5 whitespace-nowrap min-w-[130px]">
                                 <div className="font-mono font-semibold text-slate-800">
                                   {abs.registrationId}
                                 </div>
@@ -3289,15 +3518,15 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               </td>
 
                               {/* Title */}
-                              <td className="p-3.5 max-w-xs">
-                                <div className="font-semibold text-slate-900 line-clamp-2">
+                              <td className="p-3.5 min-w-[260px] max-w-[380px]">
+                                <div className="font-semibold text-slate-900 leading-snug">
                                   {abs.title}
                                 </div>
                               </td>
 
                               {/* Track */}
-                              <td className="p-3.5 whitespace-nowrap text-slate-800 font-medium text-xs max-w-[140px] truncate" title={abs.trackId}>
-                                {abs.trackId}
+                              <td className="p-3.5 min-w-[190px] max-w-[250px] text-slate-800 font-medium text-xs leading-snug" title={trackLabel}>
+                                {trackLabel}
                               </td>
 
                               {/* Preferred Format (Author Selection) */}
@@ -3321,13 +3550,13 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               </td>
 
                               {/* Author */}
-                              <td className="p-3.5">
+                              <td className="p-3.5 min-w-[210px]">
                                 <div className="font-bold text-slate-900">{author.fullName || author.name}</div>
-                                <div className="text-[11px] text-slate-400 truncate max-w-xs">{author.email}</div>
+                                <div className="text-[11px] text-slate-500 break-all">{author.email}</div>
                               </td>
 
                               {/* Status */}
-                              <td className="p-3.5 whitespace-nowrap">
+                              <td className="p-3.5 whitespace-nowrap min-w-[165px]">
                                 <span
                                   className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                                     abs.status === 'Accepted'
@@ -3616,8 +3845,16 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                               <strong>Category:</strong> {reg.category} | <strong>Mode:</strong> {reg.participationMode}
                             </div>
                             <div className="text-slate-500 flex flex-wrap items-center justify-between gap-1">
-                              <div>
-                                <strong>Fee:</strong> ₹{reg.paymentAmount || reg.amount || 2000} | <strong>UTR:</strong> {reg.transactionReference}
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span>
+                                  <strong>Fee:</strong> ₹{reg.paymentAmount || reg.amount || 2000} | <strong>UTR:</strong> <span className="font-mono">{reg.transactionReference}</span>
+                                </span>
+                                {duplicateUtrAnalysis.conflictingRecordIds.has(reg.id) && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 text-[10px] font-bold">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    Duplicate UTR
+                                  </span>
+                                )}
                               </div>
                               <button
                                 type="button"
@@ -3879,12 +4116,13 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           )}
 
           {/* ================================================================= */}
-          {/* MODULE 6: ACCOMMODATION & PLACES TO VISIT MANAGEMENT */}
+          {/* MODULE 6: ACCOMMODATION MANAGEMENT */}
           {/* ================================================================= */}
           {activeTab === 'hospitality' && (
             <AdminHospitalityManager
               adminEmail={user?.email || 'org.secy.cp@srmist.edu.in'}
               onStatusMessage={(msg) => setActionSuccessMsg(msg)}
+              allowPlacesToVisitManagement={false}
             />
           )}
 
@@ -3902,7 +4140,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           {/* MODULE 8: ACCOUNT SETTINGS */}
           {/* ================================================================= */}
           {activeTab === 'settings' && (
-            <div className="max-w-xl space-y-6 animate-in fade-in duration-150">
+            <div className="max-w-2xl space-y-6 animate-in fade-in duration-150">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-heading">
                   Account Settings & Security
@@ -4123,6 +4361,70 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     </div>
                   </div>
                 </div>
+
+                {/* Duplicate UTR Scrutiny Alert & Exception Audit Info */}
+                {(() => {
+                  const modalConflicts = getConflictingRegistrationsForRecord(
+                    selectedReg,
+                    registrations,
+                    duplicateUtrAnalysis
+                  );
+                  if (modalConflicts.length === 0 && !selectedReg.duplicateUtrExceptionApproved) {
+                    return null;
+                  }
+                  return (
+                    <div className="pt-2 space-y-2">
+                      {modalConflicts.length > 0 && (
+                        <div className="p-3 bg-red-50 border border-red-300 rounded-lg space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-red-800 font-bold text-[11px] uppercase">
+                            <AlertTriangle className="w-4 h-4 shrink-0" />
+                            <span>
+                              Duplicate UTR Conflict Detected ({modalConflicts.length} other registration{modalConflicts.length === 1 ? '' : 's'})
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-red-800 leading-snug">
+                            This payment transaction ID matches other registration record(s) in Firestore. Direct verification is blocked; clicking <strong>Verify</strong> will require the Authorised Exception process with a logged audit reason.
+                          </p>
+                          <div className="space-y-1 pt-0.5">
+                            {modalConflicts.map((c) => (
+                              <div
+                                key={c.id}
+                                className="text-[11px] bg-white/90 border border-red-200 rounded px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2"
+                              >
+                                <div>
+                                  <span className="font-mono font-bold text-red-900">
+                                    {c.registrationId || c.id}
+                                  </span>{' '}
+                                  · <span className="font-semibold text-slate-800">{c.fullName}</span>{' '}
+                                  <span className="text-slate-500">({c.email})</span>
+                                </div>
+                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                                  {c.paymentStatus}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {selectedReg.duplicateUtrExceptionApproved && (
+                        <div className="p-2.5 bg-amber-100/80 border border-amber-300 rounded-lg text-[11px] text-amber-950 space-y-0.5">
+                          <div className="font-bold uppercase text-[10px] text-amber-900">
+                            Authorised Duplicate UTR Exception Logged
+                          </div>
+                          <div>
+                            <strong>Reason:</strong> {selectedReg.duplicateUtrExceptionReason || 'Recorded'}
+                          </div>
+                          <div className="text-[10px] text-amber-800">
+                            Authorised by {selectedReg.duplicateUtrExceptionApprovedBy || selectedReg.verifiedBy || 'Org. Secretary'}
+                            {selectedReg.duplicateUtrExceptionApprovedAt
+                              ? ` on ${new Date(selectedReg.duplicateUtrExceptionApprovedAt).toLocaleString('en-IN')}`
+                              : ''}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Email Notification Status Panel */}
@@ -4851,6 +5153,33 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               </div>
             </div>
 
+            {/* Duplicate UTR Warning Banner inside Payment Proof Modal */}
+            {(() => {
+              const proofConflicts = getConflictingRegistrationsForRecord(
+                previewProofReg,
+                registrations,
+                duplicateUtrAnalysis
+              );
+              if (proofConflicts.length === 0) return null;
+              return (
+                <div className="px-5 py-2.5 bg-red-50 border-b border-red-200 flex items-start gap-2 text-xs text-red-900 shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <div className="leading-snug">
+                    <strong className="uppercase text-[11px]">Duplicate UTR Warning:</strong>{' '}
+                    Transaction reference{' '}
+                    <span className="font-mono font-bold">{previewProofReg.transactionReference}</span>{' '}
+                    is also recorded on{' '}
+                    <span className="font-mono font-bold">
+                      {proofConflicts
+                        .map((c) => `${c.registrationId || c.id} (${c.fullName}, ${c.paymentStatus})`)
+                        .join('; ')}
+                    </span>
+                    . Direct verification is blocked unless an Authorised Exception is logged.
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Viewer Body */}
             <div className="p-4 sm:p-6 overflow-y-auto flex-1 flex flex-col justify-center">
               {(() => {
@@ -4965,6 +5294,169 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer"
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL 2B: AUTHORISED DUPLICATE UTR VERIFICATION EXCEPTION */}
+      {/* ===================================================================== */}
+      {duplicateExceptionTarget && (
+        <div className="fixed inset-0 z-[60] bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white max-w-xl w-full rounded-2xl shadow-2xl border border-red-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-4 sm:p-5 bg-red-900 text-white flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-red-800/90 border border-red-600/70 flex items-center justify-center shrink-0 mt-0.5">
+                  <AlertTriangle className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-red-200 block">
+                    Direct Verification Blocked · Duplicate UTR Guard
+                  </span>
+                  <h3 className="text-base font-bold font-heading">
+                    Authorised Duplicate UTR Exception Required
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateExceptionTarget(null);
+                  setDuplicateExceptionConfirmed(false);
+                  setDuplicateExceptionReason('');
+                }}
+                className="p-1.5 hover:bg-red-800 rounded-lg text-red-200 hover:text-white cursor-pointer"
+                title="Cancel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 space-y-1.5 text-red-950">
+                <p className="leading-relaxed">
+                  Registration{' '}
+                  <strong className="font-mono">
+                    {duplicateExceptionTarget.reg.registrationId || duplicateExceptionTarget.reg.id}
+                  </strong>{' '}
+                  (<strong>{duplicateExceptionTarget.reg.fullName}</strong>) uses Transaction Reference{' '}
+                  <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-red-200">
+                    {duplicateExceptionTarget.reg.transactionReference}
+                  </strong>
+                  , which already exists on{' '}
+                  <strong>{duplicateExceptionTarget.conflicts.length}</strong> other registration record
+                  {duplicateExceptionTarget.conflicts.length === 1 ? '' : 's'}.
+                </p>
+                <p className="text-[11px] text-red-800">
+                  To protect payment integrity, this record cannot be verified normally. Proceed ONLY if you have confirmed a legitimate institutional exception (e.g., a verified bulk bank transfer covering multiple delegates).
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                  Conflicting Registration Record(s)
+                </div>
+                <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl bg-slate-50/70">
+                  {duplicateExceptionTarget.conflicts.map((conflict) => (
+                    <div
+                      key={conflict.id}
+                      className="p-2.5 flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-slate-900">
+                          <span className="font-mono text-purple-800">
+                            {conflict.registrationId || conflict.id}
+                          </span>{' '}
+                          · {conflict.fullName}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          {conflict.email} · Fee: ₹{conflict.paymentAmount || conflict.amount || 2000} · UTR:{' '}
+                          <span className="font-mono">{conflict.transactionReference}</span>
+                        </div>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          conflict.paymentStatus === 'Verified'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : conflict.paymentStatus === 'Rejected'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {conflict.paymentStatus}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <label className="flex items-start gap-2.5 p-3 rounded-xl border border-amber-200 bg-amber-50/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={duplicateExceptionConfirmed}
+                  onChange={(e) => setDuplicateExceptionConfirmed(e.target.checked)}
+                  className="mt-0.5 accent-red-700 w-4 h-4 shrink-0"
+                />
+                <span className="text-[11.5px] font-medium text-amber-950 leading-snug">
+                  I confirm as an authorised Organising Secretary that I have independently verified the bank statement and explicitly authorise approving this registration despite the duplicate UTR.
+                </span>
+              </label>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 text-[11px] uppercase block">
+                  Mandatory Exception Justification (Logged to Audit Trail) <span className="text-red-600">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={duplicateExceptionReason}
+                  onChange={(e) => setDuplicateExceptionReason(e.target.value)}
+                  placeholder="Enter verified bank audit justification (minimum 10 characters, e.g., Verified single institutional NEFT covering 2 delegates)..."
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/15"
+                />
+                <span className="text-[10.5px] text-slate-500 block">
+                  {duplicateExceptionReason.trim().length < 10
+                    ? `Enter at least ${10 - duplicateExceptionReason.trim().length} more character(s) to enable exception approval.`
+                    : 'Justification ready — will be permanently recorded in Admin Audit Logs and Registration Remarks.'}
+                </span>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={processingAction}
+                  onClick={() => {
+                    setDuplicateExceptionTarget(null);
+                    setDuplicateExceptionConfirmed(false);
+                    setDuplicateExceptionReason('');
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer"
+                >
+                  Cancel Verification
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    processingAction ||
+                    !duplicateExceptionConfirmed ||
+                    duplicateExceptionReason.trim().length < 10
+                  }
+                  onClick={() => {
+                    if (!duplicateExceptionTarget) return;
+                    void handleVerifyPayment(duplicateExceptionTarget.reg, {
+                      approved: true,
+                      reason: duplicateExceptionReason.trim(),
+                      conflictingRegistrationIds: duplicateExceptionTarget.conflicts.map(
+                        (c) => c.registrationId || c.id
+                      ),
+                    });
+                  }}
+                  className="px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-bold rounded-lg text-xs uppercase tracking-wider inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>{processingAction ? 'Authorising...' : 'Authorise Exception & Verify'}</span>
                 </button>
               </div>
             </div>

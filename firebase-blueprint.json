@@ -57,7 +57,9 @@
         "dietaryPreference": { "type": "string", "enum": ["Vegetarian", "Non-Vegetarian"], "description": "Mandatory food preference collected only for Offline participants" },
         "specialRequirements": { "type": "string" },
         "paymentMode": { "type": "string" },
-        "transactionReference": { "type": "string", "maxLength": 100 },
+        "transactionReference": { "type": "string", "maxLength": 120 },
+        "normalizedTransactionReference": { "type": "string", "maxLength": 120, "description": "Trimmed, case-normalized UTR / transaction reference for duplicate detection" },
+        "transactionReferenceKey": { "type": "string", "maxLength": 128, "pattern": "^UTR_[a-f0-9]{64}$", "description": "Deterministic SHA-256 lock document ID in /paymentTransactions" },
         "amount": { "type": "number" },
         "paymentReceiptName": { "type": "string" },
         "paymentReceiptData": { "type": "string" },
@@ -68,12 +70,16 @@
         "abstractSubmissionDate": { "type": "string", "format": "date-time" },
         "recordType": { "type": "string", "enum": ["live", "test"] },
         "adminRemarks": { "type": "string", "maxLength": 500 },
+        "duplicateUtrExceptionApproved": { "type": "boolean", "description": "True only when Organising Secretary explicitly authorised verification despite a duplicate UTR" },
+        "duplicateUtrExceptionReason": { "type": "string", "maxLength": 500 },
+        "duplicateUtrExceptionApprovedBy": { "type": "string", "maxLength": 150 },
+        "duplicateUtrExceptionApprovedAt": { "type": "string", "format": "date-time" },
         "verifiedBy": { "type": "string" },
         "verifiedAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "fullName", "email", "mobile", "institution", "category", "transactionReference", "paymentStatus", "registrationStatus", "createdAt"]
+      "required": ["id", "fullName", "email", "mobile", "institution", "category", "transactionReference", "normalizedTransactionReference", "transactionReferenceKey", "paymentStatus", "registrationStatus", "createdAt"]
     },
     "SystemCounter": {
       "title": "SystemCounter",
@@ -204,6 +210,19 @@
         "updatedAt": { "type": "string", "format": "date-time", "maxLength": 50 }
       },
       "required": ["id", "eventId", "type", "referenceId", "recipient", "subject", "status", "attemptCount", "createdAt", "lastAttemptedAt", "timestamp"]
+    },
+    "PaymentTransactionLock": {
+      "title": "PaymentTransactionLock",
+      "description": "PII-free atomic uniqueness lock for normalized UTR / Payment Transaction IDs across all registrations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^UTR_[a-f0-9]{64}$" },
+        "normalizedTransactionReference": { "type": "string", "maxLength": 120 },
+        "registrationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time", "maxLength": 50 },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 50 }
+      },
+      "required": ["id", "normalizedTransactionReference", "registrationId", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -218,6 +237,10 @@
     "/registrations/{registrationId}": {
       "schema": "Registration",
       "description": "Attendee registrations and verified payment statuses"
+    },
+    "/paymentTransactions/{utrKey}": {
+      "schema": "PaymentTransactionLock",
+      "description": "Atomic uniqueness locks preventing duplicate UTR / payment transaction ID submissions"
     },
     "/contactEnquiries/{enquiryId}": {
       "schema": "ContactEnquiry",

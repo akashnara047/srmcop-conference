@@ -1,4 +1,4 @@
-import { doc, getDoc, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import {
   generateAcceptanceLetterPDFBase64,
@@ -1127,4 +1127,139 @@ export async function sendAdminTestEmail(params: {
     };
   }
 }
+
+const REG_EMAIL_EVENT_PREFIXES = [
+  'EMAIL_REG_RECEIVED_',
+  'EMAIL_REG_CONFIRMED_',
+] as const;
+
+const ABS_EMAIL_EVENT_PREFIXES = [
+  'EMAIL_ABS_SUBMITTED_',
+  'EMAIL_ABS_ACCEPTED_',
+] as const;
+
+function stripEventPrefix(docIdUpper: string, prefixes: readonly string[]): string {
+  for (const prefix of prefixes) {
+    if (docIdUpper.startsWith(prefix)) {
+      return docIdUpper.slice(prefix.length).trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Identifies obsolete failed `emailLogs` records whose underlying registration or
+ * abstract record no longer exists in Firestore (e.g. historical failed notifications
+ * left over from deleted trial runs). Sent logs and logs tied to any existing
+ * registration/abstract record are strictly preserved.
+ */
+export function findOrphanedFailedEmailLogs(params: {
+  emailLogs: EmailLogRecord[];
+  registrations: RegistrationRecord[];
+  abstracts: AbstractRecord[];
+}): EmailLogRecord[] {
+  const existingRegKeys = new Set<string>();
+  for (const reg of params.registrations) {
+    if (reg.id) existingRegKeys.add(reg.id.trim().toUpperCase());
+    if (reg.registrationId) existingRegKeys.add(reg.registrationId.trim().toUpperCase());
+  }
+
+  const existingAbsKeys = new Set<string>();
+  for (const abs of params.abstracts) {
+    if (abs.id) existingAbsKeys.add(abs.id.trim().toUpperCase());
+  }
+
+  const orphaned: EmailLogRecord[] = [];
+
+  for (const log of params.emailLogs) {
+    if (log.status !== 'Failed') continue;
+
+    const docIdUpper = (log.eventId || log.id || '').trim().toUpperCase();
+    const regKey = (log.registrationId || '').trim().toUpperCase();
+    const regDocKey = (log.regDocId || '').trim().toUpperCase();
+    const absKey = (log.abstractId || '').trim().toUpperCase();
+    const refKey = (log.referenceId || '').trim().toUpperCase();
+
+    const isRegEvent =
+      log.type === 'registration_received' ||
+      log.type === 'registration_confirmation' ||
+      docIdUpper.startsWith('EMAIL_REG_');
+
+    const isAbsEvent =
+      log.type === 'abstract_confirmation' ||
+      log.type === 'abstract_acceptance' ||
+      docIdUpper.startsWith('EMAIL_ABS_');
+
+    if (isRegEvent) {
+      const suffix = stripEventPrefix(docIdUpper, REG_EMAIL_EVENT_PREFIXES);
+      const candidates = [regKey, regDocKey, refKey, suffix].filter(
+        (val) => Boolean(val) && val !== 'AICONDD-TEST'
+      );
+      if (candidates.length > 0 && candidates.every((key) => !existingRegKeys.has(key))) {
+        orphaned.push(log);
+      }
+      continue;
+    }
+
+    if (isAbsEvent) {
+      const suffix = stripEventPrefix(docIdUpper, ABS_EMAIL_EVENT_PREFIXES);
+      const candidates = [absKey, refKey, suffix].filter(
+        (val) => Boolean(val) && val !== 'AICONDD-ABS-TEST'
+      );
+      if (candidates.length > 0 && candidates.every((key) => !existingAbsKeys.has(key))) {
+        orphaned.push(log);
+      }
+    }
+  }
+
+  return orphaned;
+}
+
+/**
+ * Deletes obsolete orphaned failed email log documents from Firestore `emailLogs`
+ * and clears any matching client dispatch state. Requires an authorised Organising
+ * Secretary session (`isAdmin()`).
+ */
+export async function cleanupOrphanedFailedEmailLogs(params: {
+  emailLogs: EmailLogRecord[];
+  registrations: RegistrationRecord[];
+  abstracts: AbstractRecord[];
+}): Promise<{ deletedIds: string[]; failedIds: string[] }> {
+  if (!auth.currentUser) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const orphanedLogs = findOrphanedFailedEmailLogs(params);
+  if (orphanedLogs.length === 0) {
+    return { deletedIds: [], failedIds: [] };
+  }
+
+  const deletedIds: string[] = [];
+  const failedIds: string[] = [];
+
+  for (const log of orphanedLogs) {
+    const docId = (log.id || log.eventId || '').trim();
+    if (!docId) continue;
+
+    inFlightClientDispatches.delete(docId);
+    inFlightClientDispatches.delete(`retry:${docId}`);
+
+    try {
+      await deleteDoc(doc(db, 'emailLogs', docId));
+      deletedIds.push(docId);
+    } catch (err) {
+      console.warn(`[emailService] Failed to delete orphaned email log ${docId}:`, err);
+      failedIds.push(docId);
+    }
+  }
+
+  if (deletedIds.length > 0) {
+    console.info(
+      `[emailService] Cleaned up ${deletedIds.length} obsolete orphaned failed email log(s): ${deletedIds.join(', ')}`
+    );
+  }
+
+  return { deletedIds, failedIds };
+}
+
 

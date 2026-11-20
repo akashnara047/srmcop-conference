@@ -34,6 +34,7 @@ import {
 interface AdminHospitalityManagerProps {
   adminEmail: string;
   onStatusMessage: (msg: string) => void;
+  allowPlacesToVisitManagement?: boolean;
 }
 
 const DEFAULT_ACCOMMODATION_IDS = new Set(
@@ -73,6 +74,7 @@ const EMPTY_PLACE_FORM: TouristAttraction = {
 export const AdminHospitalityManager: React.FC<AdminHospitalityManagerProps> = ({
   adminEmail,
   onStatusMessage,
+  allowPlacesToVisitManagement = true,
 }) => {
   const [subTab, setSubTab] = useState<'accommodations' | 'attractions'>('accommodations');
   const [loading, setLoading] = useState(true);
@@ -96,14 +98,20 @@ export const AdminHospitalityManager: React.FC<AdminHospitalityManagerProps> = (
     setLoading(true);
     setErrorMsg(null);
     try {
-      const [stayRes, placeRes] = await Promise.all([
-        fetchAccommodationDirectory(true),
-        fetchAttractionsDirectory(true),
-      ]);
-      setStays(stayRes.items);
-      setStayRemoteIds(stayRes.remoteIds);
-      setPlaces(placeRes.items);
-      setPlaceRemoteIds(placeRes.remoteIds);
+      if (allowPlacesToVisitManagement) {
+        const [stayRes, placeRes] = await Promise.all([
+          fetchAccommodationDirectory(true),
+          fetchAttractionsDirectory(true),
+        ]);
+        setStays(stayRes.items);
+        setStayRemoteIds(stayRes.remoteIds);
+        setPlaces(placeRes.items);
+        setPlaceRemoteIds(placeRes.remoteIds);
+      } else {
+        const stayRes = await fetchAccommodationDirectory(true);
+        setStays(stayRes.items);
+        setStayRemoteIds(stayRes.remoteIds);
+      }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Unable to load directory data.');
     } finally {
@@ -112,8 +120,14 @@ export const AdminHospitalityManager: React.FC<AdminHospitalityManagerProps> = (
   };
 
   useEffect(() => {
+    if (!allowPlacesToVisitManagement && subTab !== 'accommodations') {
+      setSubTab('accommodations');
+    }
+  }, [allowPlacesToVisitManagement, subTab]);
+
+  useEffect(() => {
     loadData();
-  }, []);
+  }, [allowPlacesToVisitManagement]);
 
   const handleSaveStay = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,39 +278,45 @@ export const AdminHospitalityManager: React.FC<AdminHospitalityManagerProps> = (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900 font-heading">
-            Accommodation &amp; Places to Visit Management
+            {allowPlacesToVisitManagement
+              ? 'Accommodation & Places to Visit Management'
+              : 'Accommodation Management'}
           </h2>
           <p className="text-xs text-slate-500">
-            Update verified hotel listings, road distances, contact numbers, and Places to Visit entries. Public listings automatically sort by driving distance from SRMIST.
+            {allowPlacesToVisitManagement
+              ? 'Update verified hotel listings, road distances, contact numbers, and Places to Visit entries. Public listings automatically sort by driving distance from SRMIST.'
+              : 'Update verified hotel listings, road distances, and contact numbers. Public listings automatically sort by driving distance from SRMIST.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs self-start">
-          <button
-            type="button"
-            onClick={() => setSubTab('accommodations')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
-              subTab === 'accommodations'
-                ? 'bg-purple-600 text-white shadow-2xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5" />
-            <span>Accommodations ({stays.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubTab('attractions')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
-              subTab === 'attractions'
-                ? 'bg-purple-600 text-white shadow-2xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>Places to Visit ({places.length})</span>
-          </button>
-        </div>
+        {allowPlacesToVisitManagement && (
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-1 shadow-2xs self-start">
+            <button
+              type="button"
+              onClick={() => setSubTab('accommodations')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                subTab === 'accommodations'
+                  ? 'bg-purple-600 text-white shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Accommodations ({stays.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubTab('attractions')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                subTab === 'attractions'
+                  ? 'bg-purple-600 text-white shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>Places to Visit ({places.length})</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {errorMsg && (
@@ -461,7 +481,7 @@ export const AdminHospitalityManager: React.FC<AdminHospitalityManagerProps> = (
       {/* =====================================================================
           SUBTAB 2: PLACES TO VISIT MANAGER
          ===================================================================== */}
-      {subTab === 'attractions' && (
+      {allowPlacesToVisitManagement && subTab === 'attractions' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
           <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70">
             <div className="text-xs text-slate-600">
@@ -814,7 +834,7 @@ export const AdminHospitalityManager: React.FC<AdminHospitalityManagerProps> = (
       {/* =====================================================================
           MODAL: EDIT / ADD TOURIST ATTRACTION
          ===================================================================== */}
-      {editingPlace && (
+      {allowPlacesToVisitManagement && editingPlace && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white max-w-xl w-full rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
             <div className="p-4 bg-[#0B112C] text-white flex items-center justify-between">

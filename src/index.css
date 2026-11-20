@@ -23,10 +23,15 @@
     line-height: 1.6;
     color: #102B50;
     background-color: #F8FAFD;
-    overflow-x: hidden;
+    overflow-x: clip;
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: #6E52D4 #E6ECF4;
   }
 
   h1, h2, h3, h4, h5, h6, .font-heading {
@@ -112,20 +117,30 @@ html.snap-page {
   border: 1px solid rgba(34, 197, 217, 0.25);
 }
 
-/* Custom subtle scrollbar */
+/* Visible, accessible scrollbar for all scrollable panels, tables, lists & pages */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 11px;
+  height: 11px;
 }
 ::-webkit-scrollbar-track {
-  background: #082746;
+  background: #E6ECF4;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #7554D9;
-  border-radius: 3px;
+  background: #6E52D4;
+  border-radius: 9999px;
+  border: 2px solid #E6ECF4;
+  min-height: 36px;
+  min-width: 36px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #8B50E8;
+  background: #583AC2;
+}
+::-webkit-scrollbar-thumb:active {
+  background: #4324A3;
+}
+::-webkit-scrollbar-corner {
+  background: #E6ECF4;
 }
 
 /* Homepage Hero: Subtle Coastal Camera Pan & Zoom + Ocean Wave/Shimmer Animation */

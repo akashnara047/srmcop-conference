@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User,
   Mail,
@@ -33,14 +33,24 @@ import {
   Landmark,
   ShieldCheck,
 } from 'lucide-react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { triggerRegistrationReceivedEmail } from '../lib/emailService';
 import {
   submitConferenceRegistration,
+  resubmitRejectedRegistrationUtr,
   generateRegistrationSubmissionReceiptPDF,
   type RegistrationRecord,
 } from '../lib/managementService';
+import {
+  UTR_AVAILABLE_MESSAGE,
+  UTR_CHECKING_MESSAGE,
+  UTR_DUPLICATE_MESSAGE,
+  checkTransactionReferenceAvailability,
+  isDuplicateTransactionReferenceError,
+  normalizeTransactionReference,
+  type UtrAvailabilityStatus,
+} from '../lib/utrValidationService';
 import {
   INTERNAL_INSTITUTION_NAME,
   type InstitutionCategoryValue,
@@ -150,6 +160,14 @@ export const RegistrationView: React.FC = () => {
   const [copiedUpi, setCopiedUpi] = useState(false);
 
   // =========================================================================
+  // REAL-TIME UTR / TRANSACTION ID DUPLICATE VALIDATION STATES
+  // =========================================================================
+  const [utrCheckStatus, setUtrCheckStatus] = useState<UtrAvailabilityStatus>('idle');
+  const [utrCheckMessage, setUtrCheckMessage] = useState<string>('');
+  const [lastCheckedNormalizedUtr, setLastCheckedNormalizedUtr] = useState<string>('');
+  const utrCheckSeqRef = useRef(0);
+
+  // =========================================================================
   // STATUS LOOKUP & RESUBMISSION STATES
   // =========================================================================
   const [lookupRegId, setLookupRegId] = useState('');
@@ -159,8 +177,150 @@ export const RegistrationView: React.FC = () => {
   const [resubmitting, setResubmitting] = useState(false);
   const [newTransRef, setNewTransRef] = useState('');
   const [resubmitSuccess, setResubmitSuccess] = useState(false);
+  const [resubmitError, setResubmitError] = useState<string | null>(null);
+  const [resubmitUtrStatus, setResubmitUtrStatus] = useState<UtrAvailabilityStatus>('idle');
+  const [resubmitUtrMessage, setResubmitUtrMessage] = useState<string>('');
+  const [resubmitLastCheckedUtr, setResubmitLastCheckedUtr] = useState<string>('');
+  const resubmitUtrSeqRef = useRef(0);
 
   const applicableFee = getApplicableRegistrationFee(category);
+
+  // Real-time Firestore availability check for new registration UTR
+  const runUtrAvailabilityCheck = useCallback(async (rawValue: string) => {
+    const normalized = normalizeTransactionReference(rawValue);
+    if (!normalized) {
+      utrCheckSeqRef.current += 1;
+      setUtrCheckStatus('idle');
+      setUtrCheckMessage('');
+      setLastCheckedNormalizedUtr('');
+      return null;
+    }
+
+    const requestSeq = ++utrCheckSeqRef.current;
+    setUtrCheckStatus('checking');
+    setUtrCheckMessage(UTR_CHECKING_MESSAGE);
+
+    const result = await checkTransactionReferenceAvailability(rawValue);
+    if (requestSeq !== utrCheckSeqRef.current) {
+      return null;
+    }
+
+    setUtrCheckStatus(result.status);
+    setUtrCheckMessage(result.message);
+    setLastCheckedNormalizedUtr(result.normalizedUtr);
+
+    if (result.status === 'duplicate') {
+      setValidationErrors((prev) => ({
+        ...prev,
+        transactionRef: UTR_DUPLICATE_MESSAGE,
+      }));
+    } else if (result.status === 'available') {
+      setValidationErrors((prev) =>
+        prev.transactionRef ? { ...prev, transactionRef: '' } : prev
+      );
+    }
+
+    return result;
+  }, []);
+
+  // Debounced check after participant finishes typing UTR (min 3 chars while typing; blur checks any length)
+  useEffect(() => {
+    const trimmed = transactionRef.trim();
+    if (!trimmed) {
+      utrCheckSeqRef.current += 1;
+      setUtrCheckStatus('idle');
+      setUtrCheckMessage('');
+      setLastCheckedNormalizedUtr('');
+      return;
+    }
+
+    const normalized = normalizeTransactionReference(trimmed);
+    if (
+      normalized === lastCheckedNormalizedUtr &&
+      (utrCheckStatus === 'available' || utrCheckStatus === 'duplicate')
+    ) {
+      return;
+    }
+
+    if (trimmed.length < 3) {
+      setUtrCheckStatus('idle');
+      setUtrCheckMessage('');
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runUtrAvailabilityCheck(trimmed);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [transactionRef, lastCheckedNormalizedUtr, utrCheckStatus, runUtrAvailabilityCheck]);
+
+  // Real-time Firestore availability check for Rejected-payment UTR resubmission (excludes own registration record)
+  const runResubmitUtrCheck = useCallback(
+    async (rawValue: string, ownRegId?: string | null) => {
+      const normalized = normalizeTransactionReference(rawValue);
+      if (!normalized) {
+        resubmitUtrSeqRef.current += 1;
+        setResubmitUtrStatus('idle');
+        setResubmitUtrMessage('');
+        setResubmitLastCheckedUtr('');
+        return null;
+      }
+
+      const requestSeq = ++resubmitUtrSeqRef.current;
+      setResubmitUtrStatus('checking');
+      setResubmitUtrMessage(UTR_CHECKING_MESSAGE);
+
+      const result = await checkTransactionReferenceAvailability(rawValue, ownRegId);
+      if (requestSeq !== resubmitUtrSeqRef.current) {
+        return null;
+      }
+
+      setResubmitUtrStatus(result.status);
+      setResubmitUtrMessage(result.message);
+      setResubmitLastCheckedUtr(result.normalizedUtr);
+      if (result.status === 'duplicate') {
+        setResubmitError(UTR_DUPLICATE_MESSAGE);
+      } else if (result.status === 'available') {
+        setResubmitError(null);
+      }
+      return result;
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!lookupRecord || lookupRecord.paymentStatus !== 'Rejected') return;
+    const trimmed = newTransRef.trim();
+    if (!trimmed) {
+      resubmitUtrSeqRef.current += 1;
+      setResubmitUtrStatus('idle');
+      setResubmitUtrMessage('');
+      setResubmitLastCheckedUtr('');
+      setResubmitError(null);
+      return;
+    }
+
+    const normalized = normalizeTransactionReference(trimmed);
+    if (
+      normalized === resubmitLastCheckedUtr &&
+      (resubmitUtrStatus === 'available' || resubmitUtrStatus === 'duplicate')
+    ) {
+      return;
+    }
+
+    if (trimmed.length < 3) {
+      setResubmitUtrStatus('idle');
+      setResubmitUtrMessage('');
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void runResubmitUtrCheck(trimmed, lookupRecord.id);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [newTransRef, lookupRecord, resubmitLastCheckedUtr, resubmitUtrStatus, runResubmitUtrCheck]);
 
   // Category change handler: when moving away from 'Others', clear its custom specification
   const handleCategorySelect = (selected: RegistrationCategory) => {
@@ -349,6 +509,8 @@ export const RegistrationView: React.FC = () => {
 
     if (!transactionRef.trim()) {
       errors.transactionRef = 'Transaction / Reference Number is required';
+    } else if (utrCheckStatus === 'duplicate') {
+      errors.transactionRef = UTR_DUPLICATE_MESSAGE;
     }
 
     if (!paymentProofName) {
@@ -376,7 +538,11 @@ export const RegistrationView: React.FC = () => {
     setFormError(null);
 
     if (!validateForm()) {
-      setFormError('Please complete all required fields indicated below before proceeding.');
+      setFormError(
+        utrCheckStatus === 'duplicate'
+          ? UTR_DUPLICATE_MESSAGE
+          : 'Please complete all required fields indicated below before proceeding.'
+      );
       window.scrollTo({ top: 260, behavior: 'smooth' });
       return;
     }
@@ -385,6 +551,21 @@ export const RegistrationView: React.FC = () => {
     const parsedAmount = parseFloat(paymentAmount.trim());
 
     try {
+      // Mandatory live UTR check right before submission (prevents bypass via refresh or rapid submit)
+      const normalizedUtr = normalizeTransactionReference(transactionRef);
+      if (normalizedUtr !== lastCheckedNormalizedUtr || utrCheckStatus !== 'available') {
+        const liveCheck = await runUtrAvailabilityCheck(transactionRef);
+        if (liveCheck && liveCheck.status === 'duplicate') {
+          setValidationErrors((prev) => ({
+            ...prev,
+            transactionRef: UTR_DUPLICATE_MESSAGE,
+          }));
+          setFormError(UTR_DUPLICATE_MESSAGE);
+          setSubmitting(false);
+          return;
+        }
+      }
+
       const resolvedInstitution =
         institutionCategory === 'internal'
           ? INTERNAL_INSTITUTION_NAME
@@ -418,7 +599,7 @@ export const RegistrationView: React.FC = () => {
         adminRemarks: '',
       };
 
-      // 1. Concurrency-safe atomic transaction write to Firestore (allocates AICONDD001, AICONDD002, etc.)
+      // 1. Concurrency-safe atomic transaction write to Firestore (validates unique UTR & allocates AICONDDxxx)
       const { regDoc, regId } = await submitConferenceRegistration(regPayload);
 
       // 2. Trigger Event 1 (Registration Received) email asynchronously without blocking UI
@@ -433,10 +614,21 @@ export const RegistrationView: React.FC = () => {
       confetti({ particleCount: 85, spread: 70, origin: { y: 0.6 } });
       window.scrollTo({ top: 120, behavior: 'smooth' });
     } catch (err: any) {
-      console.error('Registration error:', err);
-      setFormError(
-        err.message || 'Registration submission failed. Please check your network and try again.'
-      );
+      if (isDuplicateTransactionReferenceError(err)) {
+        setUtrCheckStatus('duplicate');
+        setUtrCheckMessage(UTR_DUPLICATE_MESSAGE);
+        setLastCheckedNormalizedUtr(err.normalizedUtr);
+        setValidationErrors((prev) => ({
+          ...prev,
+          transactionRef: UTR_DUPLICATE_MESSAGE,
+        }));
+        setFormError(UTR_DUPLICATE_MESSAGE);
+      } else {
+        console.error('Registration error:', err);
+        setFormError(
+          err.message || 'Registration submission failed. Please check your network and try again.'
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -471,31 +663,57 @@ export const RegistrationView: React.FC = () => {
     }
   };
 
-  // Resubmit correction handler if payment was rejected by admin
+  // Resubmit correction handler if payment was rejected by admin (atomic duplicate-safe)
   const handleResubmitCorrection = async () => {
     if (!newTransRef.trim() || !lookupRecord) return;
+    setResubmitError(null);
+    setResubmitSuccess(false);
+
+    if (resubmitUtrStatus === 'duplicate') {
+      setResubmitError(UTR_DUPLICATE_MESSAGE);
+      return;
+    }
+
     setResubmitting(true);
 
     try {
-      await updateDoc(doc(db, 'registrations', lookupRecord.id), {
-        transactionReference: newTransRef.trim(),
-        paymentStatus: 'Pending Verification',
-        updatedAt: new Date().toISOString(),
+      const normalized = normalizeTransactionReference(newTransRef);
+      if (normalized !== resubmitLastCheckedUtr || resubmitUtrStatus !== 'available') {
+        const liveCheck = await runResubmitUtrCheck(newTransRef, lookupRecord.id);
+        if (liveCheck && liveCheck.status === 'duplicate') {
+          setResubmitError(UTR_DUPLICATE_MESSAGE);
+          setResubmitting(false);
+          return;
+        }
+      }
+
+      const updated = await resubmitRejectedRegistrationUtr({
+        regDocId: lookupRecord.id,
+        newTransactionReference: newTransRef.trim(),
       });
 
       setLookupRecord({
         ...lookupRecord,
-        transactionReference: newTransRef.trim(),
-        paymentStatus: 'Pending Verification',
+        transactionReference: updated.transactionReference,
+        normalizedTransactionReference: updated.normalizedTransactionReference,
+        transactionReferenceKey: updated.transactionReferenceKey,
+        paymentStatus: updated.paymentStatus,
+        updatedAt: updated.updatedAt,
       });
       setResubmitSuccess(true);
       setNewTransRef('');
-    } catch (err) {
-      console.error('Resubmission error:', err);
-      try {
-        handleFirestoreError(err, OperationType.UPDATE, `registrations/${lookupRecord.id}`);
-      } catch (e: any) {
-        alert(e.message || 'Failed to update transaction reference.');
+      setResubmitUtrStatus('idle');
+      setResubmitUtrMessage('');
+      setResubmitLastCheckedUtr('');
+    } catch (err: any) {
+      if (isDuplicateTransactionReferenceError(err)) {
+        setResubmitUtrStatus('duplicate');
+        setResubmitUtrMessage(UTR_DUPLICATE_MESSAGE);
+        setResubmitLastCheckedUtr(err.normalizedUtr);
+        setResubmitError(UTR_DUPLICATE_MESSAGE);
+      } else {
+        console.error('Resubmission error:', err);
+        setResubmitError(err?.message || 'Failed to update transaction reference.');
       }
     } finally {
       setResubmitting(false);
@@ -546,6 +764,10 @@ export const RegistrationView: React.FC = () => {
     setPaymentAmount('');
     setPaymentMode('');
     setTransactionRef('');
+    utrCheckSeqRef.current += 1;
+    setUtrCheckStatus('idle');
+    setUtrCheckMessage('');
+    setLastCheckedNormalizedUtr('');
     setPaymentProofFile(null);
     setPaymentProofName('');
     setPaymentProofSize(null);
@@ -924,20 +1146,85 @@ export const RegistrationView: React.FC = () => {
                         Your transaction reference could not be verified by the secretariat. Please provide the updated bank UTR / transaction reference number below to resubmit for verification.
                       </p>
                       <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                        <input
-                          type="text"
-                          placeholder="Correct UTR / Transaction Reference"
-                          value={newTransRef}
-                          onChange={(e) => setNewTransRef(e.target.value)}
-                          className="flex-1 h-[38px] text-[13px] px-3 bg-white border border-amber-300 rounded-lg outline-none"
-                        />
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            placeholder="Correct UTR / Transaction Reference"
+                            value={newTransRef}
+                            onChange={(e) => {
+                              setNewTransRef(e.target.value);
+                              setResubmitError(null);
+                              setResubmitSuccess(false);
+                            }}
+                            onBlur={() => {
+                              if (
+                                newTransRef.trim() &&
+                                (normalizeTransactionReference(newTransRef) !== resubmitLastCheckedUtr ||
+                                  resubmitUtrStatus === 'idle' ||
+                                  resubmitUtrStatus === 'error')
+                              ) {
+                                void runResubmitUtrCheck(newTransRef, lookupRecord.id);
+                              }
+                            }}
+                            className={`w-full h-[38px] text-[13px] pl-3 pr-9 bg-white border rounded-lg outline-none font-mono ${
+                              resubmitUtrStatus === 'duplicate' || resubmitError
+                                ? 'border-red-400 bg-red-50/30'
+                                : resubmitUtrStatus === 'available'
+                                ? 'border-emerald-400'
+                                : 'border-amber-300'
+                            }`}
+                          />
+                          <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
+                            {resubmitUtrStatus === 'checking' && (
+                              <RefreshCw className="w-3.5 h-3.5 text-amber-700 animate-spin" />
+                            )}
+                            {resubmitUtrStatus === 'available' && (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            )}
+                            {resubmitUtrStatus === 'duplicate' && (
+                              <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                            )}
+                          </div>
+                        </div>
                         <button
+                          type="button"
                           onClick={handleResubmitCorrection}
-                          disabled={resubmitting || !newTransRef.trim()}
-                          className="px-4 h-[38px] bg-amber-800 text-white text-[12px] font-bold rounded-lg hover:bg-amber-900 disabled:opacity-50 cursor-pointer"
+                          disabled={
+                            resubmitting ||
+                            !newTransRef.trim() ||
+                            resubmitUtrStatus === 'checking' ||
+                            resubmitUtrStatus === 'duplicate'
+                          }
+                          className="px-4 h-[38px] bg-amber-800 text-white text-[12px] font-bold rounded-lg hover:bg-amber-900 disabled:opacity-50 cursor-pointer shrink-0"
                         >
                           {resubmitting ? 'Updating...' : 'Resubmit Reference'}
                         </button>
+                      </div>
+                      <div aria-live="polite">
+                        {resubmitUtrStatus === 'checking' && (
+                          <div className="text-[11.5px] text-amber-800 font-medium flex items-center gap-1.5 pt-0.5">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                            <span>{UTR_CHECKING_MESSAGE}</span>
+                          </div>
+                        )}
+                        {resubmitUtrStatus === 'available' && !resubmitError && (
+                          <div className="text-[11.5px] text-emerald-700 font-semibold flex items-center gap-1.5 pt-0.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>{UTR_AVAILABLE_MESSAGE}</span>
+                          </div>
+                        )}
+                        {(resubmitUtrStatus === 'duplicate' || resubmitError) && (
+                          <div className="text-[11.5px] text-red-600 font-semibold flex items-start gap-1.5 pt-0.5">
+                            <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+                            <span>{resubmitError || UTR_DUPLICATE_MESSAGE}</span>
+                          </div>
+                        )}
+                        {resubmitUtrStatus === 'error' && !resubmitError && (
+                          <div className="text-[11.5px] text-amber-800 font-medium flex items-start gap-1.5 pt-0.5">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                            <span>{resubmitUtrMessage}</span>
+                          </div>
+                        )}
                       </div>
                       {resubmitSuccess && (
                         <div className="text-[12px] text-emerald-700 font-medium flex items-center gap-1.5 pt-1">
@@ -1942,9 +2229,12 @@ export const RegistrationView: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Transaction / Reference Number */}
+                  {/* Transaction / Reference Number (with Real-Time Duplicate UTR Validation) */}
                   <div>
-                    <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
+                    <label
+                      htmlFor="registration-utr-input"
+                      className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                    >
                       Transaction / Reference No. <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
@@ -1952,25 +2242,91 @@ export const RegistrationView: React.FC = () => {
                         #
                       </div>
                       <input
+                        id="registration-utr-input"
                         type="text"
                         placeholder="e.g. UPI/NEFT/IMPS ID"
                         value={transactionRef}
                         onChange={(e) => {
-                          setTransactionRef(e.target.value);
+                          const nextVal = e.target.value;
+                          setTransactionRef(nextVal);
                           if (validationErrors.transactionRef) {
                             setValidationErrors((prev) => ({ ...prev, transactionRef: '' }));
                           }
+                          if (
+                            normalizeTransactionReference(nextVal) !== lastCheckedNormalizedUtr &&
+                            utrCheckStatus !== 'idle'
+                          ) {
+                            setUtrCheckStatus('idle');
+                            setUtrCheckMessage('');
+                          }
                         }}
-                        className={`w-full h-[38px] sm:h-[40px] pl-8 pr-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 font-mono placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] ${
-                          validationErrors.transactionRef ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
+                        onBlur={() => {
+                          const trimmed = transactionRef.trim();
+                          if (
+                            trimmed &&
+                            (normalizeTransactionReference(trimmed) !== lastCheckedNormalizedUtr ||
+                              utrCheckStatus === 'idle' ||
+                              utrCheckStatus === 'error')
+                          ) {
+                            void runUtrAvailabilityCheck(trimmed);
+                          }
+                        }}
+                        aria-invalid={
+                          utrCheckStatus === 'duplicate' || !!validationErrors.transactionRef
+                        }
+                        className={`w-full h-[38px] sm:h-[40px] pl-8 pr-9 text-[14px] rounded-xl border bg-white/95 text-slate-800 font-mono placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
+                          utrCheckStatus === 'duplicate' || validationErrors.transactionRef
+                            ? 'border-red-400 bg-red-50/20 focus:ring-red-500/20 focus:border-red-500'
+                            : utrCheckStatus === 'available'
+                            ? 'border-emerald-400 bg-emerald-50/15 focus:ring-emerald-500/20 focus:border-emerald-500'
+                            : 'border-[#D8D2F8] focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
                         }`}
                       />
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        {utrCheckStatus === 'checking' && (
+                          <RefreshCw
+                            aria-label="Checking payment transaction ID"
+                            className="w-4 h-4 text-[#713CE0] animate-spin"
+                          />
+                        )}
+                        {utrCheckStatus === 'available' && !validationErrors.transactionRef && (
+                          <CheckCircle2
+                            aria-label="Payment transaction ID is available"
+                            className="w-4 h-4 text-emerald-600"
+                          />
+                        )}
+                        {(utrCheckStatus === 'duplicate' || validationErrors.transactionRef) && (
+                          <AlertCircle
+                            aria-label="Duplicate or invalid payment transaction ID"
+                            className="w-4 h-4 text-red-600"
+                          />
+                        )}
+                      </div>
                     </div>
-                    {validationErrors.transactionRef && (
-                      <span className="text-[11px] text-red-600 font-medium block mt-1">
-                        {validationErrors.transactionRef}
-                      </span>
-                    )}
+
+                    <div aria-live="polite" className="min-h-[18px] mt-1">
+                      {utrCheckStatus === 'checking' ? (
+                        <span className="text-[11px] text-[#713CE0] font-medium flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+                          <span>{UTR_CHECKING_MESSAGE}</span>
+                        </span>
+                      ) : utrCheckStatus === 'duplicate' || validationErrors.transactionRef ? (
+                        <span className="text-[11px] text-red-600 font-semibold flex items-start gap-1 leading-snug">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+                          <span>{validationErrors.transactionRef || UTR_DUPLICATE_MESSAGE}</span>
+                        </span>
+                      ) : utrCheckStatus === 'available' ? (
+                        <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{UTR_AVAILABLE_MESSAGE}</span>
+                        </span>
+                      ) : utrCheckStatus === 'error' && utrCheckMessage ? (
+                        <span className="text-[11px] text-amber-700 font-medium flex items-start gap-1 leading-snug">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <span>{utrCheckMessage}</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 
@@ -2161,13 +2517,18 @@ export const RegistrationView: React.FC = () => {
             <div className="flex flex-col items-center justify-center pt-2 pb-4 space-y-2">
               <button
                 type="submit"
-                disabled={submitting}
-                className="w-full sm:w-auto min-w-[260px] sm:min-w-[300px] h-[48px] px-8 rounded-full bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[15px] sm:text-[16px] shadow-[0_8px_25px_rgba(109,60,226,0.3)] hover:shadow-[0_10px_28px_rgba(109,60,226,0.4)] hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                disabled={submitting || utrCheckStatus === 'checking' || utrCheckStatus === 'duplicate'}
+                className="w-full sm:w-auto min-w-[260px] sm:min-w-[300px] h-[48px] px-8 rounded-full bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#12B8D6] hover:opacity-95 text-white font-bold text-[15px] sm:text-[16px] shadow-[0_8px_25px_rgba(109,60,226,0.3)] hover:shadow-[0_10px_28px_rgba(109,60,226,0.4)] hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
                 {submitting ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>Processing Submission...</span>
+                  </>
+                ) : utrCheckStatus === 'checking' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Verifying Transaction ID...</span>
                   </>
                 ) : (
                   <>
@@ -2176,6 +2537,12 @@ export const RegistrationView: React.FC = () => {
                   </>
                 )}
               </button>
+              {utrCheckStatus === 'duplicate' && (
+                <p className="text-[12px] text-red-600 font-semibold text-center max-w-md flex items-center justify-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{UTR_DUPLICATE_MESSAGE}</span>
+                </p>
+              )}
             </div>
           </form>
         )}

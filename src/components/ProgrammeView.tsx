@@ -60,7 +60,7 @@ const DAY_1_MAIN_FORENOON_SESSIONS: ScientificSession[] = [
 const DAY_1_MINI_HALL_1_AFTERNOON_SESSIONS: ScientificSession[] = [
   {
     sessionNumber: 'Session III',
-    speaker: 'Maitri Sanghavi',
+    speaker: 'Maitri Sanghavi, M.S.',
     title: 'To be confirmed',
     format: 'Offline',
   },

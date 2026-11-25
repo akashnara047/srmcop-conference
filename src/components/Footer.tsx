@@ -12,8 +12,7 @@ import {
   User,
   Mail,
   ChevronRight,
-  ShieldCheck,
-  ArrowUpRight,
+  ArrowRight,
   Compass,
 } from 'lucide-react';
 import { IMAGES } from '../lib/images';
@@ -287,29 +286,35 @@ export const Footer: React.FC<FooterProps> = ({ onSelectTab, onOpenAdmin }) => {
         </div>
 
         {/* =====================================================================
-            PART 4: BOTTOM COPYRIGHT & SECRETARIAT LOGIN STRIP
+            PART 4: BOTTOM COPYRIGHT, DEVELOPER CREDIT & SECRETARIAT LOGIN STRIP
            ===================================================================== */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400 pt-2">
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-3 lg:gap-4 text-xs text-slate-400 pt-2">
           {/* Left: Copyright */}
-          <div className="text-center sm:text-left">
+          <div className="text-center lg:text-left">
             <span>© 2027 SRM College of Pharmacy, SRMIST. All rights reserved.</span>
           </div>
 
-          {/* Centre: Institutional Location */}
-          <div className="flex items-center gap-1.5 text-slate-300">
-            <MapPin className="w-3.5 h-3.5 text-[#22D3EE] shrink-0" />
-            <span>Kattankulathur, Tamil Nadu, India</span>
-          </div>
-
-          {/* Right: Secretariat Login Pill Button */}
-          <div>
-            <button
-              onClick={onOpenAdmin}
-              className="px-4 py-1.5 rounded-full bg-gradient-to-r from-[#6D3CE2] via-[#8545EB] to-[#9333EA] hover:opacity-95 text-white text-[12px] font-semibold flex items-center gap-2 shadow-xs border border-purple-400/30 cursor-pointer transition-all hover:scale-102 active:scale-98"
+          {/* Right: Developer Credit & Organising Secretary Login */}
+          <div className="flex flex-wrap items-center justify-center lg:justify-end gap-x-3 gap-y-1.5 text-center lg:text-right">
+            <span className="text-[11.5px] sm:text-xs font-normal text-[#94A8C7] tracking-normal">
+              Designed &amp; Maintained by Dr. J. Narayanan
+            </span>
+            <span
+              aria-hidden="true"
+              className="hidden sm:inline text-slate-600/80 select-none"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-white" />
-              <span>Org. Secretary Login</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-white" />
+              |
+            </span>
+            <button
+              type="button"
+              onClick={onOpenAdmin}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-200 hover:text-white transition-colors cursor-pointer whitespace-nowrap group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22D3EE]/60 focus-visible:rounded-xs"
+            >
+              <span>Organising Secretary Login</span>
+              <ArrowRight
+                className="w-3.5 h-3.5 text-[#94A8C7] group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0"
+                aria-hidden="true"
+              />
             </button>
           </div>
         </div>

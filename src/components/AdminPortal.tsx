@@ -4,6 +4,7 @@ import {
   onSnapshot,
   doc,
   updateDoc,
+  setDoc,
   getDocs,
 } from 'firebase/firestore';
 import {
@@ -58,7 +59,17 @@ import {
   Database,
   Utensils,
   Columns,
+  Trophy,
+  Info,
+  Hourglass,
 } from 'lucide-react';
+import {
+  TableBulkActionBar,
+  TablePaginationBar,
+  BulkActionConfirmModal,
+  type BulkConfirmModalConfig,
+  type PageSizeOption,
+} from './DashboardTableControls';
 import { AdminHospitalityManager } from './AdminHospitalityManager';
 import { AdminBackupManager } from './AdminBackupManager';
 import {
@@ -102,22 +113,32 @@ import {
   ABSTRACT_WORD_FILENAME,
 } from '../lib/abstractWordExport';
 import {
+  AbstractTypeFilterValue,
+  CANONICAL_CONFERENCE_TRACKS,
   FoodPreferenceFilterValue,
   InstitutionCategoryValue,
   InstitutionFilterValue,
   ParticipationModeFilterValue,
+  PharmaQuestFilterValue,
   PresentationDashboardFilter,
+  classifyAbstractPresentationType,
   classifyParticipationMode,
+  computeAbstractOverviewSummary,
   computeFoodPreferenceStats,
+  computePharmaQuestStats,
   computePresentationDashboardMetrics,
   computeRegistrationInstitutionStats,
   formatFoodPreferenceDisplay,
   formatInstitutionCategoryLabel,
   formatRegistrationPresentationPlan,
   getLinkedRegistrationForAbstractRecord,
+  isAbstractBulkEligible,
+  isPharmaQuestRegistration,
+  isRegistrationBulkEligible,
   matchesFoodPreferenceFilter,
   normalizeInstitutionCategory,
   normalizeRegKey,
+  resolveCanonicalTrackId,
 } from '../lib/presentationDashboardStats';
 import { SCIENTIFIC_TRACKS } from '../data/conferenceData';
 import {
@@ -134,6 +155,20 @@ import {
   triggerAbstractAcceptedEmail,
   triggerRegistrationConfirmedEmail,
 } from '../lib/emailService';
+import {
+  OFFICIAL_ALLOCATION_CATEGORIES,
+  confirmOfficialPresentationAllocation,
+  getAllocationFilterCategoryKey,
+  getOfficialAllocationCategory,
+  isAbstractOfficiallyAllocated,
+  isValidOfficialAllocationCategory,
+} from '../lib/presentationAllocationService';
+import {
+  createPresentationAllocationPreviewUrl,
+  generatePresentationAllocationPDF,
+} from '../lib/allocationPdf';
+import { sendOfficialPresentationAllocationEmail } from '../lib/allocationEmailService';
+import type { OfficialAllocationCategory } from '../lib/managementService';
 
 // Authorized administrator emails
 const ADMIN_EMAILS = AUTHORIZED_ADMIN_EMAILS;
@@ -175,7 +210,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   // Global Record Type Filter ('all' | 'live' | 'test')
   const [recordTypeFilter, setRecordTypeFilter] = useState<'all' | 'live' | 'test'>('all');
 
-  // Registration Filter & Search states
+  // Registration Filter & Search states (all default to 'all' / empty so complete database shows on load)
   const [regSearchQuery, setRegSearchQuery] = useState('');
   const [regStatusFilter, setRegStatusFilter] = useState<string>('all');
   const [regCategoryFilter, setRegCategoryFilter] = useState<string>('all');
@@ -184,16 +219,39 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     useState<ParticipationModeFilterValue>('all');
   const [regFoodPreferenceFilter, setRegFoodPreferenceFilter] =
     useState<FoodPreferenceFilterValue>('all');
+  const [regPharmaQuestFilter, setRegPharmaQuestFilter] =
+    useState<PharmaQuestFilterValue>('all');
   const [updatingInstCatId, setUpdatingInstCatId] = useState<string | null>(null);
 
-  // Abstract Filter & Search states
+  // Registration Bulk Selection, Expandable Row & Pagination states
+  const [selectedRegIds, setSelectedRegIds] = useState<Set<string>>(() => new Set());
+  const [regPage, setRegPage] = useState<number>(1);
+  const [regPageSize, setRegPageSize] = useState<PageSizeOption>(50);
+  const [expandedRegId, setExpandedRegId] = useState<string | null>(null);
+
+  // Abstract Filter & Search states (default to 'all' / empty)
   const [absSearchQuery, setAbsSearchQuery] = useState('');
   const [absStatusFilter, setAbsStatusFilter] = useState<string>('all');
   const [absTrackFilter, setAbsTrackFilter] = useState<string>('all');
+  const [absTypeFilter, setAbsTypeFilter] = useState<AbstractTypeFilterValue>('all');
+  const [absPharmaQuestFilter, setAbsPharmaQuestFilter] =
+    useState<PharmaQuestFilterValue>('all');
   const [absInstitutionFilter, setAbsInstitutionFilter] = useState<InstitutionFilterValue>('all');
   const [presentationDashboardFilter, setPresentationDashboardFilter] =
     useState<PresentationDashboardFilter>('all');
   const [showPendingBreakdown, setShowPendingBreakdown] = useState(false);
+  const [showPresentationAnalytics, setShowPresentationAnalytics] = useState(false);
+
+  // Abstract Bulk Selection & Pagination states
+  const [selectedAbsIds, setSelectedAbsIds] = useState<Set<string>>(() => new Set());
+  const [absPage, setAbsPage] = useState<number>(1);
+  const [absPageSize, setAbsPageSize] = useState<PageSizeOption>(50);
+
+  // Shared Bulk Approval / Rejection Confirmation Modal state
+  const [bulkConfirmConfig, setBulkConfirmConfig] = useState<BulkConfirmModalConfig | null>(null);
+  const [bulkActionRemarks, setBulkActionRemarks] = useState('');
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [bulkProgressText, setBulkProgressText] = useState<string | null>(null);
 
   // Unified Participant Search state
   const [unifiedSearchQuery, setUnifiedSearchQuery] = useState('');
@@ -217,6 +275,27 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [allottedFormatSelection, setAllottedFormatSelection] = useState<string>('');
   const [savingAllocation, setSavingAllocation] = useState(false);
   const [allocationSavedSuccess, setAllocationSavedSuccess] = useState(false);
+
+  // Official Presentation Allocation ID Filter & Dedicated Modal state
+  type AbsOfficialAllocationFilterValue =
+    | 'all'
+    | 'allocated'
+    | 'not_allocated'
+    | 'oral'
+    | 'poster'
+    | 'eposter';
+  const [absAllocationFilter, setAbsAllocationFilter] =
+    useState<AbsOfficialAllocationFilterValue>('all');
+  const [allocationModalAbs, setAllocationModalAbs] = useState<AbstractRecord | null>(null);
+  const [allocationCategoryChoice, setAllocationCategoryChoice] = useState<string>('');
+  const [allocationChangeReason, setAllocationChangeReason] = useState<string>('');
+  const [allocationConfirmChangeStep, setAllocationConfirmChangeStep] = useState<boolean>(false);
+  const [allocationConfirming, setAllocationConfirming] = useState<boolean>(false);
+  const [allocationEmailSending, setAllocationEmailSending] = useState<boolean>(false);
+  const [allocationModalFeedback, setAllocationModalFeedback] = useState<{
+    type: 'success' | 'warning' | 'error';
+    text: string;
+  } | null>(null);
 
   // Delete Confirmation Modals
   const [regToDelete, setRegToDelete] = useState<RegistrationRecord | null>(null);
@@ -784,6 +863,135 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     }
   };
 
+  // Dedicated Official Presentation Allocation ID Handlers (atomic category ID + PDF + Email)
+  const liveAllocationModalAbs = useMemo(() => {
+    if (!allocationModalAbs) return null;
+    return abstracts.find((a) => a.id === allocationModalAbs.id) || allocationModalAbs;
+  }, [allocationModalAbs, abstracts]);
+
+  const openOfficialAllocationModal = (abs: AbstractRecord) => {
+    setAllocationModalAbs(abs);
+    setAllocationCategoryChoice('');
+    setAllocationChangeReason('');
+    setAllocationConfirmChangeStep(false);
+    setAllocationModalFeedback(null);
+  };
+
+  const closeOfficialAllocationModal = () => {
+    if (allocationConfirming || allocationEmailSending) return;
+    setAllocationModalAbs(null);
+    setAllocationCategoryChoice('');
+    setAllocationChangeReason('');
+    setAllocationConfirmChangeStep(false);
+    setAllocationModalFeedback(null);
+  };
+
+  const handleConfirmOfficialAllocation = async () => {
+    const targetAbs = liveAllocationModalAbs;
+    if (!targetAbs || allocationConfirming || allocationEmailSending) return;
+    if (targetAbs.status === 'Rejected') {
+      setAllocationModalFeedback({
+        type: 'error',
+        text: 'Rejected abstracts cannot be allotted an official presentation slot.',
+      });
+      return;
+    }
+    if (!isValidOfficialAllocationCategory(allocationCategoryChoice)) {
+      setAllocationModalFeedback({
+        type: 'error',
+        text: 'Please select an Official Presentation Category before confirming allocation.',
+      });
+      return;
+    }
+
+    setAllocationConfirming(true);
+    setAllocationModalFeedback(null);
+    setActionSuccessMsg(null);
+
+    try {
+      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
+      const result = await confirmOfficialPresentationAllocation({
+        abstractId: targetAbs.id,
+        category: allocationCategoryChoice as OfficialAllocationCategory,
+        adminEmail: adminIdentity,
+        changeReason: allocationChangeReason,
+      });
+
+      setAllocationModalAbs(result.updatedAbstract);
+      if (selectedAbs?.id === result.updatedAbstract.id) {
+        setSelectedAbs(result.updatedAbstract);
+        setAllottedFormatSelection(result.category);
+      }
+      setAllocationConfirmChangeStep(false);
+      setAllocationChangeReason('');
+      setAllocationCategoryChoice('');
+
+      setAllocationConfirming(false);
+      setAllocationEmailSending(true);
+
+      const linkedReg = getLinkedRegistrationForAbstractRecord(
+        result.updatedAbstract,
+        registrations
+      );
+      const emailResult = await sendOfficialPresentationAllocationEmail({
+        abstract: result.updatedAbstract,
+        registration: linkedReg,
+        isResend: false,
+      });
+
+      const changePrefix =
+        result.isCategoryChange && result.previousAllocationId
+          ? `Category changed (${result.previousAllocationId} marked Superseded). `
+          : '';
+
+      if (emailResult.success) {
+        const msg = `${changePrefix}Official Presentation Allocation confirmed: ${result.allocationId} (${result.category}). Confirmation PDF email sent to presenting author.`;
+        setAllocationModalFeedback({ type: 'success', text: msg });
+        setActionSuccessMsg(msg);
+      } else {
+        const msg = `${changePrefix}Official Presentation Allocation saved as ${result.allocationId} (${result.category}), but confirmation email failed: ${
+          emailResult.error || 'Email service unavailable'
+        }. Use "Resend Allocation Email" below to retry.`;
+        setAllocationModalFeedback({ type: 'warning', text: msg });
+        setActionSuccessMsg(msg);
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || 'Failed to confirm official presentation allocation.';
+      setAllocationModalFeedback({ type: 'error', text: errMsg });
+    } finally {
+      setAllocationConfirming(false);
+      setAllocationEmailSending(false);
+    }
+  };
+
+  const handleResendAllocationEmail = async (targetAbs: AbstractRecord) => {
+    if (!isAbstractOfficiallyAllocated(targetAbs) || allocationConfirming || allocationEmailSending) {
+      return;
+    }
+    setAllocationEmailSending(true);
+    setAllocationModalFeedback(null);
+    try {
+      const linkedReg = getLinkedRegistrationForAbstractRecord(targetAbs, registrations);
+      const emailResult = await sendOfficialPresentationAllocationEmail({
+        abstract: targetAbs,
+        registration: linkedReg,
+        isResend: true,
+      });
+      if (emailResult.success) {
+        const msg = `Official Presentation Allocation Confirmation email (${targetAbs.presentationAllocationId}) sent successfully with attached PDF.`;
+        setAllocationModalFeedback({ type: 'success', text: msg });
+        setActionSuccessMsg(msg);
+      } else {
+        const msg = `Failed to resend allocation email (${targetAbs.presentationAllocationId}): ${
+          emailResult.error || 'Email service error'
+        }`;
+        setAllocationModalFeedback({ type: 'error', text: msg });
+      }
+    } finally {
+      setAllocationEmailSending(false);
+    }
+  };
+
   // Abstract Review Status Update (triggers Event 4 ONLY when status === 'Accepted')
   const handleUpdateAbstractStatus = async (
     targetStatus: 'Submitted' | 'Under Review' | 'Accepted' | 'Rejected'
@@ -837,6 +1045,431 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       alert('Error updating abstract review status in Firestore.');
     } finally {
       setProcessingAction(false);
+    }
+  };
+
+  // Inline Sticky-Column Individual Abstract Decision (reuses exact existing status update + Event 4 email)
+  // Strictly independent from Registration approval — never mutates registration records.
+  const handleQuickAbstractDecision = async (
+    abs: AbstractRecord,
+    targetStatus: 'Accepted' | 'Rejected'
+  ) => {
+    if (processingAction || bulkProcessing) return;
+    setProcessingAction(true);
+    setActionSuccessMsg(null);
+    try {
+      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
+      const timestamp = new Date().toISOString();
+      const reviewNote =
+        abs.reviewNotes?.trim() ||
+        (targetStatus === 'Accepted'
+          ? 'Abstract accepted by Scientific Committee.'
+          : 'Abstract not accepted during review.');
+
+      await updateDoc(doc(db, 'abstractSubmissions', abs.id), {
+        status: targetStatus,
+        reviewNotes: reviewNote,
+        reviewedBy: adminIdentity,
+        reviewedAt: timestamp,
+        updatedAt: timestamp,
+      });
+
+      let emailNote = '';
+      if (targetStatus === 'Accepted') {
+        const acceptedSnapshot: AbstractRecord = {
+          ...abs,
+          status: 'Accepted',
+          reviewNotes: reviewNote,
+          reviewedBy: adminIdentity,
+          reviewedAt: timestamp,
+          updatedAt: timestamp,
+        };
+        try {
+          const linkedReg = getLinkedRegistrationForAbstractRecord(acceptedSnapshot, registrations);
+          const emailResult = await triggerAbstractAcceptedEmail(acceptedSnapshot, linkedReg);
+          if (emailResult.success) {
+            emailNote = emailResult.duplicatePrevented
+              ? ' Acceptance email already sent previously.'
+              : ' Acceptance confirmation email sent.';
+          } else {
+            emailNote = ` Acceptance email failed (${emailResult.error || 'upstream error'}) — use Retry in dashboard.`;
+          }
+        } catch (emailErr: any) {
+          console.warn('Non-fatal Event 4 email dispatch error:', emailErr);
+          emailNote = ' Acceptance email could not be sent — use Retry in dashboard.';
+        }
+      }
+
+      setSelectedAbsIds((prev) => {
+        if (!prev.has(abs.id)) return prev;
+        const next = new Set(prev);
+        next.delete(abs.id);
+        return next;
+      });
+
+      setActionSuccessMsg(
+        `Abstract ${abs.id} ${targetStatus === 'Accepted' ? 'approved (Accepted)' : 'rejected'}.${emailNote}`
+      );
+    } catch (err: any) {
+      console.error('Failed to update abstract status:', err);
+      setActionSuccessMsg(`Error updating abstract ${abs.id}: ${err.message || 'Firestore error'}`);
+    } finally {
+      setProcessingAction(false);
+    }
+  };
+
+  // Helper: evaluate whether a registration is eligible for bulk approval (respects settled state + duplicate UTR/ID guards)
+  const evaluateRegistrationBulkEligibility = (
+    selectedIds: Set<string>,
+    action: 'approve' | 'reject'
+  ) => {
+    const selectedRecords = registrations.filter((r) => selectedIds.has(r.id));
+    const eligible: RegistrationRecord[] = [];
+    let skippedSettledCount = 0;
+    let skippedDuplicateGuardCount = 0;
+
+    for (const reg of selectedRecords) {
+      if (!isRegistrationBulkEligible(reg)) {
+        skippedSettledCount += 1;
+        continue;
+      }
+
+      if (action === 'approve') {
+        const regFlags = fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || [];
+        const hasDupRegId = regFlags.some((g) => g.type === 'duplicate_reg_id');
+        const utrConflicts = getConflictingRegistrationsForRecord(
+          reg,
+          registrations,
+          duplicateUtrAnalysis
+        );
+        if (hasDupRegId || utrConflicts.length > 0) {
+          skippedDuplicateGuardCount += 1;
+          continue;
+        }
+      }
+
+      eligible.push(reg);
+    }
+
+    return {
+      totalSelected: selectedRecords.length,
+      eligible,
+      skippedSettledCount,
+      skippedDuplicateGuardCount,
+    };
+  };
+
+  const openBulkRegistrationConfirm = (action: 'approve' | 'reject') => {
+    const summary = evaluateRegistrationBulkEligibility(selectedRegIds, action);
+    if (summary.totalSelected === 0) return;
+    setBulkActionRemarks('');
+    setBulkProgressText(null);
+    setBulkConfirmConfig({
+      entity: 'registrations',
+      action,
+      totalSelected: summary.totalSelected,
+      eligibleCount: summary.eligible.length,
+      skippedSettledCount: summary.skippedSettledCount,
+      skippedDuplicateGuardCount: summary.skippedDuplicateGuardCount,
+      previewLabels: summary.eligible.map((r) => r.registrationId || r.id),
+    });
+  };
+
+  const openBulkAbstractConfirm = (action: 'approve' | 'reject') => {
+    const selectedRecords = abstracts.filter((a) => selectedAbsIds.has(a.id));
+    if (selectedRecords.length === 0) return;
+    const eligible = selectedRecords.filter((a) => isAbstractBulkEligible(a));
+    const skippedSettledCount = selectedRecords.length - eligible.length;
+
+    setBulkActionRemarks('');
+    setBulkProgressText(null);
+    setBulkConfirmConfig({
+      entity: 'abstracts',
+      action,
+      totalSelected: selectedRecords.length,
+      eligibleCount: eligible.length,
+      skippedSettledCount,
+      skippedDuplicateGuardCount: 0,
+      previewLabels: eligible.map((a) => a.id),
+    });
+  };
+
+  // Executes confirmed bulk approval/rejection strictly on eligible records,
+  // reusing existing verification/update functions, idempotent email dispatch, and immutable audit logs.
+  const executeBulkConfirmedAction = async () => {
+    if (!bulkConfirmConfig || bulkProcessing) return;
+    const { entity, action } = bulkConfirmConfig;
+    const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
+    const customNote = bulkActionRemarks.trim();
+
+    setBulkProcessing(true);
+    setActionSuccessMsg(null);
+
+    try {
+      if (entity === 'registrations') {
+        const { eligible, skippedSettledCount, skippedDuplicateGuardCount } =
+          evaluateRegistrationBulkEligibility(selectedRegIds, action);
+        const totalSkipped = skippedSettledCount + skippedDuplicateGuardCount;
+
+        if (eligible.length === 0) {
+          setActionSuccessMsg(
+            `No eligible pending registrations to ${action}. ${totalSkipped} selected record(s) were skipped.`
+          );
+          setBulkConfirmConfig(null);
+          return;
+        }
+
+        const succeededIds: string[] = [];
+        const failedIds: string[] = [];
+        let emailsSent = 0;
+        let emailsDuplicatePrevented = 0;
+        let emailsFailed = 0;
+
+        for (let i = 0; i < eligible.length; i += 1) {
+          const reg = eligible[i];
+          const label = reg.registrationId || reg.id;
+          setBulkProgressText(
+            `${action === 'approve' ? 'Approving' : 'Rejecting'} registration ${i + 1} of ${eligible.length} (${label})...`
+          );
+
+          try {
+            if (action === 'approve') {
+              const remarksText =
+                customNote || 'Payment verified by Org. Secretary (Bulk approval).';
+              const allocatedId = await verifyPaymentAndAllocateRegId(
+                reg.id,
+                adminIdentity,
+                remarksText
+              );
+              const nowIso = new Date().toISOString();
+              const verifiedSnapshot: RegistrationRecord = {
+                ...reg,
+                registrationId: allocatedId,
+                paymentStatus: 'Verified',
+                registrationStatus: 'Approved',
+                adminRemarks: remarksText,
+                verifiedBy: adminIdentity,
+                verifiedAt: nowIso,
+                updatedAt: nowIso,
+              };
+
+              try {
+                const emailRes = await triggerRegistrationConfirmedEmail(verifiedSnapshot);
+                if (emailRes.success) {
+                  if (emailRes.duplicatePrevented) emailsDuplicatePrevented += 1;
+                  else emailsSent += 1;
+                } else {
+                  emailsFailed += 1;
+                }
+              } catch {
+                emailsFailed += 1;
+              }
+              succeededIds.push(allocatedId);
+            } else {
+              const timestamp = new Date().toISOString();
+              await updateDoc(doc(db, 'registrations', reg.id), {
+                paymentStatus: 'Rejected',
+                registrationStatus: 'Rejected',
+                adminRemarks:
+                  customNote || 'Payment transaction reference unverified (Bulk rejection).',
+                verifiedBy: adminIdentity,
+                verifiedAt: timestamp,
+                updatedAt: timestamp,
+              });
+              succeededIds.push(label);
+            }
+          } catch (err) {
+            console.error(`[Bulk Registration ${action}] Failed for ${label}:`, err);
+            failedIds.push(label);
+          }
+        }
+
+        // Write immutable audit trail entry for bulk registration action
+        if (succeededIds.length > 0) {
+          try {
+            const auditId = `BULK_${action.toUpperCase()}_REG_${Date.now()}`;
+            await setDoc(doc(db, 'adminAuditLogs', auditId), {
+              id: auditId,
+              adminEmail: adminIdentity,
+              action:
+                action === 'approve'
+                  ? 'BULK_APPROVE_REGISTRATIONS'
+                  : 'BULK_REJECT_REGISTRATIONS',
+              targetId: succeededIds.slice(0, 20).join(', '),
+              details: `Bulk ${action}d ${succeededIds.length} registration(s): ${succeededIds.join(', ')}.${
+                totalSkipped > 0 ? ` Skipped: ${totalSkipped}.` : ''
+              }${failedIds.length > 0 ? ` Failed: ${failedIds.join(', ')}.` : ''}${
+                customNote ? ` Remarks: ${customNote}` : ''
+              }`,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (auditErr) {
+            console.warn('Non-fatal bulk registration audit log warning:', auditErr);
+          }
+        }
+
+        // Remove succeeded items from selection
+        const succeededDocIds = new Set(
+          eligible
+            .filter((r) => !failedIds.includes(r.registrationId || r.id))
+            .map((r) => r.id)
+        );
+        setSelectedRegIds((prev) => {
+          const next = new Set(prev);
+          succeededDocIds.forEach((id) => next.delete(id));
+          return next;
+        });
+
+        const emailSummary =
+          action === 'approve'
+            ? ` Emails: ${emailsSent} sent${
+                emailsDuplicatePrevented > 0
+                  ? `, ${emailsDuplicatePrevented} already sent`
+                  : ''
+              }${emailsFailed > 0 ? `, ${emailsFailed} failed (use Retry)` : ''}.`
+            : '';
+
+        setActionSuccessMsg(
+          `Bulk ${action === 'approve' ? 'approval' : 'rejection'} complete: ${
+            succeededIds.length
+          } registration(s) updated${
+            totalSkipped > 0 ? `, ${totalSkipped} skipped` : ''
+          }${failedIds.length > 0 ? `, ${failedIds.length} failed` : ''}.${emailSummary}`
+        );
+      } else {
+        // Bulk Abstracts Approve / Reject (strictly independent from registration status)
+        const selectedRecords = abstracts.filter((a) => selectedAbsIds.has(a.id));
+        const eligible = selectedRecords.filter((a) => isAbstractBulkEligible(a));
+        const totalSkipped = selectedRecords.length - eligible.length;
+
+        if (eligible.length === 0) {
+          setActionSuccessMsg(
+            `No eligible pending abstracts to ${action}. ${totalSkipped} already settled abstract(s) were skipped.`
+          );
+          setBulkConfirmConfig(null);
+          return;
+        }
+
+        const targetStatus: 'Accepted' | 'Rejected' =
+          action === 'approve' ? 'Accepted' : 'Rejected';
+        const succeededIds: string[] = [];
+        const failedIds: string[] = [];
+        let emailsSent = 0;
+        let emailsDuplicatePrevented = 0;
+        let emailsFailed = 0;
+
+        for (let i = 0; i < eligible.length; i += 1) {
+          const abs = eligible[i];
+          setBulkProgressText(
+            `${action === 'approve' ? 'Approving' : 'Rejecting'} abstract ${i + 1} of ${eligible.length} (${abs.id})...`
+          );
+
+          try {
+            const timestamp = new Date().toISOString();
+            const reviewNote =
+              customNote ||
+              (targetStatus === 'Accepted'
+                ? 'Abstract accepted by Scientific Committee (Bulk approval).'
+                : 'Abstract not accepted during review (Bulk rejection).');
+
+            await updateDoc(doc(db, 'abstractSubmissions', abs.id), {
+              status: targetStatus,
+              reviewNotes: reviewNote,
+              reviewedBy: adminIdentity,
+              reviewedAt: timestamp,
+              updatedAt: timestamp,
+            });
+
+            if (targetStatus === 'Accepted') {
+              const acceptedSnapshot: AbstractRecord = {
+                ...abs,
+                status: 'Accepted',
+                reviewNotes: reviewNote,
+                reviewedBy: adminIdentity,
+                reviewedAt: timestamp,
+                updatedAt: timestamp,
+              };
+              try {
+                const linkedReg = getLinkedRegistrationForAbstractRecord(
+                  acceptedSnapshot,
+                  registrations
+                );
+                const emailRes = await triggerAbstractAcceptedEmail(
+                  acceptedSnapshot,
+                  linkedReg
+                );
+                if (emailRes.success) {
+                  if (emailRes.duplicatePrevented) emailsDuplicatePrevented += 1;
+                  else emailsSent += 1;
+                } else {
+                  emailsFailed += 1;
+                }
+              } catch {
+                emailsFailed += 1;
+              }
+            }
+
+            succeededIds.push(abs.id);
+          } catch (err) {
+            console.error(`[Bulk Abstract ${action}] Failed for ${abs.id}:`, err);
+            failedIds.push(abs.id);
+          }
+        }
+
+        // Write immutable audit trail entry for bulk abstract action
+        if (succeededIds.length > 0) {
+          try {
+            const auditId = `BULK_${action.toUpperCase()}_ABS_${Date.now()}`;
+            await setDoc(doc(db, 'adminAuditLogs', auditId), {
+              id: auditId,
+              adminEmail: adminIdentity,
+              action:
+                action === 'approve'
+                  ? 'BULK_APPROVE_ABSTRACTS'
+                  : 'BULK_REJECT_ABSTRACTS',
+              targetId: succeededIds.slice(0, 20).join(', '),
+              details: `Bulk ${action}d ${succeededIds.length} abstract(s): ${succeededIds.join(', ')}.${
+                totalSkipped > 0 ? ` Skipped: ${totalSkipped}.` : ''
+              }${failedIds.length > 0 ? ` Failed: ${failedIds.join(', ')}.` : ''}${
+                customNote ? ` Notes: ${customNote}` : ''
+              }`,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (auditErr) {
+            console.warn('Non-fatal bulk abstract audit log warning:', auditErr);
+          }
+        }
+
+        const succeededSet = new Set(succeededIds);
+        setSelectedAbsIds((prev) => {
+          const next = new Set(prev);
+          succeededSet.forEach((id) => next.delete(id));
+          return next;
+        });
+
+        const emailSummary =
+          action === 'approve'
+            ? ` Emails: ${emailsSent} sent${
+                emailsDuplicatePrevented > 0
+                  ? `, ${emailsDuplicatePrevented} already sent`
+                  : ''
+              }${emailsFailed > 0 ? `, ${emailsFailed} failed (use Retry)` : ''}.`
+            : '';
+
+        setActionSuccessMsg(
+          `Bulk ${action === 'approve' ? 'approval' : 'rejection'} complete: ${
+            succeededIds.length
+          } abstract(s) updated${
+            totalSkipped > 0 ? `, ${totalSkipped} skipped` : ''
+          }${failedIds.length > 0 ? `, ${failedIds.length} failed` : ''}.${emailSummary}`
+        );
+      }
+
+      setBulkConfirmConfig(null);
+      setBulkActionRemarks('');
+    } finally {
+      setBulkProcessing(false);
+      setBulkProgressText(null);
     }
   };
 
@@ -1154,6 +1787,12 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     [visibleRegistrations]
   );
 
+  // Real-time PharmaQuest Registrations Count (uses exact same criteria as PharmaQuest filter; respects recordTypeFilter)
+  const pharmaQuestStats = useMemo(
+    () => computePharmaQuestStats(visibleRegistrations),
+    [visibleRegistrations]
+  );
+
   // Real-time Food Preference Summary (strictly Offline registrations only; Online excluded)
   const foodPreferenceStats = useMemo(
     () => computeFoodPreferenceStats(visibleRegistrations),
@@ -1162,8 +1801,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
   // Filtered Registrations Table
   const filteredRegistrations = visibleRegistrations.filter((r) => {
-    const q = regSearchQuery.toLowerCase();
+    const q = regSearchQuery.trim().toLowerCase();
     const matchesSearch =
+      !q ||
       (r.registrationId && r.registrationId.toLowerCase().includes(q)) ||
       r.id.toLowerCase().includes(q) ||
       r.fullName.toLowerCase().includes(q) ||
@@ -1192,6 +1832,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       regFoodPreferenceFilter
     );
 
+    const matchesPharmaQuest =
+      regPharmaQuestFilter === 'all' || isPharmaQuestRegistration(r);
+
     const regFlags = fullDuplicateAudit.registrationFlagsByDocId.get(r.id) || [];
     const matchesDuplicateFilter =
       regDuplicateFilter === 'all'
@@ -1218,14 +1861,52 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       matchesInstitution &&
       matchesParticipationMode &&
       matchesFoodPreference &&
+      matchesPharmaQuest &&
       matchesDuplicateFilter
     );
   });
+
+  // Reset Registration pagination to Page 1 whenever filters or page size change
+  useEffect(() => {
+    setRegPage(1);
+  }, [
+    recordTypeFilter,
+    regSearchQuery,
+    regStatusFilter,
+    regCategoryFilter,
+    regInstitutionFilter,
+    regParticipationModeFilter,
+    regFoodPreferenceFilter,
+    regPharmaQuestFilter,
+    regDuplicateFilter,
+    regPageSize,
+  ]);
+
+  const regTotalPages = Math.max(1, Math.ceil(filteredRegistrations.length / regPageSize));
+  const safeRegPage = Math.min(regPage, regTotalPages);
+  const paginatedRegistrations = useMemo(() => {
+    const start = (safeRegPage - 1) * regPageSize;
+    return filteredRegistrations.slice(start, start + regPageSize);
+  }, [filteredRegistrations, safeRegPage, regPageSize]);
 
   // Real-time Scientific Presentation Dashboard metrics (recalculates on any Firestore snapshot change or institution filter change)
   const presentationMetrics = useMemo(
     () => computePresentationDashboardMetrics(visibleRegistrations, visibleAbstracts, absInstitutionFilter),
     [visibleRegistrations, visibleAbstracts, absInstitutionFilter]
+  );
+
+  // Real-time Abstract Overview Summary (4 top cards + Oral/Poster + all 7 tracks; respects recordType & institution scope)
+  const scopedAbstractsForSummary = useMemo(() => {
+    if (absInstitutionFilter === 'all') return visibleAbstracts;
+    return visibleAbstracts.filter((a) => {
+      const linkedReg = getLinkedRegistrationForAbstractRecord(a, registrations);
+      return normalizeInstitutionCategory(linkedReg?.institutionCategory) === absInstitutionFilter;
+    });
+  }, [visibleAbstracts, absInstitutionFilter, registrations]);
+
+  const abstractOverviewSummary = useMemo(
+    () => computeAbstractOverviewSummary(scopedAbstractsForSummary),
+    [scopedAbstractsForSummary]
   );
 
   // Dashboard card click handlers
@@ -1282,26 +1963,59 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     setAbsStatusFilter('all');
   };
 
-  // Filtered Abstracts Table (supports both normal table & dashboard abstract-scoped filters)
+  // Filtered Abstracts Table (supports search across ID, title, author, email, institution + Track, Type, Status, PharmaQuest, Institution)
   const filteredAbstracts = visibleAbstracts.filter((a) => {
-    const q = absSearchQuery.toLowerCase();
+    const q = absSearchQuery.trim().toLowerCase();
     const author = a.presentingAuthor || {};
+    const linkedReg = getLinkedRegistrationForAbstractRecord(a, registrations);
+
     const matchesSearch =
+      !q ||
       a.id.toLowerCase().includes(q) ||
+      (a.presentationAllocationId && a.presentationAllocationId.toLowerCase().includes(q)) ||
       (a.registrationId && a.registrationId.toLowerCase().includes(q)) ||
       a.title.toLowerCase().includes(q) ||
       (author.fullName && author.fullName.toLowerCase().includes(q)) ||
       (author.name && author.name.toLowerCase().includes(q)) ||
-      (author.email && author.email.toLowerCase().includes(q));
+      (author.email && author.email.toLowerCase().includes(q)) ||
+      (author.affiliation && author.affiliation.toLowerCase().includes(q)) ||
+      (author.institution && author.institution.toLowerCase().includes(q)) ||
+      (linkedReg?.institution && linkedReg.institution.toLowerCase().includes(q));
 
-    const matchesStatus = absStatusFilter === 'all' || a.status === absStatusFilter;
-    const matchesTrack = absTrackFilter === 'all' || a.trackId === absTrackFilter;
+    const matchesStatus =
+      absStatusFilter === 'all'
+        ? true
+        : absStatusFilter === 'pending'
+        ? a.status !== 'Accepted' && a.status !== 'Rejected'
+        : a.status === absStatusFilter;
+
+    const canonicalAbsTrack = resolveCanonicalTrackId(a.trackId);
+    const matchesTrack =
+      absTrackFilter === 'all' ||
+      a.trackId === absTrackFilter ||
+      canonicalAbsTrack === absTrackFilter;
+
+    const matchesType =
+      absTypeFilter === 'all' ||
+      classifyAbstractPresentationType(a) === absTypeFilter;
+
+    const matchesPharmaQuest =
+      absPharmaQuestFilter === 'all' || isPharmaQuestRegistration(linkedReg);
 
     // Resolve institution classification strictly via linked Registration ID (never author affiliation)
-    const linkedReg = getLinkedRegistrationForAbstractRecord(a, registrations);
     const linkedInstitutionCat = normalizeInstitutionCategory(linkedReg?.institutionCategory);
     const matchesInstitution =
       absInstitutionFilter === 'all' || linkedInstitutionCat === absInstitutionFilter;
+
+    const allocFilterKey = getAllocationFilterCategoryKey(a);
+    const matchesOfficialAllocation =
+      absAllocationFilter === 'all'
+        ? true
+        : absAllocationFilter === 'allocated'
+        ? isAbstractOfficiallyAllocated(a)
+        : absAllocationFilter === 'not_allocated'
+        ? !isAbstractOfficiallyAllocated(a)
+        : allocFilterKey === absAllocationFilter;
 
     let matchesDashboardCard = true;
     if (presentationDashboardFilter === 'submitted') {
@@ -1327,11 +2041,99 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       matchesSearch &&
       matchesStatus &&
       matchesTrack &&
+      matchesType &&
+      matchesPharmaQuest &&
       matchesInstitution &&
+      matchesOfficialAllocation &&
       matchesDashboardCard &&
       matchesFlaggedAbstracts
     );
   });
+
+  // Reset Abstract pagination to Page 1 whenever filters or page size change
+  useEffect(() => {
+    setAbsPage(1);
+  }, [
+    recordTypeFilter,
+    absSearchQuery,
+    absStatusFilter,
+    absTrackFilter,
+    absTypeFilter,
+    absPharmaQuestFilter,
+    absInstitutionFilter,
+    absAllocationFilter,
+    presentationDashboardFilter,
+    showFlaggedAbstractsOnly,
+    absPageSize,
+  ]);
+
+  const absTotalPages = Math.max(1, Math.ceil(filteredAbstracts.length / absPageSize));
+  const safeAbsPage = Math.min(absPage, absTotalPages);
+  const paginatedAbstracts = useMemo(() => {
+    const start = (safeAbsPage - 1) * absPageSize;
+    return filteredAbstracts.slice(start, start + absPageSize);
+  }, [filteredAbstracts, safeAbsPage, absPageSize]);
+
+  // Selection helpers for Registration & Abstract current page
+  const allRegsOnPageSelected =
+    paginatedRegistrations.length > 0 &&
+    paginatedRegistrations.every((r) => selectedRegIds.has(r.id));
+  const someRegsOnPageSelected = paginatedRegistrations.some((r) => selectedRegIds.has(r.id));
+  const eligibleSelectedRegCount = useMemo(
+    () =>
+      registrations.filter((r) => selectedRegIds.has(r.id) && isRegistrationBulkEligible(r)).length,
+    [registrations, selectedRegIds]
+  );
+
+  const toggleSelectAllRegsOnPage = () => {
+    setSelectedRegIds((prev) => {
+      const next = new Set(prev);
+      if (allRegsOnPageSelected) {
+        paginatedRegistrations.forEach((r) => next.delete(r.id));
+      } else {
+        paginatedRegistrations.forEach((r) => next.add(r.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectRegRow = (docId: string) => {
+    setSelectedRegIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+
+  const allAbsOnPageSelected =
+    paginatedAbstracts.length > 0 && paginatedAbstracts.every((a) => selectedAbsIds.has(a.id));
+  const someAbsOnPageSelected = paginatedAbstracts.some((a) => selectedAbsIds.has(a.id));
+  const eligibleSelectedAbsCount = useMemo(
+    () => abstracts.filter((a) => selectedAbsIds.has(a.id) && isAbstractBulkEligible(a)).length,
+    [abstracts, selectedAbsIds]
+  );
+
+  const toggleSelectAllAbsOnPage = () => {
+    setSelectedAbsIds((prev) => {
+      const next = new Set(prev);
+      if (allAbsOnPageSelected) {
+        paginatedAbstracts.forEach((a) => next.delete(a.id));
+      } else {
+        paginatedAbstracts.forEach((a) => next.add(a.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAbsRow = (absId: string) => {
+    setSelectedAbsIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(absId)) next.delete(absId);
+      else next.add(absId);
+      return next;
+    });
+  };
 
   // Roster rows used when a registration-inclusive presentation filter is active
   // ('registered', 'not_submitted', or 'pending_all')
@@ -1763,7 +2565,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
                   Registration & Payment Metrics
                 </h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
                     <div className="text-[11px] font-semibold text-slate-500">Total Delegates</div>
                     <div className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-slate-900 mt-1">{totalRegs}</div>
@@ -1773,7 +2575,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <div className="bg-emerald-50/60 p-4 rounded-xl border border-emerald-200 shadow-2xs">
                     <div className="text-[11px] font-semibold text-emerald-800">Payment Verified</div>
                     <div className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-emerald-900 mt-1">{verifiedRegs}</div>
-                    <div className="text-[10px] text-emerald-700 mt-0.5">Approved & UTR confirmed</div>
+                    <div className="text-[10px] text-emerald-700 mt-0.5">Approved &amp; UTR confirmed</div>
                   </div>
 
                   <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 shadow-2xs">
@@ -1787,6 +2589,36 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     <div className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-red-900 mt-1">{rejectedRegs}</div>
                     <div className="text-[10px] text-red-700 mt-0.5">Requires UTR correction</div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegSearchQuery('');
+                      setRegStatusFilter('all');
+                      setRegCategoryFilter('all');
+                      setRegInstitutionFilter('all');
+                      setRegParticipationModeFilter('all');
+                      setRegFoodPreferenceFilter('all');
+                      setRegDuplicateFilter('all');
+                      setRegPharmaQuestFilter('pharmaquest');
+                      setActiveTab('registrations');
+                    }}
+                    className="col-span-2 sm:col-span-1 bg-gradient-to-br from-purple-50/90 via-white to-indigo-50/80 p-4 rounded-xl border border-purple-200/90 hover:border-purple-400 shadow-2xs text-left transition-all cursor-pointer group"
+                    title="Click to inspect all PharmaQuest 2027 registrations"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[11px] font-semibold text-purple-800">
+                        PharmaQuest Registrations
+                      </span>
+                      <Trophy className="w-3.5 h-3.5 text-purple-600 shrink-0 group-hover:scale-110 transition-transform" />
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-purple-950 mt-1">
+                      {pharmaQuestStats.totalPharmaQuest}
+                    </div>
+                    <div className="text-[10px] text-purple-700 mt-0.5">
+                      {pharmaQuestStats.verifiedPharmaQuest} verified · {pharmaQuestStats.pendingPharmaQuest} pending
+                    </div>
+                  </button>
                 </div>
               </div>
 
@@ -2367,15 +3199,15 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               )}
 
               {/* Filter and Search Bar */}
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row flex-wrap gap-2.5">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row flex-wrap items-stretch lg:items-center gap-2">
                 <div className="relative flex-1 min-w-[210px]">
-                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                  <Search className="w-4 h-4 absolute left-3 top-2 text-slate-400" />
                   <input
                     type="text"
                     value={regSearchQuery}
                     onChange={(e) => setRegSearchQuery(e.target.value)}
                     placeholder="Search by Registration ID, Name, Email, UTR, or College..."
-                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
+                    className="w-full text-xs pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
                   />
                 </div>
 
@@ -2383,7 +3215,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   aria-label="Filter by Payment Status"
                   value={regStatusFilter}
                   onChange={(e) => setRegStatusFilter(e.target.value)}
-                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
                 >
                   <option value="all">All Payment Statuses</option>
                   <option value="Pending Verification">Pending Verification</option>
@@ -2396,13 +3228,14 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   aria-label="Filter by Participant Category"
                   value={regCategoryFilter}
                   onChange={(e) => setRegCategoryFilter(e.target.value)}
-                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
                 >
                   <option value="all">All Categories</option>
                   <option value="Student / Scholar">Student / Scholar</option>
                   <option value="Faculty">Faculty</option>
                   <option value="Industry Professional">Industry Professional</option>
                   <option value="Researcher">Researcher</option>
+                  <option value="International">International</option>
                   <option value="Others">Others</option>
                 </select>
 
@@ -2412,11 +3245,11 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   onChange={(e) =>
                     setRegParticipationModeFilter(e.target.value as ParticipationModeFilterValue)
                   }
-                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
                 >
                   <option value="all">All Modes</option>
                   <option value="offline">Offline</option>
-                  <option value="online">Online</option>
+                  <option value="online">Online / Virtual</option>
                 </select>
 
                 <select
@@ -2425,12 +3258,35 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   onChange={(e) =>
                     setRegFoodPreferenceFilter(e.target.value as FoodPreferenceFilterValue)
                   }
-                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-medium text-slate-700"
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500 font-medium text-slate-700"
                 >
                   <option value="all">Food Preference: All</option>
                   <option value="vegetarian">Vegetarian</option>
                   <option value="non-vegetarian">Non-Vegetarian</option>
                 </select>
+
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${
+                    regPharmaQuestFilter === 'pharmaquest'
+                      ? 'bg-purple-50 border-purple-400 ring-1 ring-purple-400/30'
+                      : 'bg-purple-50/50 border-purple-200 hover:border-purple-300'
+                  }`}
+                >
+                  <Trophy className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                  <select
+                    aria-label="Filter by PharmaQuest Registration"
+                    value={regPharmaQuestFilter}
+                    onChange={(e) =>
+                      setRegPharmaQuestFilter(e.target.value as PharmaQuestFilterValue)
+                    }
+                    className="text-xs bg-transparent text-purple-900 font-semibold outline-none cursor-pointer pr-1"
+                  >
+                    <option value="all">All Registrations</option>
+                    <option value="pharmaquest">
+                      PharmaQuest ({pharmaQuestStats.totalPharmaQuest})
+                    </option>
+                  </select>
+                </div>
 
                 {(regSearchQuery ||
                   regStatusFilter !== 'all' ||
@@ -2438,6 +3294,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   regInstitutionFilter !== 'all' ||
                   regParticipationModeFilter !== 'all' ||
                   regFoodPreferenceFilter !== 'all' ||
+                  regPharmaQuestFilter !== 'all' ||
                   regDuplicateFilter !== 'all') && (
                   <button
                     type="button"
@@ -2448,9 +3305,10 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       setRegInstitutionFilter('all');
                       setRegParticipationModeFilter('all');
                       setRegFoodPreferenceFilter('all');
+                      setRegPharmaQuestFilter('all');
                       setRegDuplicateFilter('all');
                     }}
-                    className="px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer inline-flex items-center gap-1"
+                    className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer inline-flex items-center justify-center gap-1"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Reset</span>
@@ -2458,419 +3316,658 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 )}
               </div>
 
-              {/* Registrations Table */}
+              {/* Registrations Table Card: Bulk Bar + Single Scroll Container (Sticky Header & Approval Col) + Pagination */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 whitespace-nowrap">
+                <TableBulkActionBar
+                  totalFilteredCount={filteredRegistrations.length}
+                  pageItemCount={paginatedRegistrations.length}
+                  allOnPageSelected={allRegsOnPageSelected}
+                  someOnPageSelected={someRegsOnPageSelected}
+                  selectedCount={selectedRegIds.size}
+                  eligibleSelectedCount={eligibleSelectedRegCount}
+                  onToggleSelectAllPage={toggleSelectAllRegsOnPage}
+                  onClearSelection={() => setSelectedRegIds(new Set())}
+                  onBulkApprove={() => openBulkRegistrationConfirm('approve')}
+                  onBulkReject={() => openBulkRegistrationConfirm('reject')}
+                  pageSize={regPageSize}
+                  onPageSizeChange={setRegPageSize}
+                  disabled={processingAction || bulkProcessing}
+                  itemNoun="registrations"
+                />
+
+                <div className="overflow-x-auto overflow-y-auto max-h-[68vh] relative">
+                  <table className="w-full text-left text-xs border-separate border-spacing-0">
+                    <thead className="text-slate-600 uppercase font-bold text-[10px] tracking-wider whitespace-nowrap">
                       <tr>
-                        <th className="p-3.5">Registration ID</th>
-                        <th className="p-3.5">Participant</th>
-                        <th className="p-3.5">Category</th>
-                        <th className="p-3.5">Food Preference</th>
-                        <th className="p-3.5">UTR / Fee</th>
-                        <th className="p-3.5">Status</th>
-                        <th className="p-3.5">Abstract</th>
-                        <th className="p-3.5">Type</th>
-                        <th className="p-3.5 text-right">Actions</th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={paginatedRegistrations.length > 0 && allRegsOnPageSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = !allRegsOnPageSelected && someRegsOnPageSelected;
+                            }}
+                            onChange={toggleSelectAllRegsOnPage}
+                            disabled={paginatedRegistrations.length === 0 || processingAction || bulkProcessing}
+                            aria-label="Select all registrations on current page"
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer disabled:opacity-40 align-middle"
+                          />
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          Registration ID
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          Participant
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          Category
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          Food Preference
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          UTR / Fee
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          Status
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          Abstract
+                        </th>
+                        <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                          Type
+                        </th>
+                        <th className="sticky top-0 right-0 z-30 bg-[#F5F3FF] text-purple-950 border-b border-purple-200 border-l border-purple-200/80 shadow-[-6px_0_12px_-6px_rgba(15,23,42,0.12)] px-3 py-2.5 w-[216px] min-w-[216px]">
+                          <div className="inline-flex items-center gap-1.5">
+                            <span>Approval</span>
+                            <span
+                              title="Registration payment verification is independent from Abstract approval. Sticky column remains visible during horizontal scroll."
+                              className="text-purple-500 hover:text-purple-700 cursor-help inline-flex"
+                            >
+                              <Info className="w-3.5 h-3.5" />
+                            </span>
+                          </div>
+                        </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody>
                       {loadingData ? (
                         <tr>
-                          <td colSpan={9} className="p-8 text-center text-slate-400">
+                          <td colSpan={10} className="p-8 text-center text-slate-400 border-b border-slate-100">
                             Loading registrations...
                           </td>
                         </tr>
-                      ) : filteredRegistrations.length === 0 ? (
+                      ) : paginatedRegistrations.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-8 text-center text-slate-400">
+                          <td colSpan={10} className="p-8 text-center text-slate-400 border-b border-slate-100">
                             No matching registrations found.
                           </td>
                         </tr>
                       ) : (
-                        filteredRegistrations.map((reg) => {
+                        paginatedRegistrations.map((reg) => {
                           const foodPrefLabel = formatFoodPreferenceDisplay(reg);
+                          const isSelected = selectedRegIds.has(reg.id);
+                          const isExpanded = expandedRegId === reg.id;
+                          const isPharmaQuest = isPharmaQuestRegistration(reg);
+                          const rowBgClass = isSelected
+                            ? 'bg-purple-50/60 hover:bg-purple-50/90'
+                            : 'bg-white hover:bg-slate-50/90';
+                          const stickyCellBgClass = isSelected
+                            ? 'bg-[#FAF5FF] group-hover:bg-[#F5EDFF]'
+                            : 'bg-white group-hover:bg-[#F8FAFC]';
+
                           return (
-                          <tr key={reg.id} className="hover:bg-slate-50/80 transition-colors align-top">
-                            {/* Registration ID */}
-                            <td className="p-3.5 whitespace-nowrap min-w-[140px]">
-                              {reg.registrationId ? (
-                                <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">
-                                  {reg.registrationId}
-                                </span>
-                              ) : (
-                                <span className="font-mono text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md text-[11px] border border-amber-200">
-                                  Pending ID
-                                </span>
-                              )}
-                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                Ref: {reg.id}
-                              </div>
-                            </td>
+                            <React.Fragment key={reg.id}>
+                              <tr className={`group transition-colors align-top ${rowBgClass}`}>
+                                {/* Selection Checkbox */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 text-center w-10">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelectRegRow(reg.id)}
+                                    disabled={processingAction || bulkProcessing}
+                                    aria-label={`Select registration ${reg.registrationId || reg.id} (${reg.fullName})`}
+                                    className="w-3.5 h-3.5 mt-0.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer disabled:opacity-40"
+                                  />
+                                </td>
 
-                            {/* Participant */}
-                            <td className="p-3.5 min-w-[260px]">
-                              <div className="font-bold text-slate-900">{reg.fullName}</div>
-                              <div className="text-[11px] text-slate-600 break-all">
-                                {reg.email}
-                              </div>
-                              <div className="text-[11px] text-slate-500 leading-snug">
-                                {reg.institution}
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                {normalizeInstitutionCategory(reg.institutionCategory) ? (
-                                  <span
-                                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
-                                      normalizeInstitutionCategory(reg.institutionCategory) === 'internal'
-                                        ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                        : 'bg-cyan-50 text-cyan-800 border-cyan-200'
-                                    }`}
-                                  >
-                                    {formatInstitutionCategoryLabel(reg.institutionCategory)}
-                                  </span>
-                                ) : (
-                                  <select
-                                    aria-label={`Classify institution for ${reg.fullName}`}
-                                    value=""
-                                    disabled={updatingInstCatId === reg.id}
-                                    onChange={(e) => {
-                                      const val = e.target.value as InstitutionCategoryValue | '';
-                                      if (val === 'internal' || val === 'external') {
-                                        handleUpdateRegistrationInstitutionCategory(reg, val);
-                                      }
-                                    }}
-                                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 outline-none cursor-pointer"
-                                  >
-                                    <option value="">Unclassified · Assign...</option>
-                                    <option value="internal">Internal (SRM)</option>
-                                    <option value="external">External</option>
-                                  </select>
-                                )}
-
-                                {/* Non-UTR Duplicate & Similar-Name Audit Badges */}
-                                {(fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || [])
-                                  .filter((g) => g.type !== 'duplicate_utr')
-                                  .map((flagGroup) => (
+                                {/* Registration ID */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap min-w-[128px]">
+                                  <div className="flex items-center gap-1">
                                     <button
-                                      key={flagGroup.groupId}
                                       type="button"
                                       onClick={() =>
-                                        setComparisonTarget({
-                                          kind: 'registration',
-                                          group: flagGroup,
-                                        })
+                                        setExpandedRegId((prev) => (prev === reg.id ? null : reg.id))
                                       }
-                                      title="Click to compare flagged records side by side"
-                                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold border cursor-pointer ${
-                                        flagGroup.severity === 'critical'
-                                          ? 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
-                                          : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
-                                      }`}
+                                      className="p-0.5 rounded text-slate-400 hover:text-purple-700 hover:bg-purple-50 cursor-pointer"
+                                      title={isExpanded ? 'Collapse registration details' : 'Expand registration details'}
+                                      aria-expanded={isExpanded}
                                     >
-                                      <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
-                                      <span>{flagGroup.label}</span>
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                      )}
                                     </button>
-                                  ))}
-                              </div>
-                            </td>
-
-                            {/* Category */}
-                            <td className="p-3.5 whitespace-nowrap text-slate-600">
-                              <div>{reg.category}</div>
-                              <div className="text-[10px] text-slate-400">{reg.participationMode}</div>
-                            </td>
-
-                            {/* Food Preference */}
-                            <td className="p-3.5 whitespace-nowrap">
-                              <span
-                                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-semibold border ${
-                                  foodPrefLabel === 'Vegetarian'
-                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                    : foodPrefLabel === 'Non-Vegetarian'
-                                    ? 'bg-rose-50 text-rose-800 border-rose-200'
-                                    : foodPrefLabel === 'Not Applicable'
-                                    ? 'bg-slate-100 text-slate-500 border-slate-200'
-                                    : 'bg-amber-50 text-amber-800 border-amber-200'
-                                }`}
-                              >
-                                {foodPrefLabel}
-                              </span>
-                            </td>
-
-                            {/* UTR / Fee */}
-                            <td className="p-3.5 whitespace-nowrap font-mono min-w-[180px]">
-                              <div className="font-semibold text-slate-800">
-                                ₹{reg.paymentAmount || reg.amount || 2000}
-                              </div>
-                              <div className="text-[11px] text-slate-600 break-all">
-                                {reg.transactionReference}
-                              </div>
-                              {(() => {
-                                const conflicts = getConflictingRegistrationsForRecord(
-                                  reg,
-                                  registrations,
-                                  duplicateUtrAnalysis
-                                );
-                                if (conflicts.length === 0) return null;
-                                const conflictIds = conflicts
-                                  .map((c) => c.registrationId || c.id)
-                                  .join(', ');
-                                const utrGroup = (
-                                  fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || []
-                                ).find((g) => g.type === 'duplicate_utr');
-                                return (
-                                  <div className="mt-1 space-y-1 font-sans">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (utrGroup) {
-                                          setComparisonTarget({
-                                            kind: 'registration',
-                                            group: utrGroup,
-                                          });
-                                        }
-                                      }}
-                                      title={`Duplicate UTR detected. Click to compare side by side. Matches: ${conflictIds}`}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-800 border border-red-300 text-[10px] font-bold cursor-pointer"
-                                    >
-                                      <Columns className="w-3 h-3 shrink-0" />
-                                      <span>Duplicate UTR ({conflicts.length + 1})</span>
-                                    </button>
-                                    <div className="text-[10px] text-red-700 font-mono whitespace-normal max-w-[200px]">
-                                      Matches: {conflictIds}
-                                    </div>
-                                    {reg.duplicateUtrExceptionApproved && (
-                                      <span
-                                        title={`Authorised exception by ${reg.duplicateUtrExceptionApprovedBy || 'Org. Secretary'}: ${reg.duplicateUtrExceptionReason || ''}`}
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[9.5px] font-bold"
-                                      >
-                                        Exception Approved
+                                    {reg.registrationId ? (
+                                      <span className="font-mono font-bold text-[11px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
+                                        {reg.registrationId}
+                                      </span>
+                                    ) : (
+                                      <span className="font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md text-[10.5px] border border-amber-200">
+                                        Pending ID
                                       </span>
                                     )}
                                   </div>
-                                );
-                              })()}
-                            </td>
+                                  <div className="text-[9.5px] text-slate-400 font-mono mt-0.5 pl-5">
+                                    Ref: {reg.id}
+                                  </div>
+                                </td>
 
-                            {/* Status */}
-                            <td className="p-3.5 whitespace-nowrap min-w-[175px]">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                  reg.paymentStatus === 'Verified'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : reg.paymentStatus === 'Rejected'
-                                    ? 'bg-red-100 text-red-800'
-                                    : 'bg-amber-100 text-amber-800'
-                                }`}
-                              >
-                                {reg.paymentStatus}
-                              </span>
-                              {(() => {
-                                const regKey = (reg.registrationId || reg.id || '').trim().toUpperCase();
-                                const doneId = getRegistrationReceivedEventId(regKey);
-                                const confId = getRegistrationConfirmedEventId(regKey);
-                                const doneLog = emailLogMap.get(doneId);
-                                const confLog = emailLogMap.get(confId);
-                                const doneStatus = normalizeLogStatus(doneLog);
-                                const confStatus = normalizeLogStatus(confLog);
-                                const isVerified =
-                                  reg.paymentStatus === 'Verified' && reg.registrationStatus === 'Approved';
-
-                                return (
-                                  <div className="mt-1 flex flex-wrap items-center gap-1 text-[9.5px]">
-                                    <span
-                                      className={`px-1.5 py-0.5 rounded font-semibold ${
-                                        doneStatus === 'Sent'
-                                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                          : doneStatus === 'Failed'
-                                          ? 'bg-red-50 text-red-700 border border-red-200'
-                                          : doneStatus === 'Pending'
-                                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                          : 'bg-slate-50 text-slate-400 border border-slate-200'
-                                      }`}
-                                      title={doneLog?.error || `Registration Done Email: ${doneStatus}`}
-                                    >
-                                      Done: {doneStatus}
-                                    </span>
-                                    {doneStatus === 'Failed' && (
-                                      <button
-                                        type="button"
-                                        disabled={retryingEmailEventId === doneId}
-                                        onClick={() =>
-                                          handleRetryOrSendEmail({
-                                            eventId: doneId,
-                                            eventType: 'registration_received',
-                                            registration: reg,
-                                          })
-                                        }
-                                        className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                {/* Participant (Compact) */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 min-w-[215px] max-w-[265px]">
+                                  <div className="font-bold text-slate-900 leading-tight truncate" title={reg.fullName}>
+                                    {reg.fullName}
+                                  </div>
+                                  <div
+                                    className="text-[11px] text-slate-600 truncate leading-snug"
+                                    title={reg.email}
+                                  >
+                                    {reg.email}
+                                  </div>
+                                  <div
+                                    className="text-[10.5px] text-slate-500 truncate leading-snug"
+                                    title={reg.institution}
+                                  >
+                                    {reg.institution}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                                    {normalizeInstitutionCategory(reg.institutionCategory) ? (
+                                      <span
+                                        className={`text-[9.5px] font-semibold px-1.5 py-0.5 rounded border leading-none ${
+                                          normalizeInstitutionCategory(reg.institutionCategory) === 'internal'
+                                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                            : 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                                        }`}
                                       >
-                                        {retryingEmailEventId === doneId ? '...' : 'Retry'}
-                                      </button>
+                                        {formatInstitutionCategoryLabel(reg.institutionCategory)}
+                                      </span>
+                                    ) : (
+                                      <select
+                                        aria-label={`Classify institution for ${reg.fullName}`}
+                                        value=""
+                                        disabled={updatingInstCatId === reg.id}
+                                        onChange={(e) => {
+                                          const val = e.target.value as InstitutionCategoryValue | '';
+                                          if (val === 'internal' || val === 'external') {
+                                            handleUpdateRegistrationInstitutionCategory(reg, val);
+                                          }
+                                        }}
+                                        className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 outline-none cursor-pointer"
+                                      >
+                                        <option value="">Unclassified · Assign...</option>
+                                        <option value="internal">Internal (SRM)</option>
+                                        <option value="external">External</option>
+                                      </select>
                                     )}
-                                    {(isVerified || confLog) && (
-                                      <>
+
+                                    {isPharmaQuest && (
+                                      <span
+                                        title="Registered for PharmaQuest 2027"
+                                        className="inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded border leading-none bg-violet-50 text-violet-800 border-violet-200"
+                                      >
+                                        <Trophy className="w-2.5 h-2.5 shrink-0" />
+                                        <span>PharmaQuest</span>
+                                      </span>
+                                    )}
+
+                                    {/* Non-UTR Duplicate & Similar-Name Audit Badges */}
+                                    {(fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || [])
+                                      .filter((g) => g.type !== 'duplicate_utr')
+                                      .map((flagGroup) => (
+                                        <button
+                                          key={flagGroup.groupId}
+                                          type="button"
+                                          onClick={() =>
+                                            setComparisonTarget({
+                                              kind: 'registration',
+                                              group: flagGroup,
+                                            })
+                                          }
+                                          title="Click to compare flagged records side by side"
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer leading-none ${
+                                            flagGroup.severity === 'critical'
+                                              ? 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
+                                              : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                          }`}
+                                        >
+                                          <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                                          <span>{flagGroup.label}</span>
+                                        </button>
+                                      ))}
+                                  </div>
+                                </td>
+
+                                {/* Category */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap text-slate-700">
+                                  <div className="font-medium leading-tight">{reg.category}</div>
+                                  <div className="text-[10px] text-slate-400 mt-0.5">
+                                    {reg.participationMode || reg.modeOfParticipation}
+                                  </div>
+                                </td>
+
+                                {/* Food Preference */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap">
+                                  <span
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                                      foodPrefLabel === 'Vegetarian'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        : foodPrefLabel === 'Non-Vegetarian'
+                                        ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                        : foodPrefLabel === 'Not Applicable'
+                                        ? 'bg-slate-100 text-slate-500 border-slate-200'
+                                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                                    }`}
+                                  >
+                                    {foodPrefLabel}
+                                  </span>
+                                </td>
+
+                                {/* UTR / Fee */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap font-mono min-w-[140px]">
+                                  <div className="font-semibold text-slate-800 leading-tight">
+                                    ₹{reg.paymentAmount || reg.amount || 2000}
+                                  </div>
+                                  <div
+                                    className="text-[10.5px] text-slate-600 max-w-[155px] truncate mt-0.5"
+                                    title={reg.transactionReference}
+                                  >
+                                    {reg.transactionReference}
+                                  </div>
+                                  {(() => {
+                                    const conflicts = getConflictingRegistrationsForRecord(
+                                      reg,
+                                      registrations,
+                                      duplicateUtrAnalysis
+                                    );
+                                    if (conflicts.length === 0) return null;
+                                    const conflictIds = conflicts
+                                      .map((c) => c.registrationId || c.id)
+                                      .join(', ');
+                                    const utrGroup = (
+                                      fullDuplicateAudit.registrationFlagsByDocId.get(reg.id) || []
+                                    ).find((g) => g.type === 'duplicate_utr');
+                                    return (
+                                      <div className="mt-1 space-y-0.5 font-sans">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (utrGroup) {
+                                              setComparisonTarget({
+                                                kind: 'registration',
+                                                group: utrGroup,
+                                              });
+                                            }
+                                          }}
+                                          title={`Duplicate UTR detected. Click to compare side by side. Matches: ${conflictIds}`}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-800 border border-red-300 text-[9.5px] font-bold cursor-pointer"
+                                        >
+                                          <Columns className="w-2.5 h-2.5 shrink-0" />
+                                          <span>Duplicate UTR ({conflicts.length + 1})</span>
+                                        </button>
+                                        <div className="text-[9.5px] text-red-700 font-mono whitespace-normal max-w-[160px] leading-tight">
+                                          Matches: {conflictIds}
+                                        </div>
+                                        {reg.duplicateUtrExceptionApproved && (
+                                          <span
+                                            title={`Authorised exception by ${reg.duplicateUtrExceptionApprovedBy || 'Org. Secretary'}: ${reg.duplicateUtrExceptionReason || ''}`}
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-bold"
+                                          >
+                                            Exception Approved
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </td>
+
+                                {/* Status */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap min-w-[155px]">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase ${
+                                      reg.paymentStatus === 'Verified'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : reg.paymentStatus === 'Rejected'
+                                        ? 'bg-red-100 text-red-800'
+                                        : 'bg-amber-100 text-amber-800'
+                                    }`}
+                                  >
+                                    {reg.paymentStatus}
+                                  </span>
+                                  {(() => {
+                                    const regKey = (reg.registrationId || reg.id || '').trim().toUpperCase();
+                                    const doneId = getRegistrationReceivedEventId(regKey);
+                                    const confId = getRegistrationConfirmedEventId(regKey);
+                                    const doneLog = emailLogMap.get(doneId);
+                                    const confLog = emailLogMap.get(confId);
+                                    const doneStatus = normalizeLogStatus(doneLog);
+                                    const confStatus = normalizeLogStatus(confLog);
+                                    const isVerified =
+                                      reg.paymentStatus === 'Verified' && reg.registrationStatus === 'Approved';
+
+                                    return (
+                                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px]">
                                         <span
                                           className={`px-1.5 py-0.5 rounded font-semibold ${
-                                            confStatus === 'Sent'
+                                            doneStatus === 'Sent'
                                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                              : confStatus === 'Failed'
+                                              : doneStatus === 'Failed'
                                               ? 'bg-red-50 text-red-700 border border-red-200'
-                                              : confStatus === 'Pending'
+                                              : doneStatus === 'Pending'
                                               ? 'bg-amber-50 text-amber-700 border border-amber-200'
                                               : 'bg-slate-50 text-slate-400 border border-slate-200'
                                           }`}
-                                          title={confLog?.error || `Registration Confirmation Email: ${confStatus}`}
+                                          title={doneLog?.error || `Registration Done Email: ${doneStatus}`}
                                         >
-                                          Conf: {confStatus}
+                                          Done: {doneStatus}
                                         </span>
-                                        {(confStatus === 'Failed' || (isVerified && confStatus === 'Not Sent')) && (
+                                        {doneStatus === 'Failed' && (
                                           <button
                                             type="button"
-                                            disabled={retryingEmailEventId === confId}
+                                            disabled={retryingEmailEventId === doneId}
                                             onClick={() =>
                                               handleRetryOrSendEmail({
-                                                eventId: confId,
-                                                eventType: 'registration_confirmation',
+                                                eventId: doneId,
+                                                eventType: 'registration_received',
                                                 registration: reg,
                                               })
                                             }
-                                            className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                            className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer disabled:opacity-50"
                                           >
-                                            {retryingEmailEventId === confId
-                                              ? '...'
-                                              : confStatus === 'Failed'
-                                              ? 'Retry'
-                                              : 'Send'}
+                                            {retryingEmailEventId === doneId ? '...' : 'Retry'}
                                           </button>
                                         )}
-                                      </>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-                            </td>
+                                        {(isVerified || confLog) && (
+                                          <>
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded font-semibold ${
+                                                confStatus === 'Sent'
+                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                  : confStatus === 'Failed'
+                                                  ? 'bg-red-50 text-red-700 border border-red-200'
+                                                  : confStatus === 'Pending'
+                                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                  : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                              }`}
+                                              title={confLog?.error || `Registration Confirmation Email: ${confStatus}`}
+                                            >
+                                              Conf: {confStatus}
+                                            </span>
+                                            {(confStatus === 'Failed' || (isVerified && confStatus === 'Not Sent')) && (
+                                              <button
+                                                type="button"
+                                                disabled={retryingEmailEventId === confId}
+                                                onClick={() =>
+                                                  handleRetryOrSendEmail({
+                                                    eventId: confId,
+                                                    eventType: 'registration_confirmation',
+                                                    registration: reg,
+                                                  })
+                                                }
+                                                className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                              >
+                                                {retryingEmailEventId === confId
+                                                  ? '...'
+                                                  : confStatus === 'Failed'
+                                                  ? 'Retry'
+                                                  : 'Send'}
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </td>
 
-                            {/* Abstract Link */}
-                            <td className="p-3.5 whitespace-nowrap">
-                              {reg.linkedAbstractId ? (
-                                <span className="font-mono text-[11px] text-purple-600 font-semibold bg-purple-50 px-1.5 py-0.5 rounded">
-                                  {reg.linkedAbstractId}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 text-[11px]">None</span>
-                              )}
-                            </td>
+                                {/* Abstract Link */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap">
+                                  {reg.linkedAbstractId ? (
+                                    <span className="font-mono text-[10.5px] text-purple-700 font-semibold bg-purple-50 border border-purple-200/70 px-1.5 py-0.5 rounded">
+                                      {reg.linkedAbstractId}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 text-[10.5px]">None</span>
+                                  )}
+                                </td>
 
-                            {/* Record Type Badge */}
-                            <td className="p-3.5 whitespace-nowrap">
-                              <button
-                                onClick={() => toggleRecordType('registrations', reg.id, reg.recordType)}
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer ${
-                                  reg.recordType === 'test'
-                                    ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                }`}
-                                title="Click to toggle Test/Live tag"
-                              >
-                                {(reg.recordType || 'live').toUpperCase()}
-                              </button>
-                            </td>
+                                {/* Record Type Badge */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleRecordType('registrations', reg.id, reg.recordType)}
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold cursor-pointer ${
+                                      reg.recordType === 'test'
+                                        ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                    }`}
+                                    title="Click to toggle Test/Live tag"
+                                  >
+                                    {(reg.recordType || 'live').toUpperCase()}
+                                  </button>
+                                </td>
 
-                            {/* Actions */}
-                            <td className="p-3.5 text-right whitespace-nowrap space-x-1.5">
-                              <button
-                                onClick={() => setPreviewProofReg(reg)}
-                                className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
-                                title="View Payment Proof Attachment"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                                <span>Proof</span>
-                              </button>
-
-                              {reg.paymentStatus !== 'Verified' && (
-                                <button
-                                  onClick={() => handleVerifyPayment(reg)}
-                                  disabled={processingAction}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer shadow-2xs"
-                                  title="Verify payment and approve registration"
+                                {/* Sticky Right Approval Column */}
+                                <td
+                                  className={`sticky right-0 z-10 px-3 py-2 border-b border-slate-100 border-l border-purple-200/70 shadow-[-6px_0_12px_-6px_rgba(15,23,42,0.12)] whitespace-nowrap w-[216px] min-w-[216px] transition-colors ${stickyCellBgClass}`}
                                 >
-                                  Verify
-                                </button>
-                              )}
+                                  <div className="space-y-1.5">
+                                    {/* Primary Individual Approve / Reject Controls */}
+                                    <div className="flex items-center gap-1.5">
+                                      {reg.paymentStatus === 'Verified' ? (
+                                        <span className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px]">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>Approved</span>
+                                        </span>
+                                      ) : reg.paymentStatus === 'Rejected' ? (
+                                        <>
+                                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200 font-bold text-[10.5px]">
+                                            <XCircle className="w-3 h-3 text-red-600" />
+                                            <span>Rejected</span>
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleVerifyPayment(reg)}
+                                            disabled={processingAction || bulkProcessing}
+                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            title="Re-verify payment and approve registration"
+                                          >
+                                            <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
+                                            <span>Approve</span>
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleVerifyPayment(reg)}
+                                            disabled={processingAction || bulkProcessing}
+                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            title="Verify payment and approve registration"
+                                          >
+                                            <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                                            <span>Approve</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRejectPayment(reg)}
+                                            disabled={processingAction || bulkProcessing}
+                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            title="Reject payment verification"
+                                          >
+                                            <X className="w-3.5 h-3.5 text-red-600 stroke-[2.5]" />
+                                            <span>Reject</span>
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
 
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openPdfPreview({
-                                    title: 'Registration Receipt PDF',
-                                    subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
-                                    build: () => createRegistrationSubmissionReceiptPreviewUrl(reg),
-                                    onDownload: () => generateRegistrationSubmissionReceiptPDF(reg),
-                                  })
-                                }
-                                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
-                                title="Preview Registration Receipt PDF"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                                <span>Receipt</span>
-                              </button>
+                                    {/* Preserved Secondary Inspection & Document Actions */}
+                                    <div className="flex items-center justify-between gap-1 pt-0.5">
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => setPreviewProofReg(reg)}
+                                          className="px-1.5 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-semibold rounded text-[10px] cursor-pointer inline-flex items-center gap-0.5"
+                                          title="View Payment Proof Attachment"
+                                        >
+                                          <Eye className="w-3 h-3" />
+                                          <span>Proof</span>
+                                        </button>
 
-                              {reg.paymentStatus === 'Verified' && reg.registrationStatus === 'Approved' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      openPdfPreview({
-                                        title: 'Registration Confirmation PDF',
-                                        subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
-                                        build: () => createRegistrationConfirmationPreviewUrl(reg),
-                                        onDownload: () => generateRegistrationReceiptPDF(reg),
-                                      })
-                                    }
-                                    className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
-                                    title="Preview Official Registration Confirmation PDF"
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openPdfPreview({
+                                              title: 'Registration Receipt PDF',
+                                              subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                              build: () => createRegistrationSubmissionReceiptPreviewUrl(reg),
+                                              onDownload: () => generateRegistrationSubmissionReceiptPDF(reg),
+                                            })
+                                          }
+                                          className="px-1.5 py-0.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-semibold rounded text-[10px] cursor-pointer inline-flex items-center gap-0.5"
+                                          title="Preview Registration Receipt PDF"
+                                        >
+                                          <FileText className="w-3 h-3" />
+                                          <span>Rcpt</span>
+                                        </button>
+
+                                        {reg.paymentStatus === 'Verified' &&
+                                          reg.registrationStatus === 'Approved' && (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  openPdfPreview({
+                                                    title: 'Registration Confirmation PDF',
+                                                    subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                                    build: () => createRegistrationConfirmationPreviewUrl(reg),
+                                                    onDownload: () => generateRegistrationReceiptPDF(reg),
+                                                  })
+                                                }
+                                                className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold rounded text-[10px] cursor-pointer inline-flex items-center gap-0.5"
+                                                title="Preview Official Registration Confirmation PDF"
+                                              >
+                                                <span>PDF</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => generateRegistrationReceiptPDF(reg)}
+                                                className="p-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded cursor-pointer inline-flex items-center"
+                                                title="Download Official Registration Confirmation PDF"
+                                              >
+                                                <Download className="w-3 h-3" />
+                                              </button>
+                                            </>
+                                          )}
+                                      </div>
+
+                                      <div className="flex items-center gap-0.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedReg(reg);
+                                            setActionRemarks(reg.adminRemarks || '');
+                                          }}
+                                          className="px-1.5 py-0.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded text-[10px] cursor-pointer"
+                                          title="Open full registration scrutiny modal"
+                                        >
+                                          Details
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setRegToDelete(reg)}
+                                          className="p-0.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer inline-flex items-center"
+                                          title="Delete Registration"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {/* Optional Expandable Registration Detail Row */}
+                              {isExpanded && (
+                                <tr className="bg-slate-50/90">
+                                  <td
+                                    colSpan={10}
+                                    className="px-4 py-2.5 border-b border-slate-200 text-[11px] text-slate-700"
                                   >
-                                    <FileText className="w-3.5 h-3.5" />
-                                    <span>PDF</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => generateRegistrationReceiptPDF(reg)}
-                                    className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center"
-                                    title="Download Official Registration Confirmation PDF"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                                      <div>
+                                        <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
+                                          Mobile
+                                        </span>
+                                        <span className="font-mono text-slate-800">{reg.mobile || '—'}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
+                                          City / Country
+                                        </span>
+                                        <span>
+                                          {[reg.city, reg.country].filter(Boolean).join(', ') || '—'}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
+                                          Course / Designation
+                                        </span>
+                                        <span>{reg.courseOrDesignation || '—'}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
+                                          Presentation Opt-In
+                                        </span>
+                                        <span>{formatRegistrationPresentationPlan(reg)}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
+                                          PharmaQuest 2027
+                                        </span>
+                                        <span className={isPharmaQuest ? 'font-bold text-purple-700' : ''}>
+                                          {isPharmaQuest ? 'Yes' : 'No'}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
+                                          Payment Mode / Remarks
+                                        </span>
+                                        <span className="truncate block" title={reg.adminRemarks || reg.paymentMode || ''}>
+                                          {reg.paymentMode || '—'}
+                                          {reg.adminRemarks ? ` · ${reg.adminRemarks}` : ''}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
                               )}
-
-                              <button
-                                onClick={() => {
-                                  setSelectedReg(reg);
-                                  setActionRemarks(reg.adminRemarks || '');
-                                }}
-                                className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-md text-[11px] cursor-pointer"
-                              >
-                                Scrutinize
-                              </button>
-
-                              <button
-                                onClick={() => setRegToDelete(reg)}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md cursor-pointer inline-flex items-center"
-                                title="Delete Registration"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
+                            </React.Fragment>
                           );
                         })
                       )}
                     </tbody>
                   </table>
                 </div>
+
+                <TablePaginationBar
+                  currentPage={safeRegPage}
+                  totalPages={regTotalPages}
+                  pageSize={regPageSize}
+                  totalItems={filteredRegistrations.length}
+                  itemLabel="registrations"
+                  onPageChange={setRegPage}
+                />
               </div>
             </div>
           )}
@@ -3017,25 +4114,256 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               )}
 
               {/* ================================================================= */}
-              {/* SCIENTIFIC PRESENTATION DASHBOARD */}
+              {/* ABSTRACT OVERVIEW SUMMARY CARDS (4 KPIs + TYPE + 7 TRACKS) */}
               {/* ================================================================= */}
-              <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-xs p-4 space-y-3">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900 font-heading tracking-tight">
-                      Scientific Presentation Dashboard
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Real-time presentation opt-in &amp; abstract metrics
-                      {absInstitutionFilter === 'internal'
-                        ? ' · Internal Participants (SRMIST)'
-                        : absInstitutionFilter === 'external'
-                        ? ' · External Participants'
-                        : ' · All Institutions'}{' '}
-                      (click any metric to filter).
-                    </p>
+              <div className="space-y-3">
+                {/* 4 Top Summary Cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                  {/* Card 1: Total Abstracts */}
+                  <button
+                    type="button"
+                    aria-pressed={absStatusFilter === 'all' && presentationDashboardFilter === 'all'}
+                    onClick={() => {
+                      setPresentationDashboardFilter('all');
+                      setShowPendingBreakdown(false);
+                      setAbsStatusFilter('all');
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 bg-gradient-to-br from-indigo-50/85 via-white to-blue-50/70 ${
+                      absStatusFilter === 'all' && presentationDashboardFilter === 'all'
+                        ? 'border-indigo-400 ring-2 ring-indigo-500/20 shadow-xs'
+                        : 'border-indigo-200/80 hover:border-indigo-300'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-indigo-100/90 text-indigo-700 flex items-center justify-center shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-slate-600 truncate">
+                        Total Abstracts
+                      </div>
+                      <div className="text-2xl font-extrabold text-slate-900 font-heading tabular-nums leading-tight mt-0.5">
+                        {abstractOverviewSummary.total}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Card 2: Pending Approval */}
+                  <button
+                    type="button"
+                    aria-pressed={absStatusFilter === 'pending'}
+                    onClick={() => {
+                      setPresentationDashboardFilter('all');
+                      setShowPendingBreakdown(false);
+                      setAbsStatusFilter((prev) => (prev === 'pending' ? 'all' : 'pending'));
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 bg-gradient-to-br from-amber-50/85 via-white to-orange-50/70 ${
+                      absStatusFilter === 'pending'
+                        ? 'border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
+                        : 'border-amber-200/80 hover:border-amber-300'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-amber-100/90 text-amber-700 flex items-center justify-center shrink-0">
+                      <Hourglass className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-amber-900 truncate">
+                        Pending Approval
+                      </div>
+                      <div className="text-2xl font-extrabold text-amber-950 font-heading tabular-nums leading-tight mt-0.5">
+                        {abstractOverviewSummary.pendingApproval}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Card 3: Approved */}
+                  <button
+                    type="button"
+                    aria-pressed={absStatusFilter === 'Accepted'}
+                    onClick={() => {
+                      setPresentationDashboardFilter('all');
+                      setShowPendingBreakdown(false);
+                      setAbsStatusFilter((prev) => (prev === 'Accepted' ? 'all' : 'Accepted'));
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 bg-gradient-to-br from-emerald-50/85 via-white to-teal-50/70 ${
+                      absStatusFilter === 'Accepted'
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'border-emerald-200/80 hover:border-emerald-300'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100/90 text-emerald-700 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-emerald-900 truncate">
+                        Approved
+                      </div>
+                      <div className="text-2xl font-extrabold text-emerald-950 font-heading tabular-nums leading-tight mt-0.5">
+                        {abstractOverviewSummary.approved}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Card 4: Rejected */}
+                  <button
+                    type="button"
+                    aria-pressed={absStatusFilter === 'Rejected'}
+                    onClick={() => {
+                      setPresentationDashboardFilter('all');
+                      setShowPendingBreakdown(false);
+                      setAbsStatusFilter((prev) => (prev === 'Rejected' ? 'all' : 'Rejected'));
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-3 bg-gradient-to-br from-rose-50/85 via-white to-red-50/70 ${
+                      absStatusFilter === 'Rejected'
+                        ? 'border-rose-500 ring-2 ring-rose-500/20 shadow-xs'
+                        : 'border-rose-200/80 hover:border-rose-300'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-rose-100/90 text-rose-700 flex items-center justify-center shrink-0">
+                      <XCircle className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-rose-900 truncate">
+                        Rejected
+                      </div>
+                      <div className="text-2xl font-extrabold text-rose-950 font-heading tabular-nums leading-tight mt-0.5">
+                        {abstractOverviewSummary.rejected}
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Second Summary Row: Oral / Poster Breakdown + 7 Canonical Scientific Tracks */}
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
+                  {/* Abstracts by Type (Oral / Poster) */}
+                  <div className="xl:col-span-4 bg-white/85 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-slate-800">
+                        Abstracts by Type
+                      </div>
+                      {absTypeFilter !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => setAbsTypeFilter('all')}
+                          className="text-[10.5px] font-semibold text-purple-700 hover:underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        aria-pressed={absTypeFilter === 'oral'}
+                        onClick={() => {
+                          setPresentationDashboardFilter('all');
+                          setAbsTypeFilter((prev) => (prev === 'oral' ? 'all' : 'oral'));
+                        }}
+                        className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          absTypeFilter === 'oral'
+                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
+                            : 'bg-indigo-50/70 hover:bg-indigo-100/70 text-slate-800 border-indigo-200/80'
+                        }`}
+                      >
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                          <Mic
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              absTypeFilter === 'oral' ? 'text-white' : 'text-indigo-600'
+                            }`}
+                          />
+                          <span>Oral</span>
+                        </span>
+                        <span className="text-sm font-extrabold font-heading tabular-nums">
+                          {abstractOverviewSummary.oralCount}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-pressed={absTypeFilter === 'poster'}
+                        onClick={() => {
+                          setPresentationDashboardFilter('all');
+                          setAbsTypeFilter((prev) => (prev === 'poster' ? 'all' : 'poster'));
+                        }}
+                        className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          absTypeFilter === 'poster'
+                            ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                            : 'bg-purple-50/70 hover:bg-purple-100/70 text-slate-800 border-purple-200/80'
+                        }`}
+                      >
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                          <Presentation
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              absTypeFilter === 'poster' ? 'text-white' : 'text-purple-600'
+                            }`}
+                          />
+                          <span>Poster</span>
+                        </span>
+                        <span className="text-sm font-extrabold font-heading tabular-nums">
+                          {abstractOverviewSummary.posterCount}
+                        </span>
+                      </button>
+                    </div>
                   </div>
 
+                  {/* Abstracts by Scientific Track (All 7 Canonical Conference Tracks) */}
+                  <div className="xl:col-span-8 bg-white/85 backdrop-blur-md p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-slate-800">
+                        Abstracts by Track
+                      </div>
+                      {absTrackFilter !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => setAbsTrackFilter('all')}
+                          className="text-[10.5px] font-semibold text-purple-700 hover:underline cursor-pointer"
+                        >
+                          Show All Tracks
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {CANONICAL_CONFERENCE_TRACKS.map((track) => {
+                        const count = abstractOverviewSummary.trackCounts[track.id] ?? 0;
+                        const isSelectedTrack = absTrackFilter === track.id;
+                        return (
+                          <button
+                            key={track.id}
+                            type="button"
+                            aria-pressed={isSelectedTrack}
+                            title={`${track.fullTitle} (${count})`}
+                            onClick={() => {
+                              setPresentationDashboardFilter('all');
+                              setAbsTrackFilter((prev) => (prev === track.id ? 'all' : track.id));
+                            }}
+                            className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                              isSelectedTrack
+                                ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                                : 'bg-indigo-50/60 hover:bg-purple-50 text-indigo-950 border-indigo-200/80 hover:border-purple-300'
+                            }`}
+                          >
+                            <span>{track.shortLabel}</span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded-md text-[10.5px] font-extrabold tabular-nums leading-none ${
+                                isSelectedTrack
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-white text-purple-900 border border-indigo-200/80'
+                              }`}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ================================================================= */}
+              {/* INSTITUTION SCOPE + COLLAPSIBLE SCIENTIFIC PRESENTATION PIPELINE */}
+              {/* ================================================================= */}
+              <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-2xs p-3.5 space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
                   <div className="flex flex-wrap items-center gap-2">
                     {/* Segmented Institution Filter for Abstract Management */}
                     <div
@@ -3067,357 +4395,384 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     </div>
 
                     {presentationDashboardFilter !== 'all' && (
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-[11px] font-semibold text-purple-900 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">
-                          Filter: {activeDashboardFilterLabel[presentationDashboardFilter]}
+                          Pipeline Filter: {activeDashboardFilterLabel[presentationDashboardFilter]}
                         </span>
                         <button
                           type="button"
                           onClick={handleClearPresentationFilter}
-                          className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                          className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-colors"
                         >
                           <RotateCcw className="w-3 h-3" />
-                          <span>Clear Filter / Show All</span>
+                          <span>Clear</span>
                         </button>
                       </div>
                     )}
                   </div>
-                </div>
 
-                {/* Six Compact Glassmorphic Statistic Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
-                  {/* Card 1: Registered for Presentation */}
                   <button
                     type="button"
-                    aria-pressed={presentationDashboardFilter === 'registered'}
-                    onClick={() => handleSelectPresentationCardFilter('registered')}
-                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-indigo-50/90 via-white/80 to-blue-50/80 ${
-                      presentationDashboardFilter === 'registered'
-                        ? 'border-indigo-500 ring-2 ring-indigo-500/25 shadow-sm'
-                        : 'border-indigo-200/80 hover:border-indigo-300 hover:shadow-xs'
-                    }`}
+                    aria-expanded={showPresentationAnalytics || presentationDashboardFilter !== 'all'}
+                    onClick={() => setShowPresentationAnalytics((prev) => !prev)}
+                    className="inline-flex items-center justify-between lg:justify-end gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50/90 hover:bg-purple-50/70 text-[11px] font-semibold text-slate-700 cursor-pointer transition-colors"
                   >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
-                        Registered for Presentation
+                    <span className="inline-flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-purple-600" />
+                      <span>
+                        Presentation Opt-In &amp; Allocation Pipeline (Opted-in:{' '}
+                        {presentationMetrics.counts.registeredForPresentation} · Pending:{' '}
+                        {presentationMetrics.counts.abstractsPendingTotal})
                       </span>
-                      <div className="w-7 h-7 rounded-lg bg-indigo-100/90 text-indigo-700 flex items-center justify-center shrink-0">
-                        <Users className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <div className="pt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-extrabold text-indigo-950 font-heading tabular-nums">
-                        {presentationMetrics.counts.registeredForPresentation}
-                      </span>
-                      <span className="text-[10px] font-medium text-indigo-600">
-                        Opted-in
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Card 2: Abstracts Submitted */}
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'submitted'}
-                    onClick={() => handleSelectPresentationCardFilter('submitted')}
-                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-purple-50/90 via-white/80 to-violet-50/80 ${
-                      presentationDashboardFilter === 'submitted'
-                        ? 'border-purple-500 ring-2 ring-purple-500/25 shadow-sm'
-                        : 'border-purple-200/80 hover:border-purple-300 hover:shadow-xs'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
-                        Abstracts Submitted
-                      </span>
-                      <div className="w-7 h-7 rounded-lg bg-purple-100/90 text-purple-700 flex items-center justify-center shrink-0">
-                        <FileCheck2 className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <div className="pt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-extrabold text-purple-950 font-heading tabular-nums">
-                        {presentationMetrics.counts.abstractsSubmitted}
-                      </span>
-                      <span className="text-[10px] font-medium text-purple-600">
-                        Received
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Card 3: Abstracts Pending */}
-                  <button
-                    type="button"
-                    aria-expanded={showPendingBreakdown}
-                    aria-pressed={
-                      presentationDashboardFilter === 'pending_all' ||
-                      presentationDashboardFilter === 'not_submitted' ||
-                      presentationDashboardFilter === 'awaiting_decision'
-                    }
-                    onClick={handleTogglePendingCard}
-                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-amber-50/90 via-white/80 to-orange-50/80 ${
-                      presentationDashboardFilter === 'pending_all' ||
-                      presentationDashboardFilter === 'not_submitted' ||
-                      presentationDashboardFilter === 'awaiting_decision'
-                        ? 'border-amber-500 ring-2 ring-amber-500/25 shadow-sm'
-                        : 'border-amber-200/80 hover:border-amber-300 hover:shadow-xs'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
-                        Abstracts Pending
-                      </span>
-                      <div className="w-7 h-7 rounded-lg bg-amber-100/90 text-amber-700 flex items-center justify-center shrink-0">
-                        <Clock className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <div className="pt-2 flex items-baseline justify-between gap-1">
-                      <span className="text-2xl font-extrabold text-amber-950 font-heading tabular-nums">
-                        {presentationMetrics.counts.abstractsPendingTotal}
-                      </span>
-                      <span className="text-[10px] font-semibold text-amber-700 inline-flex items-center gap-0.5">
-                        <span>Breakdown</span>
-                        <ChevronDown
-                          className={`w-3 h-3 transition-transform ${
-                            showPendingBreakdown ? 'rotate-180' : ''
-                          }`}
-                        />
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Card 4: Oral Allotted */}
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'oral_allotted'}
-                    onClick={() => handleSelectPresentationCardFilter('oral_allotted')}
-                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-emerald-50/90 via-white/80 to-teal-50/80 ${
-                      presentationDashboardFilter === 'oral_allotted'
-                        ? 'border-emerald-500 ring-2 ring-emerald-500/25 shadow-sm'
-                        : 'border-emerald-200/80 hover:border-emerald-300 hover:shadow-xs'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
-                        Oral Allotted
-                      </span>
-                      <div className="w-7 h-7 rounded-lg bg-emerald-100/90 text-emerald-700 flex items-center justify-center shrink-0">
-                        <Mic className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <div className="pt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-extrabold text-emerald-950 font-heading tabular-nums">
-                        {presentationMetrics.counts.oralAllotted}
-                      </span>
-                      <span className="text-[10px] font-medium text-emerald-700">
-                        Allocated
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Card 5: Poster Allotted */}
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'poster_allotted'}
-                    onClick={() => handleSelectPresentationCardFilter('poster_allotted')}
-                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-cyan-50/90 via-white/80 to-sky-50/80 ${
-                      presentationDashboardFilter === 'poster_allotted'
-                        ? 'border-cyan-500 ring-2 ring-cyan-500/25 shadow-sm'
-                        : 'border-cyan-200/80 hover:border-cyan-300 hover:shadow-xs'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
-                        Poster Allotted
-                      </span>
-                      <div className="w-7 h-7 rounded-lg bg-cyan-100/90 text-cyan-700 flex items-center justify-center shrink-0">
-                        <Presentation className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <div className="pt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-extrabold text-cyan-950 font-heading tabular-nums">
-                        {presentationMetrics.counts.posterAllotted}
-                      </span>
-                      <span className="text-[10px] font-medium text-cyan-700">
-                        Allocated
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Card 6: E-Poster Allotted */}
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'eposter_allotted'}
-                    onClick={() => handleSelectPresentationCardFilter('eposter_allotted')}
-                    className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[94px] bg-gradient-to-br from-fuchsia-50/90 via-white/80 to-pink-50/80 ${
-                      presentationDashboardFilter === 'eposter_allotted'
-                        ? 'border-fuchsia-500 ring-2 ring-fuchsia-500/25 shadow-sm'
-                        : 'border-fuchsia-200/80 hover:border-fuchsia-300 hover:shadow-xs'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      <span className="text-[11px] font-semibold text-slate-700 leading-tight">
-                        E-Poster Allotted
-                      </span>
-                      <div className="w-7 h-7 rounded-lg bg-fuchsia-100/90 text-fuchsia-700 flex items-center justify-center shrink-0">
-                        <Monitor className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <div className="pt-2 flex items-baseline justify-between">
-                      <span className="text-2xl font-extrabold text-fuchsia-950 font-heading tabular-nums">
-                        {presentationMetrics.counts.eposterAllotted}
-                      </span>
-                      <span className="text-[10px] font-medium text-fuchsia-700">
-                        Allocated
-                      </span>
-                    </div>
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
+                        showPresentationAnalytics || presentationDashboardFilter !== 'all'
+                          ? 'rotate-180'
+                          : ''
+                      }`}
+                    />
                   </button>
                 </div>
 
-                {/* Compact Abstract Pipeline & Review Outcome Strip (completes all 8 segregated metrics) */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'not_submitted'}
-                    onClick={() => handleSelectPendingSubFilter('not_submitted')}
-                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      presentationDashboardFilter === 'not_submitted'
-                        ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
-                        : 'bg-slate-50/90 hover:bg-amber-50/70 text-slate-800 border-slate-200/90'
-                    }`}
-                  >
-                    <span className="text-[11px] font-semibold">Abstracts Not Submitted</span>
-                    <span className="text-sm font-extrabold font-heading tabular-nums">
-                      {presentationMetrics.counts.notSubmitted}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'awaiting_decision'}
-                    onClick={() => handleSelectPendingSubFilter('awaiting_decision')}
-                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      presentationDashboardFilter === 'awaiting_decision'
-                        ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
-                        : 'bg-slate-50/90 hover:bg-amber-50/70 text-slate-800 border-slate-200/90'
-                    }`}
-                  >
-                    <span className="text-[11px] font-semibold">Awaiting Acceptance</span>
-                    <span className="text-sm font-extrabold font-heading tabular-nums">
-                      {presentationMetrics.counts.awaitingAcceptanceDecision}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'accepted'}
-                    onClick={() => handleSelectPresentationCardFilter('accepted')}
-                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      presentationDashboardFilter === 'accepted'
-                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                        : 'bg-emerald-50/60 hover:bg-emerald-100/70 text-emerald-950 border-emerald-200/80'
-                    }`}
-                  >
-                    <span className="text-[11px] font-semibold">Accepted Abstracts</span>
-                    <span className="text-sm font-extrabold font-heading tabular-nums">
-                      {presentationMetrics.counts.acceptedAbstracts}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    aria-pressed={presentationDashboardFilter === 'rejected'}
-                    onClick={() => handleSelectPresentationCardFilter('rejected')}
-                    className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      presentationDashboardFilter === 'rejected'
-                        ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
-                        : 'bg-rose-50/60 hover:bg-rose-100/70 text-rose-950 border-rose-200/80'
-                    }`}
-                  >
-                    <span className="text-[11px] font-semibold">Rejected Abstracts</span>
-                    <span className="text-sm font-extrabold font-heading tabular-nums">
-                      {presentationMetrics.counts.rejectedAbstracts}
-                    </span>
-                  </button>
-                </div>
-
-                {/* Expandable Pending Breakdown Strip */}
-                {showPendingBreakdown && (
-                  <div className="pt-1 animate-in fade-in duration-150">
-                    <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      <div className="space-y-0.5">
-                        <div className="text-xs font-bold text-amber-950">
-                          Abstracts Pending Breakdown
+                {(showPresentationAnalytics || presentationDashboardFilter !== 'all') && (
+                  <div className="space-y-3 pt-1 border-t border-slate-100 animate-in fade-in duration-150">
+                    {/* Six Compact Glassmorphic Statistic Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+                      {/* Card 1: Registered for Presentation */}
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'registered'}
+                        onClick={() => handleSelectPresentationCardFilter('registered')}
+                        className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[90px] bg-gradient-to-br from-indigo-50/90 via-white/80 to-blue-50/80 ${
+                          presentationDashboardFilter === 'registered'
+                            ? 'border-indigo-500 ring-2 ring-indigo-500/25 shadow-sm'
+                            : 'border-indigo-200/80 hover:border-indigo-300 hover:shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                            Registered for Presentation
+                          </span>
+                          <div className="w-7 h-7 rounded-lg bg-indigo-100/90 text-indigo-700 flex items-center justify-center shrink-0">
+                            <Users className="w-3.5 h-3.5" />
+                          </div>
                         </div>
-                        <p className="text-[11px] text-amber-800/90">
-                          Click a sub-category below to filter either unsubmitted presentation registrants or submitted abstracts awaiting review decision.
-                        </p>
-                      </div>
+                        <div className="pt-2 flex items-baseline justify-between">
+                          <span className="text-2xl font-extrabold text-indigo-950 font-heading tabular-nums">
+                            {presentationMetrics.counts.registeredForPresentation}
+                          </span>
+                          <span className="text-[10px] font-medium text-indigo-600">
+                            Opted-in
+                          </span>
+                        </div>
+                      </button>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
-                        <button
-                          type="button"
-                          aria-pressed={presentationDashboardFilter === 'not_submitted'}
-                          onClick={() => handleSelectPendingSubFilter('not_submitted')}
-                          className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                            presentationDashboardFilter === 'not_submitted'
-                              ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
-                              : 'bg-white hover:bg-amber-100/60 text-slate-800 border-amber-200'
-                          }`}
-                        >
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
-                              Not Submitted
-                            </div>
-                            <div className="text-base font-extrabold tabular-nums">
-                              {presentationMetrics.counts.notSubmitted}
-                            </div>
+                      {/* Card 2: Abstracts Submitted */}
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'submitted'}
+                        onClick={() => handleSelectPresentationCardFilter('submitted')}
+                        className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[90px] bg-gradient-to-br from-purple-50/90 via-white/80 to-violet-50/80 ${
+                          presentationDashboardFilter === 'submitted'
+                            ? 'border-purple-500 ring-2 ring-purple-500/25 shadow-sm'
+                            : 'border-purple-200/80 hover:border-purple-300 hover:shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                            Abstracts Submitted
+                          </span>
+                          <div className="w-7 h-7 rounded-lg bg-purple-100/90 text-purple-700 flex items-center justify-center shrink-0">
+                            <FileCheck2 className="w-3.5 h-3.5" />
                           </div>
-                          <ChevronRight className="w-3.5 h-3.5 opacity-70" />
-                        </button>
+                        </div>
+                        <div className="pt-2 flex items-baseline justify-between">
+                          <span className="text-2xl font-extrabold text-purple-950 font-heading tabular-nums">
+                            {presentationMetrics.counts.abstractsSubmitted}
+                          </span>
+                          <span className="text-[10px] font-medium text-purple-600">
+                            Received
+                          </span>
+                        </div>
+                      </button>
 
-                        <button
-                          type="button"
-                          aria-pressed={presentationDashboardFilter === 'awaiting_decision'}
-                          onClick={() => handleSelectPendingSubFilter('awaiting_decision')}
-                          className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                            presentationDashboardFilter === 'awaiting_decision'
-                              ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
-                              : 'bg-white hover:bg-amber-100/60 text-slate-800 border-amber-200'
-                          }`}
-                        >
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
-                              Awaiting Acceptance Decision
-                            </div>
-                            <div className="text-base font-extrabold tabular-nums">
-                              {presentationMetrics.counts.awaitingAcceptanceDecision}
-                            </div>
+                      {/* Card 3: Abstracts Pending */}
+                      <button
+                        type="button"
+                        aria-expanded={showPendingBreakdown}
+                        aria-pressed={
+                          presentationDashboardFilter === 'pending_all' ||
+                          presentationDashboardFilter === 'not_submitted' ||
+                          presentationDashboardFilter === 'awaiting_decision'
+                        }
+                        onClick={handleTogglePendingCard}
+                        className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[90px] bg-gradient-to-br from-amber-50/90 via-white/80 to-orange-50/80 ${
+                          presentationDashboardFilter === 'pending_all' ||
+                          presentationDashboardFilter === 'not_submitted' ||
+                          presentationDashboardFilter === 'awaiting_decision'
+                            ? 'border-amber-500 ring-2 ring-amber-500/25 shadow-sm'
+                            : 'border-amber-200/80 hover:border-amber-300 hover:shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                            Abstracts Pending
+                          </span>
+                          <div className="w-7 h-7 rounded-lg bg-amber-100/90 text-amber-700 flex items-center justify-center shrink-0">
+                            <Clock className="w-3.5 h-3.5" />
                           </div>
-                          <ChevronRight className="w-3.5 h-3.5 opacity-70" />
-                        </button>
+                        </div>
+                        <div className="pt-2 flex items-baseline justify-between gap-1">
+                          <span className="text-2xl font-extrabold text-amber-950 font-heading tabular-nums">
+                            {presentationMetrics.counts.abstractsPendingTotal}
+                          </span>
+                          <span className="text-[10px] font-semibold text-amber-700 inline-flex items-center gap-0.5">
+                            <span>Breakdown</span>
+                            <ChevronDown
+                              className={`w-3 h-3 transition-transform ${
+                                showPendingBreakdown ? 'rotate-180' : ''
+                              }`}
+                            />
+                          </span>
+                        </div>
+                      </button>
 
-                        <button
-                          type="button"
-                          aria-pressed={presentationDashboardFilter === 'pending_all'}
-                          onClick={() => handleSelectPendingSubFilter('pending_all')}
-                          className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                            presentationDashboardFilter === 'pending_all'
-                              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                              : 'bg-white/90 hover:bg-slate-100 text-slate-900 border-amber-200'
-                          }`}
-                        >
-                          <div>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
-                              Total Pending
-                            </div>
-                            <div className="text-base font-extrabold tabular-nums">
-                              {presentationMetrics.counts.abstractsPendingTotal}
-                            </div>
+                      {/* Card 4: Oral Allotted */}
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'oral_allotted'}
+                        onClick={() => handleSelectPresentationCardFilter('oral_allotted')}
+                        className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[90px] bg-gradient-to-br from-emerald-50/90 via-white/80 to-teal-50/80 ${
+                          presentationDashboardFilter === 'oral_allotted'
+                            ? 'border-emerald-500 ring-2 ring-emerald-500/25 shadow-sm'
+                            : 'border-emerald-200/80 hover:border-emerald-300 hover:shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                            Oral Allotted
+                          </span>
+                          <div className="w-7 h-7 rounded-lg bg-emerald-100/90 text-emerald-700 flex items-center justify-center shrink-0">
+                            <Mic className="w-3.5 h-3.5" />
                           </div>
-                          <ChevronRight className="w-3.5 h-3.5 opacity-70" />
-                        </button>
-                      </div>
+                        </div>
+                        <div className="pt-2 flex items-baseline justify-between">
+                          <span className="text-2xl font-extrabold text-emerald-950 font-heading tabular-nums">
+                            {presentationMetrics.counts.oralAllotted}
+                          </span>
+                          <span className="text-[10px] font-medium text-emerald-700">
+                            Allocated
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Card 5: Poster Allotted */}
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'poster_allotted'}
+                        onClick={() => handleSelectPresentationCardFilter('poster_allotted')}
+                        className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[90px] bg-gradient-to-br from-cyan-50/90 via-white/80 to-sky-50/80 ${
+                          presentationDashboardFilter === 'poster_allotted'
+                            ? 'border-cyan-500 ring-2 ring-cyan-500/25 shadow-sm'
+                            : 'border-cyan-200/80 hover:border-cyan-300 hover:shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                            Poster Allotted
+                          </span>
+                          <div className="w-7 h-7 rounded-lg bg-cyan-100/90 text-cyan-700 flex items-center justify-center shrink-0">
+                            <Presentation className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
+                        <div className="pt-2 flex items-baseline justify-between">
+                          <span className="text-2xl font-extrabold text-cyan-950 font-heading tabular-nums">
+                            {presentationMetrics.counts.posterAllotted}
+                          </span>
+                          <span className="text-[10px] font-medium text-cyan-700">
+                            Allocated
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Card 6: E-Poster Allotted */}
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'eposter_allotted'}
+                        onClick={() => handleSelectPresentationCardFilter('eposter_allotted')}
+                        className={`p-3 rounded-xl border backdrop-blur-sm text-left transition-all cursor-pointer flex flex-col justify-between min-h-[90px] bg-gradient-to-br from-fuchsia-50/90 via-white/80 to-pink-50/80 ${
+                          presentationDashboardFilter === 'eposter_allotted'
+                            ? 'border-fuchsia-500 ring-2 ring-fuchsia-500/25 shadow-sm'
+                            : 'border-fuchsia-200/80 hover:border-fuchsia-300 hover:shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <span className="text-[11px] font-semibold text-slate-700 leading-tight">
+                            E-Poster Allotted
+                          </span>
+                          <div className="w-7 h-7 rounded-lg bg-fuchsia-100/90 text-fuchsia-700 flex items-center justify-center shrink-0">
+                            <Monitor className="w-3.5 h-3.5" />
+                          </div>
+                        </div>
+                        <div className="pt-2 flex items-baseline justify-between">
+                          <span className="text-2xl font-extrabold text-fuchsia-950 font-heading tabular-nums">
+                            {presentationMetrics.counts.eposterAllotted}
+                          </span>
+                          <span className="text-[10px] font-medium text-fuchsia-700">
+                            Allocated
+                          </span>
+                        </div>
+                      </button>
                     </div>
+
+                    {/* Compact Abstract Pipeline & Review Outcome Strip */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'not_submitted'}
+                        onClick={() => handleSelectPendingSubFilter('not_submitted')}
+                        className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                          presentationDashboardFilter === 'not_submitted'
+                            ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                            : 'bg-slate-50/90 hover:bg-amber-50/70 text-slate-800 border-slate-200/90'
+                        }`}
+                      >
+                        <span className="text-[11px] font-semibold">Abstracts Not Submitted</span>
+                        <span className="text-sm font-extrabold font-heading tabular-nums">
+                          {presentationMetrics.counts.notSubmitted}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'awaiting_decision'}
+                        onClick={() => handleSelectPendingSubFilter('awaiting_decision')}
+                        className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                          presentationDashboardFilter === 'awaiting_decision'
+                            ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                            : 'bg-slate-50/90 hover:bg-amber-50/70 text-slate-800 border-slate-200/90'
+                        }`}
+                      >
+                        <span className="text-[11px] font-semibold">Awaiting Acceptance</span>
+                        <span className="text-sm font-extrabold font-heading tabular-nums">
+                          {presentationMetrics.counts.awaitingAcceptanceDecision}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'accepted'}
+                        onClick={() => handleSelectPresentationCardFilter('accepted')}
+                        className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                          presentationDashboardFilter === 'accepted'
+                            ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                            : 'bg-emerald-50/60 hover:bg-emerald-100/70 text-emerald-950 border-emerald-200/80'
+                        }`}
+                      >
+                        <span className="text-[11px] font-semibold">Accepted Abstracts</span>
+                        <span className="text-sm font-extrabold font-heading tabular-nums">
+                          {presentationMetrics.counts.acceptedAbstracts}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-pressed={presentationDashboardFilter === 'rejected'}
+                        onClick={() => handleSelectPresentationCardFilter('rejected')}
+                        className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                          presentationDashboardFilter === 'rejected'
+                            ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
+                            : 'bg-rose-50/60 hover:bg-rose-100/70 text-rose-950 border-rose-200/80'
+                        }`}
+                      >
+                        <span className="text-[11px] font-semibold">Rejected Abstracts</span>
+                        <span className="text-sm font-extrabold font-heading tabular-nums">
+                          {presentationMetrics.counts.rejectedAbstracts}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Expandable Pending Breakdown Strip */}
+                    {showPendingBreakdown && (
+                      <div className="pt-1 animate-in fade-in duration-150">
+                        <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                          <div className="space-y-0.5">
+                            <div className="text-xs font-bold text-amber-950">
+                              Abstracts Pending Breakdown
+                            </div>
+                            <p className="text-[11px] text-amber-800/90">
+                              Click a sub-category below to filter either unsubmitted presentation registrants or submitted abstracts awaiting review decision.
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 shrink-0">
+                            <button
+                              type="button"
+                              aria-pressed={presentationDashboardFilter === 'not_submitted'}
+                              onClick={() => handleSelectPendingSubFilter('not_submitted')}
+                              className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                                presentationDashboardFilter === 'not_submitted'
+                                  ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                                  : 'bg-white hover:bg-amber-100/60 text-slate-800 border-amber-200'
+                              }`}
+                            >
+                              <div>
+                                <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
+                                  Not Submitted
+                                </div>
+                                <div className="text-base font-extrabold tabular-nums">
+                                  {presentationMetrics.counts.notSubmitted}
+                                </div>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                            </button>
+
+                            <button
+                              type="button"
+                              aria-pressed={presentationDashboardFilter === 'awaiting_decision'}
+                              onClick={() => handleSelectPendingSubFilter('awaiting_decision')}
+                              className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                                presentationDashboardFilter === 'awaiting_decision'
+                                  ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                                  : 'bg-white hover:bg-amber-100/60 text-slate-800 border-amber-200'
+                              }`}
+                            >
+                              <div>
+                                <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
+                                  Awaiting Acceptance Decision
+                                </div>
+                                <div className="text-base font-extrabold tabular-nums">
+                                  {presentationMetrics.counts.awaitingAcceptanceDecision}
+                                </div>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                            </button>
+
+                            <button
+                              type="button"
+                              aria-pressed={presentationDashboardFilter === 'pending_all'}
+                              onClick={() => handleSelectPendingSubFilter('pending_all')}
+                              className={`px-3 py-2 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                                presentationDashboardFilter === 'pending_all'
+                                  ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                  : 'bg-white/90 hover:bg-slate-100 text-slate-900 border-amber-200'
+                              }`}
+                            >
+                              <div>
+                                <div className="text-[10px] font-semibold uppercase tracking-wide opacity-85">
+                                  Total Pending
+                                </div>
+                                <div className="text-base font-extrabold tabular-nums">
+                                  {presentationMetrics.counts.abstractsPendingTotal}
+                                </div>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3492,34 +4847,23 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               )}
 
               {/* Filter and Search Bar */}
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row flex-wrap items-stretch lg:items-center gap-2">
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search className="w-4 h-4 absolute left-3 top-2 text-slate-400" />
                   <input
                     type="text"
                     value={absSearchQuery}
                     onChange={(e) => setAbsSearchQuery(e.target.value)}
-                    placeholder="Search by Abstract ID, Reg ID, Title, or Author Name..."
-                    className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
+                    placeholder="Search by Abstract ID, Allocation ID, Title, Author, Email, or Institution..."
+                    className="w-full text-xs pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
                   />
                 </div>
 
                 <select
-                  value={absStatusFilter}
-                  onChange={(e) => setAbsStatusFilter(e.target.value)}
-                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                >
-                  <option value="all">All Review Statuses</option>
-                  <option value="Submitted">Submitted</option>
-                  <option value="Under Review">Under Review</option>
-                  <option value="Accepted">Accepted</option>
-                  <option value="Rejected">Rejected</option>
-                </select>
-
-                <select
+                  aria-label="Filter by Scientific Track"
                   value={absTrackFilter}
                   onChange={(e) => setAbsTrackFilter(e.target.value)}
-                  className="text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none"
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500 max-w-full lg:max-w-[205px]"
                 >
                   <option value="all">All Tracks</option>
                   {SCIENTIFIC_TRACKS.map((t) => (
@@ -3528,9 +4872,101 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     </option>
                   ))}
                 </select>
+
+                <select
+                  aria-label="Filter by Presentation Type"
+                  value={absTypeFilter}
+                  onChange={(e) => setAbsTypeFilter(e.target.value as AbstractTypeFilterValue)}
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
+                >
+                  <option value="all">All Types</option>
+                  <option value="oral">Oral</option>
+                  <option value="poster">Poster</option>
+                </select>
+
+                <select
+                  aria-label="Filter by Approval Status"
+                  value={absStatusFilter}
+                  onChange={(e) => setAbsStatusFilter(e.target.value)}
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="pending">Pending Approval</option>
+                  <option value="Submitted">Submitted</option>
+                  <option value="Under Review">Under Review</option>
+                  <option value="Accepted">Approved (Accepted)</option>
+                  <option value="Rejected">Rejected</option>
+                </select>
+
+                <select
+                  aria-label="Filter by Official Presentation Allocation"
+                  value={absAllocationFilter}
+                  onChange={(e) =>
+                    setAbsAllocationFilter(e.target.value as AbsOfficialAllocationFilterValue)
+                  }
+                  className="text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-purple-500"
+                >
+                  <option value="all">Official Allocation: All</option>
+                  <option value="allocated">Officially Allocated</option>
+                  <option value="not_allocated">Not Allocated</option>
+                  <option value="oral">Oral (AICONDD-OR)</option>
+                  <option value="poster">Poster (AICONDD-POST)</option>
+                  <option value="eposter">E-Poster (AICONDD-EPOST)</option>
+                </select>
+
+                <div
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${
+                    absPharmaQuestFilter === 'pharmaquest'
+                      ? 'bg-purple-50 border-purple-400 ring-1 ring-purple-400/30'
+                      : 'bg-purple-50/50 border-purple-200 hover:border-purple-300'
+                  }`}
+                >
+                  <Trophy className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                  <select
+                    aria-label="Filter abstracts by PharmaQuest participation"
+                    value={absPharmaQuestFilter}
+                    onChange={(e) =>
+                      setAbsPharmaQuestFilter(e.target.value as PharmaQuestFilterValue)
+                    }
+                    className="text-xs bg-transparent text-purple-900 font-semibold outline-none cursor-pointer pr-1"
+                  >
+                    <option value="all">PharmaQuest: All</option>
+                    <option value="pharmaquest">PharmaQuest Only</option>
+                  </select>
+                </div>
+
+                {(absSearchQuery ||
+                  absStatusFilter !== 'all' ||
+                  absTrackFilter !== 'all' ||
+                  absTypeFilter !== 'all' ||
+                  absPharmaQuestFilter !== 'all' ||
+                  absInstitutionFilter !== 'all' ||
+                  absAllocationFilter !== 'all' ||
+                  presentationDashboardFilter !== 'all' ||
+                  showFlaggedAbstractsOnly) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAbsSearchQuery('');
+                      setAbsStatusFilter('all');
+                      setAbsTrackFilter('all');
+                      setAbsTypeFilter('all');
+                      setAbsPharmaQuestFilter('all');
+                      setAbsInstitutionFilter('all');
+                      setAbsAllocationFilter('all');
+                      setPresentationDashboardFilter('all');
+                      setShowPendingBreakdown(false);
+                      setShowFlaggedAbstractsOnly(false);
+                    }}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer inline-flex items-center justify-center gap-1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                )}
               </div>
 
-              {/* Conditional View: Registration-Inclusive Roster (for Registered / Not Submitted / Pending All) OR Standard Abstracts Table */}
+              {/* Conditional View: Registration-Inclusive Roster (for Registered / Not Submitted / Pending All) OR Standard Paginated Abstracts Table */}
               {isRegistrationRosterFilterActive ? (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
                   <div className="px-4 py-2.5 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -3693,352 +5129,648 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   </div>
                 </div>
               ) : (
-              /* Abstracts Table */
-              <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 whitespace-nowrap">
-                      <tr>
-                        <th className="p-3.5">Abstract ID</th>
-                        <th className="p-3.5">Linked Reg ID</th>
-                        <th className="p-3.5">Payment Status</th>
-                        <th className="p-3.5">Title of Abstract</th>
-                        <th className="p-3.5">Scientific Track</th>
-                        <th className="p-3.5">Preferred Format</th>
-                        <th className="p-3.5">Allotted Format</th>
-                        <th className="p-3.5">Presenting Author</th>
-                        <th className="p-3.5">Status</th>
-                        <th className="p-3.5">Type</th>
-                        <th className="p-3.5 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {loadingData ? (
-                        <tr>
-                          <td colSpan={11} className="p-8 text-center text-slate-400">
-                            Loading abstracts...
-                          </td>
-                        </tr>
-                      ) : filteredAbstracts.length === 0 ? (
-                        <tr>
-                          <td colSpan={11} className="p-8 text-center text-slate-400">
-                            No matching abstracts found.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredAbstracts.map((abs) => {
-                          const author = abs.presentingAuthor || {};
-                          const linkedReg = getLinkedRegistrationForAbstract(abs);
-                          const paymentStatus = linkedReg?.paymentStatus;
-                          const trackLabel =
-                            SCIENTIFIC_TRACKS.find((t) => t.id === abs.trackId)?.title || abs.trackId;
-                          return (
-                            <tr key={abs.id} className="hover:bg-slate-50/80 transition-colors align-top">
-                              {/* Abstract ID */}
-                              <td className="p-3.5 whitespace-nowrap min-w-[145px] font-mono font-bold text-purple-700">
-                                {abs.id}
-                              </td>
+                /* Abstracts Table Card: Bulk Bar + Single Scroll Container (Sticky Header & Approval Col) + Pagination */
+                <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                  <TableBulkActionBar
+                    totalFilteredCount={filteredAbstracts.length}
+                    pageItemCount={paginatedAbstracts.length}
+                    allOnPageSelected={allAbsOnPageSelected}
+                    someOnPageSelected={someAbsOnPageSelected}
+                    selectedCount={selectedAbsIds.size}
+                    eligibleSelectedCount={eligibleSelectedAbsCount}
+                    onToggleSelectAllPage={toggleSelectAllAbsOnPage}
+                    onClearSelection={() => setSelectedAbsIds(new Set())}
+                    onBulkApprove={() => openBulkAbstractConfirm('approve')}
+                    onBulkReject={() => openBulkAbstractConfirm('reject')}
+                    pageSize={absPageSize}
+                    onPageSizeChange={setAbsPageSize}
+                    disabled={processingAction || bulkProcessing}
+                    itemNoun="abstracts"
+                  />
 
-                              {/* Registration ID & Linked Institution Classification */}
-                              <td className="p-3.5 whitespace-nowrap min-w-[130px]">
-                                <div className="font-mono font-semibold text-slate-800">
-                                  {abs.registrationId}
-                                </div>
-                                <div
-                                  className={`text-[10px] font-semibold mt-0.5 ${
-                                    normalizeInstitutionCategory(linkedReg?.institutionCategory) === 'internal'
-                                      ? 'text-purple-700'
-                                      : normalizeInstitutionCategory(linkedReg?.institutionCategory) === 'external'
-                                      ? 'text-cyan-700'
-                                      : 'text-amber-700'
-                                  }`}
-                                  title="Institution category sourced strictly from linked registration"
-                                >
-                                  {formatInstitutionCategoryLabel(linkedReg?.institutionCategory)}
-                                </div>
-                              </td>
+                  <div className="overflow-x-auto overflow-y-auto max-h-[68vh] relative">
+                    <table className="w-full text-left text-xs border-separate border-spacing-0">
+                      <thead className="text-slate-600 uppercase font-bold text-[10px] tracking-wider whitespace-nowrap">
+                        <tr>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={paginatedAbstracts.length > 0 && allAbsOnPageSelected}
+                              ref={(el) => {
+                                if (el) el.indeterminate = !allAbsOnPageSelected && someAbsOnPageSelected;
+                              }}
+                              onChange={toggleSelectAllAbsOnPage}
+                              disabled={paginatedAbstracts.length === 0 || processingAction || bulkProcessing}
+                              aria-label="Select all abstracts on current page"
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer disabled:opacity-40 align-middle"
+                            />
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Abstract ID
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Title
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Presenting Author
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Institution
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Track
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Type
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Status
+                          </th>
+                          <th className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 px-2.5 py-2.5">
+                            Record
+                          </th>
+                          <th className="sticky top-0 right-0 z-30 bg-[#F5F3FF] text-purple-950 border-b border-purple-200 border-l border-purple-200/80 shadow-[-6px_0_12px_-6px_rgba(15,23,42,0.12)] px-3 py-2.5 w-[216px] min-w-[216px]">
+                            <div className="inline-flex items-center gap-1.5">
+                              <span>Approval</span>
+                              <span
+                                title="Abstract approval is strictly independent from Registration payment approval. Sticky column remains visible during horizontal scroll."
+                                className="text-purple-500 hover:text-purple-700 cursor-help inline-flex"
+                              >
+                                <Info className="w-3.5 h-3.5" />
+                              </span>
+                            </div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loadingData ? (
+                          <tr>
+                            <td colSpan={10} className="p-8 text-center text-slate-400 border-b border-slate-100">
+                              Loading abstracts...
+                            </td>
+                          </tr>
+                        ) : paginatedAbstracts.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="p-8 text-center text-slate-400 border-b border-slate-100">
+                              No matching abstracts found.
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedAbstracts.map((abs) => {
+                            const author = abs.presentingAuthor || {};
+                            const linkedReg = getLinkedRegistrationForAbstract(abs);
+                            const paymentStatus = linkedReg?.paymentStatus;
+                            const isPharmaQuestAbs = isPharmaQuestRegistration(linkedReg);
+                            const canonicalTrackId = resolveCanonicalTrackId(abs.trackId);
+                            const canonicalTrack = CANONICAL_CONFERENCE_TRACKS.find(
+                              (t) => t.id === canonicalTrackId
+                            );
+                            const trackFullTitle =
+                              canonicalTrack?.fullTitle ||
+                              SCIENTIFIC_TRACKS.find((t) => t.id === abs.trackId)?.title ||
+                              abs.trackId;
+                            const trackShortLabel = canonicalTrack?.shortLabel || trackFullTitle;
+                            const presentationCategory = classifyAbstractPresentationType(abs);
+                            const institutionText =
+                              author.affiliation ||
+                              author.institution ||
+                              linkedReg?.institution ||
+                              '—';
+                            const isSelected = selectedAbsIds.has(abs.id);
+                            const rowBgClass = isSelected
+                              ? 'bg-purple-50/60 hover:bg-purple-50/90'
+                              : 'bg-white hover:bg-slate-50/90';
+                            const stickyCellBgClass = isSelected
+                              ? 'bg-[#FAF5FF] group-hover:bg-[#F5EDFF]'
+                              : 'bg-white group-hover:bg-[#F8FAFC]';
 
-                              {/* Associated Payment Status (Informational Reference Only) */}
-                              <td className="p-3.5 whitespace-nowrap">
-                                {paymentStatus ? (
+                            return (
+                              <tr key={abs.id} className={`group transition-colors align-top ${rowBgClass}`}>
+                                {/* Selection Checkbox */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 text-center w-10">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelectAbsRow(abs.id)}
+                                    disabled={processingAction || bulkProcessing}
+                                    aria-label={`Select abstract ${abs.id}`}
+                                    className="w-3.5 h-3.5 mt-0.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 accent-purple-600 cursor-pointer disabled:opacity-40"
+                                  />
+                                </td>
+
+                                {/* Abstract ID + Linked Registration & Category Badges */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap min-w-[140px]">
+                                  <div>
+                                    <span className="font-mono font-bold text-[11px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200">
+                                      {abs.id}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] font-mono text-slate-500 mt-1 flex items-center gap-1">
+                                    <span>{abs.registrationId}</span>
+                                    {paymentStatus && (
+                                      <span
+                                        title={`Linked registration payment status (informational): ${paymentStatus}`}
+                                        className={`font-sans px-1 py-0.5 rounded text-[8.5px] font-bold uppercase leading-none ${
+                                          paymentStatus === 'Verified'
+                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                            : paymentStatus === 'Rejected'
+                                            ? 'bg-red-50 text-red-700 border border-red-200'
+                                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                        }`}
+                                      >
+                                        {paymentStatus === 'Verified'
+                                          ? 'Paid'
+                                          : paymentStatus === 'Rejected'
+                                          ? 'Pay Rej'
+                                          : 'Pay Pend'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                                    <span
+                                      className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border leading-none ${
+                                        normalizeInstitutionCategory(linkedReg?.institutionCategory) === 'internal'
+                                          ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                          : normalizeInstitutionCategory(linkedReg?.institutionCategory) === 'external'
+                                          ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                                      }`}
+                                      title="Institution category sourced strictly from linked registration"
+                                    >
+                                      {formatInstitutionCategoryLabel(linkedReg?.institutionCategory)}
+                                    </span>
+                                    {isPharmaQuestAbs && (
+                                      <span
+                                        title="Linked participant registered for PharmaQuest 2027"
+                                        className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border leading-none bg-violet-50 text-violet-800 border-violet-200"
+                                      >
+                                        <Trophy className="w-2.5 h-2.5 shrink-0" />
+                                        <span>PQ</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Title (Compact 2-line with full hover & click to Review) */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 min-w-[225px] max-w-[300px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedAbs(abs);
+                                      setActionRemarks(abs.reviewNotes || '');
+                                      setAllottedFormatSelection(
+                                        abs.allottedPresentationFormat ||
+                                          abs.finalPresentationFormat ||
+                                          ''
+                                      );
+                                      setAllocationSavedSuccess(false);
+                                    }}
+                                    title={abs.title}
+                                    className="text-left font-semibold text-slate-900 hover:text-purple-800 leading-snug line-clamp-2 cursor-pointer transition-colors"
+                                  >
+                                    {abs.title}
+                                  </button>
+                                  {(() => {
+                                    const absFlags =
+                                      fullDuplicateAudit.abstractFlagsByDocId.get(abs.id) || [];
+                                    if (absFlags.length === 0) return null;
+                                    return (
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {absFlags.map((flagGroup) => (
+                                          <button
+                                            key={flagGroup.groupId}
+                                            type="button"
+                                            onClick={() =>
+                                              setComparisonTarget({
+                                                kind: 'abstract',
+                                                group: flagGroup,
+                                              })
+                                            }
+                                            title="Click to compare suspected duplicate abstracts side by side"
+                                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer leading-none ${
+                                              flagGroup.severity === 'critical'
+                                                ? 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
+                                                : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                            }`}
+                                          >
+                                            <Columns className="w-2.5 h-2.5 shrink-0" />
+                                            <span>{flagGroup.label}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
+                                </td>
+
+                                {/* Presenting Author */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 min-w-[165px] max-w-[205px]">
+                                  <div
+                                    className="font-bold text-slate-900 leading-tight truncate"
+                                    title={author.fullName || author.name || ''}
+                                  >
+                                    {author.fullName || author.name || '—'}
+                                  </div>
+                                  <div
+                                    className="text-[10.5px] text-slate-500 truncate mt-0.5"
+                                    title={author.email || ''}
+                                  >
+                                    {author.email || '—'}
+                                  </div>
+                                </td>
+
+                                {/* Institution */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 min-w-[155px] max-w-[210px]">
+                                  <div
+                                    className="text-[11px] text-slate-700 leading-snug line-clamp-2"
+                                    title={institutionText}
+                                  >
+                                    {institutionText}
+                                  </div>
+                                </td>
+
+                                {/* Track */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap">
                                   <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                      paymentStatus === 'Verified'
+                                    title={trackFullTitle}
+                                    className="inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200/80"
+                                  >
+                                    {trackShortLabel}
+                                  </span>
+                                </td>
+
+                                {/* Type (Participant Preference + Official Presentation Allocation ID) */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap">
+                                  <div className="space-y-1">
+                                    <span
+                                      title={`Participant Submitted Preference (Read-Only): ${abs.presentationPreference || abs.presentationType || 'None'}`}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-semibold border ${
+                                        presentationCategory === 'oral'
+                                          ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                          : presentationCategory === 'poster'
+                                          ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                          : 'bg-slate-50 text-slate-600 border-slate-200'
+                                      }`}
+                                    >
+                                      {presentationCategory === 'oral' ? (
+                                        <Mic className="w-3 h-3 shrink-0" />
+                                      ) : presentationCategory === 'poster' ? (
+                                        <Presentation className="w-3 h-3 shrink-0" />
+                                      ) : null}
+                                      <span>
+                                        Pref:{' '}
+                                        {presentationCategory === 'oral'
+                                          ? 'Oral'
+                                          : presentationCategory === 'poster'
+                                          ? 'Poster'
+                                          : abs.presentationPreference || abs.presentationType || 'None'}
+                                      </span>
+                                    </span>
+                                    <div>
+                                      {isAbstractOfficiallyAllocated(abs) ? (
+                                        <div className="space-y-0.5">
+                                          <div className="flex items-center gap-1 flex-wrap">
+                                            <span className="inline-block px-1.5 py-0.5 rounded font-mono text-[9.5px] font-bold bg-indigo-50 text-indigo-900 border border-indigo-200">
+                                              {abs.presentationAllocationId}
+                                            </span>
+                                            <span
+                                              className={`inline-block px-1 py-0.5 rounded text-[8.5px] font-bold uppercase ${
+                                                abs.allocationEmailStatus === 'Sent'
+                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                  : abs.allocationEmailStatus === 'Failed'
+                                                  ? 'bg-red-50 text-red-700 border border-red-200'
+                                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                              }`}
+                                              title={
+                                                abs.allocationEmailError ||
+                                                `Allocation Email: ${abs.allocationEmailStatus || 'Pending'}`
+                                              }
+                                            >
+                                              {abs.allocationEmailStatus === 'Sent'
+                                                ? 'Mail Sent'
+                                                : abs.allocationEmailStatus === 'Failed'
+                                                ? 'Mail Failed'
+                                                : 'Mail Pend'}
+                                            </span>
+                                          </div>
+                                          <div className="text-[9.5px] font-semibold text-purple-800">
+                                            {getOfficialAllocationCategory(abs)}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80">
+                                          Not Allocated
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* Status + Email Delivery Badges */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap min-w-[150px]">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase ${
+                                      abs.status === 'Accepted'
                                         ? 'bg-emerald-100 text-emerald-800'
-                                        : paymentStatus === 'Rejected'
+                                        : abs.status === 'Rejected'
                                         ? 'bg-red-100 text-red-800'
+                                        : abs.status === 'Under Review'
+                                        ? 'bg-blue-100 text-blue-800'
                                         : 'bg-amber-100 text-amber-800'
                                     }`}
-                                    title="Associated registration payment status (informational)"
                                   >
-                                    {paymentStatus}
+                                    {abs.status}
                                   </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
-                                    Unknown
-                                  </span>
-                                )}
-                              </td>
+                                  {(() => {
+                                    const subId = getAbstractSubmittedEventId(abs.id);
+                                    const accId = getAbstractAcceptedEventId(abs.id);
+                                    const subLog = emailLogMap.get(subId);
+                                    const accLog = emailLogMap.get(accId);
+                                    const subStatus = normalizeLogStatus(subLog);
+                                    const accStatus = normalizeLogStatus(accLog);
 
-                              {/* Title */}
-                              <td className="p-3.5 min-w-[260px] max-w-[380px]">
-                                <div className="font-semibold text-slate-900 leading-snug">
-                                  {abs.title}
-                                </div>
-                                {(() => {
-                                  const absFlags =
-                                    fullDuplicateAudit.abstractFlagsByDocId.get(abs.id) || [];
-                                  if (absFlags.length === 0) return null;
-                                  return (
-                                    <div className="mt-1.5 flex flex-wrap gap-1">
-                                      {absFlags.map((flagGroup) => (
-                                        <button
-                                          key={flagGroup.groupId}
-                                          type="button"
-                                          onClick={() =>
-                                            setComparisonTarget({
-                                              kind: 'abstract',
-                                              group: flagGroup,
-                                            })
-                                          }
-                                          title="Click to compare suspected duplicate abstracts side by side"
-                                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold border cursor-pointer ${
-                                            flagGroup.severity === 'critical'
-                                              ? 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
-                                              : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                    return (
+                                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px]">
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded font-semibold ${
+                                            subStatus === 'Sent'
+                                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                              : subStatus === 'Failed'
+                                              ? 'bg-red-50 text-red-700 border border-red-200'
+                                              : subStatus === 'Pending'
+                                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                              : 'bg-slate-50 text-slate-400 border border-slate-200'
                                           }`}
+                                          title={subLog?.error || `Abstract Submission Email: ${subStatus}`}
                                         >
-                                          <Columns className="w-2.5 h-2.5 shrink-0" />
-                                          <span>{flagGroup.label}</span>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  );
-                                })()}
-                              </td>
-
-                              {/* Track */}
-                              <td className="p-3.5 min-w-[190px] max-w-[250px] text-slate-800 font-medium text-xs leading-snug" title={trackLabel}>
-                                {trackLabel}
-                              </td>
-
-                              {/* Preferred Format (Author Selection) */}
-                              <td className="p-3.5 whitespace-nowrap text-slate-700 text-xs">
-                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200">
-                                  {abs.presentationPreference || abs.presentationType || 'None'}
-                                </span>
-                              </td>
-
-                              {/* Allotted Format (Admin Allocation) */}
-                              <td className="p-3.5 whitespace-nowrap">
-                                {abs.allottedPresentationFormat ? (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">
-                                    {abs.allottedPresentationFormat}
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                    Pending Allocation
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Author */}
-                              <td className="p-3.5 min-w-[210px]">
-                                <div className="font-bold text-slate-900">{author.fullName || author.name}</div>
-                                <div className="text-[11px] text-slate-500 break-all">{author.email}</div>
-                              </td>
-
-                              {/* Status */}
-                              <td className="p-3.5 whitespace-nowrap min-w-[165px]">
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                    abs.status === 'Accepted'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : abs.status === 'Rejected'
-                                      ? 'bg-red-100 text-red-800'
-                                      : abs.status === 'Under Review'
-                                      ? 'bg-blue-100 text-blue-800'
-                                      : 'bg-amber-100 text-amber-800'
-                                  }`}
-                                >
-                                  {abs.status}
-                                </span>
-                                {(() => {
-                                  const subId = getAbstractSubmittedEventId(abs.id);
-                                  const accId = getAbstractAcceptedEventId(abs.id);
-                                  const subLog = emailLogMap.get(subId);
-                                  const accLog = emailLogMap.get(accId);
-                                  const subStatus = normalizeLogStatus(subLog);
-                                  const accStatus = normalizeLogStatus(accLog);
-
-                                  return (
-                                    <div className="mt-1 flex flex-wrap items-center gap-1 text-[9.5px]">
-                                      <span
-                                        className={`px-1.5 py-0.5 rounded font-semibold ${
-                                          subStatus === 'Sent'
-                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                            : subStatus === 'Failed'
-                                            ? 'bg-red-50 text-red-700 border border-red-200'
-                                            : subStatus === 'Pending'
-                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                            : 'bg-slate-50 text-slate-400 border border-slate-200'
-                                        }`}
-                                        title={subLog?.error || `Abstract Submission Email: ${subStatus}`}
-                                      >
-                                        Sub: {subStatus}
-                                      </span>
-                                      {subStatus === 'Failed' && (
-                                        <button
-                                          type="button"
-                                          disabled={retryingEmailEventId === subId}
-                                          onClick={() =>
-                                            handleRetryOrSendEmail({
-                                              eventId: subId,
-                                              eventType: 'abstract_confirmation',
-                                              registration: linkedReg,
-                                              abstract: abs,
-                                            })
-                                          }
-                                          className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer disabled:opacity-50"
-                                        >
-                                          {retryingEmailEventId === subId ? '...' : 'Retry'}
-                                        </button>
-                                      )}
-                                      {(abs.status === 'Accepted' || accLog) && (
-                                        <>
-                                          <span
-                                            className={`px-1.5 py-0.5 rounded font-semibold ${
-                                              accStatus === 'Sent'
-                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                : accStatus === 'Failed'
-                                                ? 'bg-red-50 text-red-700 border border-red-200'
-                                                : accStatus === 'Pending'
-                                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                                : 'bg-slate-50 text-slate-400 border border-slate-200'
-                                            }`}
-                                            title={accLog?.error || `Abstract Acceptance Email: ${accStatus}`}
+                                          Sub: {subStatus}
+                                        </span>
+                                        {subStatus === 'Failed' && (
+                                          <button
+                                            type="button"
+                                            disabled={retryingEmailEventId === subId}
+                                            onClick={() =>
+                                              handleRetryOrSendEmail({
+                                                eventId: subId,
+                                                eventType: 'abstract_confirmation',
+                                                registration: linkedReg,
+                                                abstract: abs,
+                                              })
+                                            }
+                                            className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white font-bold cursor-pointer disabled:opacity-50"
                                           >
-                                            Acc: {accStatus}
-                                          </span>
-                                          {(accStatus === 'Failed' || (abs.status === 'Accepted' && accStatus === 'Not Sent')) && (
-                                            <button
-                                              type="button"
-                                              disabled={retryingEmailEventId === accId}
-                                              onClick={() =>
-                                                handleRetryOrSendEmail({
-                                                  eventId: accId,
-                                                  eventType: 'abstract_acceptance',
-                                                  registration: linkedReg,
-                                                  abstract: abs,
-                                                })
-                                              }
-                                              className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                            {retryingEmailEventId === subId ? '...' : 'Retry'}
+                                          </button>
+                                        )}
+                                        {(abs.status === 'Accepted' || accLog) && (
+                                          <>
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded font-semibold ${
+                                                accStatus === 'Sent'
+                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                  : accStatus === 'Failed'
+                                                  ? 'bg-red-50 text-red-700 border border-red-200'
+                                                  : accStatus === 'Pending'
+                                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                  : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                              }`}
+                                              title={accLog?.error || `Abstract Acceptance Email: ${accStatus}`}
                                             >
-                                              {retryingEmailEventId === accId
-                                                ? '...'
-                                                : accStatus === 'Failed'
-                                                ? 'Retry'
-                                                : 'Send'}
-                                            </button>
-                                          )}
+                                              Acc: {accStatus}
+                                            </span>
+                                            {(accStatus === 'Failed' || (abs.status === 'Accepted' && accStatus === 'Not Sent')) && (
+                                              <button
+                                                type="button"
+                                                disabled={retryingEmailEventId === accId}
+                                                onClick={() =>
+                                                  handleRetryOrSendEmail({
+                                                    eventId: accId,
+                                                    eventType: 'abstract_acceptance',
+                                                    registration: linkedReg,
+                                                    abstract: abs,
+                                                  })
+                                                }
+                                                className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                              >
+                                                {retryingEmailEventId === accId
+                                                  ? '...'
+                                                  : accStatus === 'Failed'
+                                                  ? 'Retry'
+                                                  : 'Send'}
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </td>
+
+                                {/* Record Type (Live / Test) */}
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleRecordType('abstractSubmissions', abs.id, abs.recordType)}
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold cursor-pointer ${
+                                      abs.recordType === 'test'
+                                        ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                    }`}
+                                    title="Click to toggle Test/Live tag"
+                                  >
+                                    {(abs.recordType || 'live').toUpperCase()}
+                                  </button>
+                                </td>
+
+                                {/* Sticky Right Approval Column */}
+                                <td
+                                  className={`sticky right-0 z-10 px-3 py-2 border-b border-slate-100 border-l border-purple-200/70 shadow-[-6px_0_12px_-6px_rgba(15,23,42,0.12)] whitespace-nowrap w-[216px] min-w-[216px] transition-colors ${stickyCellBgClass}`}
+                                >
+                                  <div className="space-y-1.5">
+                                    {/* Primary Individual Approve / Reject Controls */}
+                                    <div className="flex items-center gap-1.5">
+                                      {abs.status === 'Accepted' ? (
+                                        <span className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px]">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>Approved</span>
+                                        </span>
+                                      ) : abs.status === 'Rejected' ? (
+                                        <>
+                                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200 font-bold text-[10.5px]">
+                                            <XCircle className="w-3 h-3 text-red-600" />
+                                            <span>Rejected</span>
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleQuickAbstractDecision(abs, 'Accepted')}
+                                            disabled={processingAction || bulkProcessing}
+                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            title="Approve abstract (Accepted)"
+                                          >
+                                            <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
+                                            <span>Approve</span>
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleQuickAbstractDecision(abs, 'Accepted')}
+                                            disabled={processingAction || bulkProcessing}
+                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            title="Approve abstract (Accepted) and send acceptance email"
+                                          >
+                                            <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                                            <span>Approve</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleQuickAbstractDecision(abs, 'Rejected')}
+                                            disabled={processingAction || bulkProcessing}
+                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            title="Reject abstract"
+                                          >
+                                            <X className="w-3.5 h-3.5 text-red-600 stroke-[2.5]" />
+                                            <span>Reject</span>
+                                          </button>
                                         </>
                                       )}
                                     </div>
-                                  );
-                                })()}
-                              </td>
 
-                              {/* Type */}
-                              <td className="p-3.5 whitespace-nowrap">
-                                <button
-                                  onClick={() => toggleRecordType('abstractSubmissions', abs.id, abs.recordType)}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer ${
-                                    abs.recordType === 'test'
-                                      ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                  title="Click to toggle Test/Live tag"
-                                >
-                                  {(abs.recordType || 'live').toUpperCase()}
-                                </button>
-                              </td>
+                                    {/* Preserved Secondary Review, Document & Delete Actions */}
+                                    <div className="flex items-center justify-between gap-1 pt-0.5">
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openPdfPreview({
+                                              title: 'Abstract Submission Acknowledgement PDF',
+                                              subtitle: `${abs.id} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
+                                              build: () => createAbstractSubmissionAckPreviewUrl(abs, linkedReg),
+                                              onDownload: () => generateSubmissionReceiptPDF(abs, linkedReg),
+                                            })
+                                          }
+                                          className="px-1.5 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-semibold rounded text-[10px] cursor-pointer inline-flex items-center gap-0.5"
+                                          title="Preview Abstract Submission Acknowledgement PDF"
+                                        >
+                                          <FileText className="w-3 h-3" />
+                                          <span>Ack</span>
+                                        </button>
 
-                              {/* Actions */}
-                              <td className="p-3.5 text-right whitespace-nowrap space-x-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openPdfPreview({
-                                      title: 'Abstract Submission Acknowledgement PDF',
-                                      subtitle: `${abs.id} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
-                                      build: () => createAbstractSubmissionAckPreviewUrl(abs, linkedReg),
-                                      onDownload: () => generateSubmissionReceiptPDF(abs, linkedReg),
-                                    })
-                                  }
-                                  className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
-                                  title="Preview Abstract Submission Acknowledgement PDF"
-                                >
-                                  <FileText className="w-3 h-3" />
-                                  <span>Ack</span>
-                                </button>
+                                        {abs.status === 'Accepted' && (
+                                          <>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                openPdfPreview({
+                                                  title: 'Abstract Acceptance Letter PDF',
+                                                  subtitle: `${abs.id} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
+                                                  build: () => createAbstractAcceptanceLetterPreviewUrl(abs, linkedReg),
+                                                  onDownload: () => generateAcceptanceLetterPDF(abs, linkedReg),
+                                                })
+                                              }
+                                              className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded text-[10px] cursor-pointer inline-flex items-center gap-0.5"
+                                              title="Preview Acceptance Letter (PDF)"
+                                            >
+                                              <Award className="w-3 h-3" />
+                                              <span>Letter</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => generateAcceptanceLetterPDF(abs, linkedReg)}
+                                              className="p-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded cursor-pointer inline-flex items-center"
+                                              title="Download Acceptance Letter (PDF)"
+                                            >
+                                              <Download className="w-3 h-3" />
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
 
-                                {abs.status === 'Accepted' && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        openPdfPreview({
-                                          title: 'Abstract Acceptance Letter PDF',
-                                          subtitle: `${abs.id} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
-                                          build: () => createAbstractAcceptanceLetterPreviewUrl(abs, linkedReg),
-                                          onDownload: () => generateAcceptanceLetterPDF(abs, linkedReg),
-                                        })
-                                      }
-                                      className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1 shadow-2xs"
-                                      title="Preview Acceptance Letter (PDF)"
-                                    >
-                                      <Award className="w-3 h-3" />
-                                      <span>Letter</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => generateAcceptanceLetterPDF(abs, linkedReg)}
-                                      className="p-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center"
-                                      title="Download Acceptance Letter (PDF)"
-                                    >
-                                      <Download className="w-3.5 h-3.5" />
-                                    </button>
-                                  </>
-                                )}
+                                      <div className="flex items-center gap-0.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedAbs(abs);
+                                            setActionRemarks(abs.reviewNotes || '');
+                                            setAllottedFormatSelection(
+                                              abs.allottedPresentationFormat ||
+                                                abs.finalPresentationFormat ||
+                                                ''
+                                            );
+                                            setAllocationSavedSuccess(false);
+                                          }}
+                                          className="px-1.5 py-0.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded text-[10px] cursor-pointer"
+                                          title="Open full abstract review & format allocation modal"
+                                        >
+                                          Review
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setAbsToDelete(abs)}
+                                          className="p-0.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer inline-flex items-center"
+                                          title="Delete Abstract (Unlinks Registration)"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    </div>
 
-                                <button
-                                  onClick={() => {
-                                    setSelectedAbs(abs);
-                                    setActionRemarks(abs.reviewNotes || '');
-                                    setAllottedFormatSelection(abs.allottedPresentationFormat || abs.finalPresentationFormat || '');
-                                    setAllocationSavedSuccess(false);
-                                  }}
-                                  className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-md text-[11px] cursor-pointer"
-                                >
-                                  Review
-                                </button>
+                                    {/* Official Presentation Allocation Action Strip */}
+                                    <div className="flex items-center gap-1 pt-0.5 border-t border-slate-100">
+                                      <button
+                                        type="button"
+                                        onClick={() => openOfficialAllocationModal(abs)}
+                                        className={`flex-1 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded font-semibold text-[10px] border cursor-pointer transition-colors ${
+                                          isAbstractOfficiallyAllocated(abs)
+                                            ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200'
+                                            : 'bg-violet-50 hover:bg-violet-100 text-violet-800 border-violet-200'
+                                        }`}
+                                        title={
+                                          isAbstractOfficiallyAllocated(abs)
+                                            ? `Manage Official Allocation (${abs.presentationAllocationId})`
+                                            : 'Allot Official Presentation ID (Oral / Poster / E-Poster)'
+                                        }
+                                      >
+                                        <Layers className="w-3 h-3 shrink-0" />
+                                        <span>
+                                          {isAbstractOfficiallyAllocated(abs)
+                                            ? 'Allocation'
+                                            : 'Allot ID'}
+                                        </span>
+                                      </button>
+                                      {isAbstractOfficiallyAllocated(abs) && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            generatePresentationAllocationPDF(abs, linkedReg)
+                                          }
+                                          className="px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-semibold inline-flex items-center gap-0.5 cursor-pointer"
+                                          title={`Download Presentation Allocation PDF (${abs.presentationAllocationId})`}
+                                        >
+                                          <Download className="w-3 h-3" />
+                                          <span>Alloc PDF</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
 
-                                <button
-                                  onClick={() => setAbsToDelete(abs)}
-                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md cursor-pointer inline-flex items-center"
-                                  title="Delete Abstract (Unlinks Registration)"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                  <TablePaginationBar
+                    currentPage={safeAbsPage}
+                    totalPages={absTotalPages}
+                    pageSize={absPageSize}
+                    totalItems={filteredAbstracts.length}
+                    itemLabel="abstracts"
+                    onPageChange={setAbsPage}
+                  />
                 </div>
-              </div>
               )}
             </div>
           )}
@@ -5086,22 +6818,40 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
               {/* Presentation Format Allocation Section */}
               <div className="p-4 bg-purple-50/70 rounded-xl border border-purple-200 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
                     <Award className="w-4 h-4 text-purple-700" />
                     <span className="text-xs font-bold text-purple-900 uppercase tracking-wide">
                       Presentation Format Allocation
                     </span>
                   </div>
-                  {selectedAbs.allottedPresentationFormat ? (
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">
-                      Allotted: {selectedAbs.allottedPresentationFormat}
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                      Pending Allocation
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isAbstractOfficiallyAllocated(selectedAbs) ? (
+                      <span className="px-2.5 py-0.5 rounded-full font-mono text-[10px] font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">
+                        Official ID: {selectedAbs.presentationAllocationId}
+                      </span>
+                    ) : selectedAbs.allottedPresentationFormat ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">
+                        Allotted: {selectedAbs.allottedPresentationFormat}
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                        Not Allocated
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openOfficialAllocationModal(selectedAbs)}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Layers className="w-3 h-3" />
+                      <span>
+                        {isAbstractOfficiallyAllocated(selectedAbs)
+                          ? 'Manage Official Allocation'
+                          : 'Confirm Official ID'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -5944,6 +7694,558 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           setAllocationSavedSuccess(false);
         }}
       />
+
+      {/* ===================================================================== */}
+      {/* MODAL 7: BULK APPROVAL / REJECTION CONFIRMATION */}
+      {/* ===================================================================== */}
+      <BulkActionConfirmModal
+        config={bulkConfirmConfig}
+        remarks={bulkActionRemarks}
+        onRemarksChange={setBulkActionRemarks}
+        isProcessing={bulkProcessing}
+        progressText={bulkProgressText}
+        onCancel={() => {
+          if (!bulkProcessing) {
+            setBulkConfirmConfig(null);
+            setBulkActionRemarks('');
+          }
+        }}
+        onConfirm={executeBulkConfirmedAction}
+      />
+
+      {/* ===================================================================== */}
+      {/* MODAL 8: OFFICIAL PRESENTATION ALLOCATION ID WORKFLOW */}
+      {/* ===================================================================== */}
+      {liveAllocationModalAbs && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 bg-[#0B112C] text-white flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-bold text-cyan-300 font-mono tracking-wider block">
+                  Official Presentation Allocation · {liveAllocationModalAbs.id}
+                </span>
+                <h3 className="text-base font-bold font-heading truncate">
+                  {liveAllocationModalAbs.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={allocationConfirming || allocationEmailSending}
+                onClick={closeOfficialAllocationModal}
+                aria-label="Close Official Presentation Allocation modal"
+                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer disabled:opacity-40"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs max-h-[80vh] overflow-y-auto">
+              {/* Abstract & Read-Only Participant Preference Summary */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                    Abstract ID (Permanent)
+                  </span>
+                  <strong className="font-mono text-purple-800">{liveAllocationModalAbs.id}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                    Linked Registration ID
+                  </span>
+                  <strong className="font-mono text-slate-800">
+                    {liveAllocationModalAbs.registrationId || 'Not Linked'}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                    Presenting Author
+                  </span>
+                  <strong className="text-slate-900 block">
+                    {liveAllocationModalAbs.presentingAuthor?.fullName ||
+                      liveAllocationModalAbs.presentingAuthor?.name ||
+                      '—'}
+                  </strong>
+                  <span className="text-[11px] text-slate-500">
+                    {liveAllocationModalAbs.presentingAuthor?.email || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                    Abstract Review Status
+                  </span>
+                  <span
+                    className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      liveAllocationModalAbs.status === 'Accepted'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : liveAllocationModalAbs.status === 'Rejected'
+                        ? 'bg-red-100 text-red-800'
+                        : liveAllocationModalAbs.status === 'Under Review'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {liveAllocationModalAbs.status}
+                  </span>
+                </div>
+                <div className="sm:col-span-2 pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                      Participant Presentation Preference (Read-Only)
+                    </span>
+                    <strong className="text-slate-800">
+                      {liveAllocationModalAbs.presentationPreference ||
+                        liveAllocationModalAbs.presentationType ||
+                        'Not Specified'}
+                    </strong>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-slate-200/70 text-slate-600 text-[10px] font-semibold">
+                    Submitted Reference Only
+                  </span>
+                </div>
+              </div>
+
+              {allocationModalFeedback && (
+                <div
+                  className={`p-3 rounded-xl border text-xs leading-relaxed flex items-start gap-2 ${
+                    allocationModalFeedback.type === 'success'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : allocationModalFeedback.type === 'warning'
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-red-50 border-red-200 text-red-900'
+                  }`}
+                >
+                  {allocationModalFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle
+                      className={`w-4 h-4 shrink-0 mt-0.5 ${
+                        allocationModalFeedback.type === 'warning'
+                          ? 'text-amber-600'
+                          : 'text-red-600'
+                      }`}
+                    />
+                  )}
+                  <span>{allocationModalFeedback.text}</span>
+                </div>
+              )}
+
+              {/* Active Official Allocation vs Not Allocated Panel */}
+              {isAbstractOfficiallyAllocated(liveAllocationModalAbs) ? (
+                <div className="p-4 bg-indigo-50/70 rounded-xl border border-indigo-200 space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-indigo-700 tracking-wider block">
+                        Official Presentation Allocation ID (Active)
+                      </span>
+                      <div className="text-xl font-extrabold font-mono text-[#0B112C] tracking-tight mt-0.5">
+                        {liveAllocationModalAbs.presentationAllocationId}
+                      </div>
+                      <div className="text-xs font-semibold text-purple-900 mt-0.5">
+                        {getOfficialAllocationCategory(liveAllocationModalAbs)}
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold uppercase inline-flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Active Allocation</span>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 bg-white rounded-lg border border-indigo-100 text-[11px]">
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Allocated On
+                      </span>
+                      <strong className="text-slate-800">
+                        {liveAllocationModalAbs.allocationCreatedAt
+                          ? new Date(liveAllocationModalAbs.allocationCreatedAt).toLocaleString('en-IN')
+                          : 'Recorded'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Allocated By
+                      </span>
+                      <strong className="text-slate-800">
+                        {liveAllocationModalAbs.allocationCreatedBy || 'org.secy.cp@srmist.edu.in'}
+                      </strong>
+                    </div>
+                    <div className="sm:col-span-2 pt-1.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                          Allocation Confirmation Email Status
+                        </span>
+                        <span className="text-slate-600">
+                          {liveAllocationModalAbs.allocationEmailSentAt
+                            ? `Sent on ${new Date(
+                                liveAllocationModalAbs.allocationEmailSentAt
+                              ).toLocaleString('en-IN')}`
+                            : liveAllocationModalAbs.allocationEmailError
+                            ? `Last error: ${liveAllocationModalAbs.allocationEmailError}`
+                            : 'Pending dispatch'}
+                        </span>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          liveAllocationModalAbs.allocationEmailStatus === 'Sent'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : liveAllocationModalAbs.allocationEmailStatus === 'Failed'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {liveAllocationModalAbs.allocationEmailStatus || 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Explicit 4 Action Controls */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const linkedReg = getLinkedRegistrationForAbstractRecord(
+                          liveAllocationModalAbs,
+                          registrations
+                        );
+                        openPdfPreview({
+                          title: 'Presentation Allocation Confirmation PDF',
+                          subtitle: `${liveAllocationModalAbs.presentationAllocationId} · ${liveAllocationModalAbs.id}`,
+                          build: () =>
+                            createPresentationAllocationPreviewUrl(
+                              liveAllocationModalAbs,
+                              linkedReg
+                            ),
+                          onDownload: () =>
+                            generatePresentationAllocationPDF(liveAllocationModalAbs, linkedReg),
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View / Preview PDF</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const linkedReg = getLinkedRegistrationForAbstractRecord(
+                          liveAllocationModalAbs,
+                          registrations
+                        );
+                        generatePresentationAllocationPDF(liveAllocationModalAbs, linkedReg);
+                      }}
+                      className="px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Allocation PDF</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={allocationConfirming || allocationEmailSending}
+                      onClick={() => handleResendAllocationEmail(liveAllocationModalAbs)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>
+                        {allocationEmailSending ? 'Sending Email...' : 'Resend Allocation Email'}
+                      </span>
+                    </button>
+
+                    {!allocationConfirmChangeStep && liveAllocationModalAbs.status !== 'Rejected' && (
+                      <button
+                        type="button"
+                        disabled={allocationConfirming || allocationEmailSending}
+                        onClick={() => {
+                          setAllocationConfirmChangeStep(true);
+                          setAllocationCategoryChoice('');
+                          setAllocationChangeReason('');
+                          setAllocationModalFeedback(null);
+                        }}
+                        className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Change Allocation</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Category Change Confirmation Flow */}
+                  {allocationConfirmChangeStep && (
+                    <div className="p-4 bg-white rounded-xl border border-amber-300 space-y-3">
+                      <div className="flex items-start gap-2 text-amber-950">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="text-[11px] leading-relaxed">
+                          <strong>Confirm Official Category Change:</strong> Changing from{' '}
+                          <strong>{liveAllocationModalAbs.officialAllocationCategory}</strong> will
+                          mark{' '}
+                          <span className="font-mono font-bold">
+                            {liveAllocationModalAbs.presentationAllocationId}
+                          </span>{' '}
+                          as <strong>Superseded</strong> (never reused), issue a new sequential
+                          Allocation ID for the new category, generate an updated PDF, and send a
+                          fresh confirmation email.
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-700 block mb-1">
+                            New Official Category
+                          </label>
+                          <select
+                            aria-label="Select new official presentation category"
+                            value={allocationCategoryChoice}
+                            onChange={(e) => setAllocationCategoryChoice(e.target.value)}
+                            className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium text-slate-900 outline-none focus:border-purple-600"
+                          >
+                            <option value="">-- Select New Category --</option>
+                            {OFFICIAL_ALLOCATION_CATEGORIES.filter(
+                              (cat) => cat !== liveAllocationModalAbs.officialAllocationCategory
+                            ).map((cat) => (
+                              <option key={cat} value={cat}>
+                                {cat}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-700 block mb-1">
+                            Change Reason (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={allocationChangeReason}
+                            onChange={(e) => setAllocationChangeReason(e.target.value)}
+                            placeholder="e.g., Scientific Committee slot reassignment"
+                            className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-purple-600"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={allocationConfirming || allocationEmailSending}
+                          onClick={() => {
+                            setAllocationConfirmChangeStep(false);
+                            setAllocationCategoryChoice('');
+                            setAllocationChangeReason('');
+                          }}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                        >
+                          Cancel Change
+                        </button>
+                        <button
+                          type="button"
+                          disabled={
+                            !allocationCategoryChoice ||
+                            allocationConfirming ||
+                            allocationEmailSending
+                          }
+                          onClick={handleConfirmOfficialAllocation}
+                          className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {allocationConfirming || allocationEmailSending ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>
+                                {allocationConfirming ? 'Generating New ID...' : 'Sending Email...'}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Confirm Category Change &amp; Send Email</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-4 bg-violet-50/60 rounded-xl border border-violet-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-violet-900 tracking-wider block">
+                        Official Presentation Allocation Status
+                      </span>
+                      <div className="text-sm font-bold text-slate-900 mt-0.5">
+                        Not Allocated
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold uppercase">
+                      No Allocation ID Generated
+                    </span>
+                  </div>
+
+                  {liveAllocationModalAbs.status === 'Rejected' ? (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-900 text-xs flex items-start gap-2">
+                      <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <span>
+                        This abstract currently has status <strong>Rejected</strong>. Rejected
+                        abstracts cannot be assigned an Official Presentation Allocation ID.
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        Selecting a category does <strong>not</strong> reserve an ID. An atomic
+                        category-specific Presentation Allocation ID (
+                        <span className="font-mono">AICONDD-OR-2027-xxx</span>,{' '}
+                        <span className="font-mono">AICONDD-POST-2027-xxx</span>, or{' '}
+                        <span className="font-mono">AICONDD-EPOST-2027-xxx</span>) is generated
+                        only when you click <strong>Confirm Allocation</strong>.
+                      </p>
+
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-purple-900 block mb-1">
+                          Select Official Presentation Category
+                        </label>
+                        <select
+                          aria-label="Select Official Presentation Category"
+                          value={allocationCategoryChoice}
+                          onChange={(e) => setAllocationCategoryChoice(e.target.value)}
+                          className="w-full p-2.5 bg-white border border-purple-300 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-purple-600"
+                        >
+                          <option value="">-- Select Official Presentation Category --</option>
+                          {OFFICIAL_ALLOCATION_CATEGORIES.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <span className="text-[11px] font-mono text-slate-500">
+                          {allocationCategoryChoice === 'Oral Presentation'
+                            ? 'Target Sequence: AICONDD-OR-2027-xxx'
+                            : allocationCategoryChoice === 'Poster Presentation'
+                            ? 'Target Sequence: AICONDD-POST-2027-xxx'
+                            : allocationCategoryChoice === 'E-Poster Presentation'
+                            ? 'Target Sequence: AICONDD-EPOST-2027-xxx'
+                            : 'Select a category to preview ID prefix'}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={
+                            !allocationCategoryChoice ||
+                            allocationConfirming ||
+                            allocationEmailSending
+                          }
+                          onClick={handleConfirmOfficialAllocation}
+                          className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold uppercase tracking-wider inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                        >
+                          {allocationConfirming || allocationEmailSending ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>
+                                {allocationConfirming
+                                  ? 'Confirming & Issuing ID...'
+                                  : 'Sending Confirmation Email...'}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Confirm Allocation &amp; Generate ID</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Allocation History Log */}
+              {Array.isArray(liveAllocationModalAbs.allocationHistory) &&
+                liveAllocationModalAbs.allocationHistory.length > 0 && (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase text-slate-700">
+                        Allocation History Log ({liveAllocationModalAbs.allocationHistory.length})
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {[...liveAllocationModalAbs.allocationHistory]
+                        .reverse()
+                        .map((entry, idx) => (
+                          <div
+                            key={`${entry.allocationId}-${idx}`}
+                            className="p-2.5 bg-white rounded-lg border border-slate-200 text-[11px] space-y-1"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-indigo-900">
+                                  {entry.allocationId}
+                                </span>
+                                <span className="font-semibold text-slate-700">
+                                  {entry.category}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase ${
+                                    entry.status === 'Active'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  {entry.status}
+                                </span>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9.5px] font-semibold ${
+                                    entry.emailStatus === 'Sent'
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : entry.emailStatus === 'Failed'
+                                      ? 'bg-red-50 text-red-700 border border-red-200'
+                                      : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  }`}
+                                >
+                                  Mail: {entry.emailStatus || 'Pending'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              Allocated on{' '}
+                              {entry.allocatedAt
+                                ? new Date(entry.allocatedAt).toLocaleString('en-IN')
+                                : '—'}{' '}
+                              by {entry.allocatedBy || 'org.secy.cp@srmist.edu.in'}
+                            </div>
+                            {entry.status === 'Superseded' && (
+                              <div className="text-[10px] text-amber-800 bg-amber-50/80 px-2 py-1 rounded border border-amber-200/80">
+                                Superseded on{' '}
+                                {entry.supersededAt
+                                  ? new Date(entry.supersededAt).toLocaleString('en-IN')
+                                  : '—'}
+                                {entry.supersededReason ? ` · ${entry.supersededReason}` : ''}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+              <div className="pt-2 border-t border-slate-200 flex items-center justify-end">
+                <button
+                  type="button"
+                  disabled={allocationConfirming || allocationEmailSending}
+                  onClick={closeOfficialAllocationModal}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer disabled:opacity-40"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

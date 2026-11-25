@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu, X, ArrowRight } from 'lucide-react';
+import { Menu, X, ArrowRight, Shield } from 'lucide-react';
 
 interface NavbarProps {
   currentTab: string;
@@ -11,6 +11,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   currentTab,
   onSelectTab,
+  onToggleAdminView,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -31,6 +32,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const handleNavClick = (id: string) => {
     onSelectTab(id);
     setMobileMenuOpen(false);
+  };
+
+  const handleAdminLoginClick = () => {
+    setMobileMenuOpen(false);
+    onToggleAdminView?.();
   };
 
   const isLightNav = currentTab === 'tracks';
@@ -85,15 +91,47 @@ export const Navbar: React.FC<NavbarProps> = ({
             })}
           </nav>
 
-          {/* Right: Gradient Register Now CTA Button */}
-          <button
-            type="button"
-            onClick={() => handleNavClick('registration')}
-            className="px-4 sm:px-5 py-2 text-xs sm:text-[13.5px] xl:text-[14px] font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] hover:opacity-95 transition-opacity rounded-full shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer ml-auto lg:ml-0"
-          >
-            <span className="whitespace-nowrap">Register Now</span>
-            <ArrowRight className="w-4 h-4 shrink-0" />
-          </button>
+          {/* Right: Gradient Register Now CTA Button & Discreet Organising Secretary Login Icon */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto lg:ml-0">
+            <button
+              type="button"
+              onClick={() => handleNavClick('registration')}
+              className="px-4 sm:px-5 py-2 text-xs sm:text-[13.5px] xl:text-[14px] font-bold text-white bg-gradient-to-r from-[#7554D9] via-[#8B50E8] to-[#22C5D9] hover:opacity-95 transition-opacity rounded-full shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              <span className="whitespace-nowrap">Register Now</span>
+              <ArrowRight className="w-4 h-4 shrink-0" />
+            </button>
+
+            {onToggleAdminView && (
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={handleAdminLoginClick}
+                  aria-label="Organising Secretary Login"
+                  aria-describedby="org-sec-login-tooltip"
+                  className={`peer w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 ${
+                    isLightNav
+                      ? 'text-[#082746]/45 hover:text-[#082746]/85 hover:bg-slate-100/90 focus-visible:ring-[#082746]/40 focus-visible:ring-offset-1 focus-visible:ring-offset-white'
+                      : 'text-[#A8C4E0]/65 hover:text-[#E2EFFB] hover:bg-white/10 focus-visible:ring-[#A8C4E0]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-[#082746]'
+                  }`}
+                >
+                  <Shield className="w-[15px] h-[15px]" strokeWidth={1.8} aria-hidden="true" />
+                </button>
+
+                <span
+                  id="org-sec-login-tooltip"
+                  role="tooltip"
+                  className={`pointer-events-none absolute right-0 top-full mt-2 px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap opacity-0 translate-y-0.5 peer-hover:opacity-100 peer-hover:translate-y-0 peer-focus-visible:opacity-100 peer-focus-visible:translate-y-0 transition-all duration-150 shadow-lg z-50 ${
+                    isLightNav
+                      ? 'bg-[#082746] text-slate-100 border border-[#16395E]'
+                      : 'bg-[#051B33]/95 text-[#D8E7F8] border border-white/15'
+                  }`}
+                >
+                  Organising Secretary Login
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

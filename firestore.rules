@@ -226,6 +226,19 @@ service cloud.firestore {
         isValidReservationKey(data.mobileReservationKey, 'mobile') &&
         data.institution is string && data.institution.size() >= 1 && data.institution.size() <= 250 &&
         data.category is string && data.category.size() >= 1 && data.category.size() <= 150 &&
+        'participationMode' in data && data.participationMode is string &&
+        (
+          (
+            data.participationMode == 'Offline (On-site at SRMIST)' &&
+            'dietaryPreference' in data &&
+            data.dietaryPreference in ['Vegetarian', 'Non-Vegetarian']
+          ) ||
+          (
+            data.participationMode == 'Virtual' &&
+            data.category == 'International' &&
+            (!('dietaryPreference' in data) || data.dietaryPreference == null || data.dietaryPreference == '')
+          )
+        ) &&
         data.transactionReference is string && data.transactionReference.size() >= 1 && data.transactionReference.size() <= 120 &&
         data.normalizedTransactionReference is string && data.normalizedTransactionReference.size() >= 1 && data.normalizedTransactionReference.size() <= 120 &&
         isValidUtrKey(data.transactionReferenceKey) &&
@@ -405,12 +418,13 @@ service cloud.firestore {
     }
 
     function isValidPublicEmailLogCompletion(newData, oldData) {
-      return oldData.status == 'Pending' &&
+      return oldData.status in ['Pending', 'Failed'] &&
         oldData.type in ['registration_received', 'abstract_confirmation'] &&
         newData.status in ['Sent', 'Failed'] &&
         newData.recipient == oldData.recipient &&
         newData.subject == oldData.subject &&
-        newData.attemptCount == oldData.attemptCount;
+        newData.attemptCount >= oldData.attemptCount &&
+        newData.attemptCount <= oldData.attemptCount + 1;
     }
 
     match /emailLogs/{logId} {

@@ -6,6 +6,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import healthHandler from './api/email/health.ts';
 import sendHandler from './api/email/send.ts';
+import allocationHandler from './api/email/allocation.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,6 +42,20 @@ async function startServer() {
         res.status(500).json({
           success: false,
           error: 'Internal email dispatch service error.',
+        });
+      }
+    }
+  });
+
+  app.all('/api/email/allocation', async (req, res) => {
+    try {
+      await allocationHandler(req, res);
+    } catch (err) {
+      console.error('[server] Unhandled /api/email/allocation error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: 'Internal allocation email dispatch service error.',
         });
       }
     }

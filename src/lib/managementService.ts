@@ -13,7 +13,12 @@ import {
 import { db, storage, handleFirestoreError, OperationType } from './firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as XLSX from 'xlsx';
-import { formatFoodPreferenceDisplay } from './presentationDashboardStats';
+import {
+  formatFoodPreferenceDisplay,
+  validateParticipationModeForCategory,
+  VIRTUAL_PARTICIPATION_MODE,
+  normalizeFoodPreferenceValue,
+} from './presentationDashboardStats';
 import {
   generateRegistrationSubmissionReceiptPDF,
   createRegistrationSubmissionReceiptPreviewUrl,
@@ -119,6 +124,27 @@ export interface DuplicateUtrExceptionPayload {
   conflictingRegistrationIds: string[];
 }
 
+export type OfficialAllocationCategory =
+  | 'Oral Presentation'
+  | 'Poster Presentation'
+  | 'E-Poster Presentation';
+
+export type AllocationEmailStatus = 'Not Sent' | 'Pending' | 'Sent' | 'Failed';
+
+export interface AllocationHistoryEntry {
+  allocationId: string;
+  category: OfficialAllocationCategory;
+  status: 'Active' | 'Superseded';
+  allocatedAt: string;
+  allocatedBy: string;
+  supersededAt?: string | null;
+  supersededBy?: string | null;
+  supersededReason?: string | null;
+  emailStatus?: AllocationEmailStatus;
+  emailSentAt?: string | null;
+  emailError?: string | null;
+}
+
 export interface AbstractRecord {
   id: string; // Official sequential ID: AICONDD-ABS-001
   registrationId: string; // Mandatory linked registration ID: AICONDD001
@@ -158,6 +184,16 @@ export interface AbstractRecord {
   finalPresentationFormat?: 'Oral Presentation' | 'Poster Presentation' | 'E-Poster Presentation' | string | null;
   allottedBy?: string;
   allottedAt?: string;
+  officialAllocationCategory?: OfficialAllocationCategory | null;
+  presentationAllocationId?: string | null;
+  allocationStatus?: 'Not Allocated' | 'Active' | null;
+  allocationCreatedAt?: string | null;
+  allocationCreatedBy?: string | null;
+  allocationEmailStatus?: AllocationEmailStatus | null;
+  allocationEmailSentAt?: string | null;
+  allocationEmailError?: string | null;
+  allocationEmailAttempts?: number;
+  allocationHistory?: AllocationHistoryEntry[];
   reviewNotes?: string;
   reviewedBy?: string;
   reviewedAt?: string;
@@ -183,7 +219,29 @@ export async function submitConferenceRegistration(
   const trimmedMobile = (registrationData.mobile || '').trim();
   const trimmedInstitution = (registrationData.institution || '').trim().replace(/\s+/g, ' ');
   const trimmedUtr = (registrationData.transactionReference || '').trim();
+  const trimmedCategory = (registrationData.category || '').trim();
   const country = (registrationData.country || 'India').trim();
+
+  // Enforce Virtual participation restriction (International participants ONLY)
+  const modeValidation = validateParticipationModeForCategory(
+    trimmedCategory,
+    registrationData.participationMode || registrationData.modeOfParticipation
+  );
+  if (!modeValidation.valid) {
+    throw new Error(
+      modeValidation.error || 'Virtual participation is available exclusively for International participants.'
+    );
+  }
+  const canonicalParticipationMode = modeValidation.normalizedMode;
+  const isVirtualRegistration = canonicalParticipationMode === VIRTUAL_PARTICIPATION_MODE;
+
+  // Enforce conditional Food Preference: forbidden/omitted for Virtual, mandatory for Physical (Offline)
+  const normalizedDietaryPref = isVirtualRegistration
+    ? null
+    : normalizeFoodPreferenceValue(registrationData.dietaryPreference);
+  if (!isVirtualRegistration && !normalizedDietaryPref) {
+    throw new Error('Food Preference (Vegetarian or Non-Vegetarian) is required for on-site physical participation.');
+  }
 
   const normalizedEmail = normalizeEmail(trimmedEmail);
   const normalizedMobile = normalizeMobileInternational(trimmedMobile, country);
@@ -363,11 +421,18 @@ export async function submitConferenceRegistration(
         duplicateUtrExceptionReason: _ignoredDupReason,
         duplicateUtrExceptionApprovedBy: _ignoredDupBy,
         duplicateUtrExceptionApprovedAt: _ignoredDupAt,
+        dietaryPreference: _ignoredRawDietaryPreference,
+        modeOfParticipation: _ignoredRawModeOfParticipation,
         ...safeRegistrationData
       } = registrationData;
 
       const regDoc: RegistrationRecord = {
         ...safeRegistrationData,
+        category: trimmedCategory,
+        participationMode: canonicalParticipationMode,
+        ...(isVirtualRegistration
+          ? {}
+          : { dietaryPreference: normalizedDietaryPref || undefined }),
         fullName: trimmedName,
         ...(normalizedFullName ? { normalizedFullName } : {}),
         ...(nameAdvisoryKey ? { nameAdvisoryKey } : {}),
@@ -390,6 +455,10 @@ export async function submitConferenceRegistration(
         registrationId: newRegId,
         createdAt: timestamp,
       };
+      // Strictly guarantee dietaryPreference is never stored on Virtual registration documents
+      if (isVirtualRegistration) {
+        delete regDoc.dietaryPreference;
+      }
       transaction.set(regRef, regDoc);
 
       return { regDoc, regId: newRegId };

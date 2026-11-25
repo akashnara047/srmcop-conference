@@ -1,4 +1,4 @@
-import { RegistrationRecord, AbstractRecord } from './managementService';
+import type { RegistrationRecord, AbstractRecord } from './managementService';
 
 export type InstitutionCategoryValue = 'internal' | 'external';
 export type InstitutionFilterValue = 'all' | InstitutionCategoryValue;
@@ -74,11 +74,31 @@ export function formatInstitutionCategoryLabel(value?: string | null): string {
 export type FoodPreferenceOption = 'Vegetarian' | 'Non-Vegetarian';
 export type FoodPreferenceFilterValue = 'all' | 'vegetarian' | 'non-vegetarian';
 export type ParticipationModeFilterValue = 'all' | 'offline' | 'online';
+export type CanonicalParticipationMode = 'Offline (On-site at SRMIST)' | 'Virtual';
 export type FoodPreferenceDisplay =
   | 'Vegetarian'
   | 'Non-Vegetarian'
   | 'Not Specified'
   | 'Not Applicable';
+
+export const OFFLINE_PARTICIPATION_MODE: CanonicalParticipationMode = 'Offline (On-site at SRMIST)';
+export const VIRTUAL_PARTICIPATION_MODE: CanonicalParticipationMode = 'Virtual';
+export const INTERNATIONAL_REGISTRATION_CATEGORY = 'International';
+export const VIRTUAL_INTERNATIONAL_ONLY_ERROR =
+  'Virtual participation is available exclusively for International participants.';
+
+/**
+ * Returns true strictly when the participant category represents an International participant.
+ */
+export function isInternationalRegistrationCategory(category?: string | null): boolean {
+  if (typeof category !== 'string') return false;
+  const cleaned = category.trim().toLowerCase();
+  return (
+    cleaned === 'international' ||
+    cleaned === 'international participant' ||
+    cleaned === 'international participants'
+  );
+}
 
 /**
  * Classifies a registration's participation mode strictly from stored fields.
@@ -93,6 +113,59 @@ export function classifyParticipationMode(
     return 'offline';
   }
   return 'unknown';
+}
+
+/**
+ * Returns true if the registration or mode string represents Virtual / Online participation.
+ */
+export function isVirtualParticipationMode(
+  regOrMode:
+    | string
+    | null
+    | undefined
+    | Pick<RegistrationRecord, 'participationMode' | 'modeOfParticipation'>
+): boolean {
+  if (!regOrMode) return false;
+  if (typeof regOrMode === 'string') {
+    const cleaned = regOrMode.trim().toLowerCase();
+    return cleaned.includes('virtual') || cleaned.includes('online');
+  }
+  return classifyParticipationMode(regOrMode) === 'online';
+}
+
+/**
+ * Validates and canonicalizes participation mode against participant category.
+ * Virtual participation is strictly restricted to International participants.
+ */
+export function validateParticipationModeForCategory(
+  category?: string | null,
+  rawMode?: string | null
+): {
+  valid: boolean;
+  normalizedMode: CanonicalParticipationMode;
+  error?: string;
+} {
+  const trimmedMode = (rawMode || '').trim();
+  const isVirtualRequested = isVirtualParticipationMode(trimmedMode);
+
+  if (isVirtualRequested) {
+    if (!isInternationalRegistrationCategory(category)) {
+      return {
+        valid: false,
+        normalizedMode: OFFLINE_PARTICIPATION_MODE,
+        error: VIRTUAL_INTERNATIONAL_ONLY_ERROR,
+      };
+    }
+    return {
+      valid: true,
+      normalizedMode: VIRTUAL_PARTICIPATION_MODE,
+    };
+  }
+
+  return {
+    valid: true,
+    normalizedMode: OFFLINE_PARTICIPATION_MODE,
+  };
 }
 
 /**
@@ -634,3 +707,273 @@ export function computePresentationDashboardMetrics(
     notSubmittedRegKeySet,
   };
 }
+
+// ===========================================================================
+// PHARMAQUEST FILTERING & METRICS (STRICT DATABASE FIELD — NO INFERENCE)
+// ===========================================================================
+
+export type PharmaQuestFilterValue = 'all' | 'pharmaquest';
+export type AbstractTypeFilterValue = 'all' | 'oral' | 'poster';
+export type AbstractPresentationCategory = 'oral' | 'poster';
+
+/**
+ * Determines strictly from the stored PharmaQuest registration indicator
+ * (`participatePharmaQuest` or legacy `pharmaQuest`) whether a participant
+ * registered for PharmaQuest 2027. Never infers from unrelated fields.
+ */
+export function isPharmaQuestRegistration(
+  reg?: Pick<RegistrationRecord, 'participatePharmaQuest' | 'pharmaQuest'> | null
+): boolean {
+  if (!reg) return false;
+  const raw = (reg.participatePharmaQuest ?? reg.pharmaQuest ?? '')
+    .toString()
+    .trim()
+    .toLowerCase();
+  return raw === 'yes' || raw === 'true' || raw === '1';
+}
+
+export interface PharmaQuestStats {
+  totalPharmaQuest: number;
+  verifiedPharmaQuest: number;
+  pendingPharmaQuest: number;
+}
+
+/**
+ * Counts valid PharmaQuest registrations using the exact same deduplication
+ * and predicate as the Registration Management PharmaQuest filter.
+ * Respects the caller's record-type scope (All / Live / Test).
+ */
+export function computePharmaQuestStats(
+  registrations: RegistrationRecord[]
+): PharmaQuestStats {
+  const deduped = deduplicateRegistrations(registrations);
+  let totalPharmaQuest = 0;
+  let verifiedPharmaQuest = 0;
+  let pendingPharmaQuest = 0;
+
+  for (const reg of deduped.values()) {
+    if (!isPharmaQuestRegistration(reg)) continue;
+    totalPharmaQuest += 1;
+    if (reg.paymentStatus === 'Verified') {
+      verifiedPharmaQuest += 1;
+    } else if (reg.paymentStatus !== 'Rejected') {
+      pendingPharmaQuest += 1;
+    }
+  }
+
+  return {
+    totalPharmaQuest,
+    verifiedPharmaQuest,
+    pendingPharmaQuest,
+  };
+}
+
+/**
+ * Resolves whether an abstract is associated with a PharmaQuest 2027 participant
+ * strictly through the abstract's linked Registration ID relationship.
+ */
+export function isAbstractPharmaQuest(
+  abs: AbstractRecord,
+  registrations: RegistrationRecord[]
+): boolean {
+  const linkedReg = getLinkedRegistrationForAbstractRecord(abs, registrations);
+  return isPharmaQuestRegistration(linkedReg);
+}
+
+// ===========================================================================
+// ABSTRACT MANAGEMENT SUMMARY CARDS, TYPE SUMMARY & 7-TRACK SUMMARY
+// ===========================================================================
+
+export interface CanonicalTrackMeta {
+  id: string;
+  shortLabel: string;
+  fullTitle: string;
+}
+
+export const CANONICAL_CONFERENCE_TRACKS: CanonicalTrackMeta[] = [
+  {
+    id: 'track-01',
+    shortLabel: 'Pharmaceutics',
+    fullTitle: 'Pharmaceutical Technology & Pharmaceutics',
+  },
+  {
+    id: 'track-02',
+    shortLabel: 'Pharmacology',
+    fullTitle: 'Pharmacology & Experimental Therapeutics',
+  },
+  {
+    id: 'track-03',
+    shortLabel: 'Pharm. Chemistry',
+    fullTitle: 'Pharmaceutical Chemistry & Drug Discovery',
+  },
+  {
+    id: 'track-04',
+    shortLabel: 'Pharm. Analysis',
+    fullTitle: 'Pharmaceutical Analysis & Analytical Technologies',
+  },
+  {
+    id: 'track-05',
+    shortLabel: 'Pharmacy Practice',
+    fullTitle: 'Pharmacy Practice & Clinical Pharmacy',
+  },
+  {
+    id: 'track-06',
+    shortLabel: 'Pharmacognosy',
+    fullTitle: 'Pharmacognosy & Natural Product Research',
+  },
+  {
+    id: 'track-07',
+    shortLabel: 'RA & QA',
+    fullTitle: 'Regulatory Affairs & Pharmaceutical Quality Assurance',
+  },
+];
+
+/**
+ * Maps a stored abstract `trackId` to one of the 7 canonical track IDs (`track-01`..`track-07`)
+ * without creating duplicate categories or mutating stored track identifiers.
+ */
+export function resolveCanonicalTrackId(rawTrackId?: string | null): string | null {
+  const raw = (rawTrackId || '').trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+
+  for (const track of CANONICAL_CONFERENCE_TRACKS) {
+    if (track.id === lower || track.fullTitle.toLowerCase() === lower) {
+      return track.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Classifies an abstract into 'oral' or 'poster' (includes Poster & E-Poster)
+ * using the final allotted format when set, falling back to author preference.
+ */
+export function classifyAbstractPresentationType(
+  abs: Pick<
+    AbstractRecord,
+    | 'allottedPresentationFormat'
+    | 'finalPresentationFormat'
+    | 'presentationPreference'
+    | 'presentationType'
+  >
+): AbstractPresentationCategory | null {
+  const allotted = (abs.allottedPresentationFormat || abs.finalPresentationFormat || '')
+    .trim()
+    .toLowerCase();
+  const preferred = (abs.presentationPreference || abs.presentationType || '')
+    .trim()
+    .toLowerCase();
+
+  const source =
+    allotted &&
+    allotted !== 'none' &&
+    allotted !== 'pending allocation' &&
+    allotted !== 'awaiting allocation' &&
+    allotted !== 'unassigned'
+      ? allotted
+      : preferred;
+
+  if (!source) return null;
+  if (source.includes('oral')) return 'oral';
+  if (source.includes('poster')) return 'poster';
+  return null;
+}
+
+export interface AbstractOverviewSummary {
+  total: number;
+  pendingApproval: number;
+  approved: number;
+  rejected: number;
+  oralCount: number;
+  posterCount: number;
+  trackCounts: Record<string, number>;
+}
+
+/**
+ * Computes real-time Abstract Management summary cards, Oral/Poster counts,
+ * and counts across all 7 conference scientific tracks directly from live abstracts.
+ */
+export function computeAbstractOverviewSummary(
+  abstracts: AbstractRecord[]
+): AbstractOverviewSummary {
+  const uniqueById = new Map<string, AbstractRecord>();
+  for (const abs of abstracts) {
+    const key = normalizeRegKey(abs.id);
+    if (!key) continue;
+    if (!uniqueById.has(key)) {
+      uniqueById.set(key, abs);
+    }
+  }
+
+  let total = 0;
+  let pendingApproval = 0;
+  let approved = 0;
+  let rejected = 0;
+  let oralCount = 0;
+  let posterCount = 0;
+  const trackCounts: Record<string, number> = {};
+  for (const track of CANONICAL_CONFERENCE_TRACKS) {
+    trackCounts[track.id] = 0;
+  }
+
+  for (const abs of uniqueById.values()) {
+    total += 1;
+    if (abs.status === 'Accepted') {
+      approved += 1;
+    } else if (abs.status === 'Rejected') {
+      rejected += 1;
+    } else {
+      pendingApproval += 1;
+    }
+
+    const typeCat = classifyAbstractPresentationType(abs);
+    if (typeCat === 'oral') oralCount += 1;
+    else if (typeCat === 'poster') posterCount += 1;
+
+    const canonicalTrackId = resolveCanonicalTrackId(abs.trackId);
+    if (canonicalTrackId && canonicalTrackId in trackCounts) {
+      trackCounts[canonicalTrackId] += 1;
+    }
+  }
+
+  return {
+    total,
+    pendingApproval,
+    approved,
+    rejected,
+    oralCount,
+    posterCount,
+    trackCounts,
+  };
+}
+
+// ===========================================================================
+// BULK APPROVAL / REJECTION ELIGIBILITY GUARDS
+// ===========================================================================
+
+/**
+ * Returns true only when a registration is pending review (not already Verified/Approved
+ * and not already Rejected), ensuring bulk actions never reprocess settled records.
+ */
+export function isRegistrationBulkEligible(
+  reg: Pick<RegistrationRecord, 'paymentStatus' | 'registrationStatus'>
+): boolean {
+  return (
+    reg.paymentStatus !== 'Verified' &&
+    reg.paymentStatus !== 'Rejected' &&
+    reg.registrationStatus !== 'Approved' &&
+    reg.registrationStatus !== 'Rejected'
+  );
+}
+
+/**
+ * Returns true only when an abstract is awaiting review decision (not already Accepted
+ * and not already Rejected), ensuring bulk actions never reprocess settled abstracts.
+ */
+export function isAbstractBulkEligible(
+  abs: Pick<AbstractRecord, 'status'>
+): boolean {
+  return abs.status !== 'Accepted' && abs.status !== 'Rejected';
+}
+

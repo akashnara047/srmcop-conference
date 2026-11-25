@@ -130,6 +130,13 @@ export function getApplicableRegistrationFee(category: string): {
         label: 'Industrial Participants',
         note: `Applicable fee for Industrial Participants (Last date: ${REGISTRATION_DEADLINE}).`,
       };
+    case 'International':
+      return {
+        amount: null,
+        formatted: 'MYR 200 / USD 45',
+        label: 'International Participants',
+        note: `Applicable fee for International Participants — Physical or Virtual participation (Last date: ${REGISTRATION_DEADLINE}).`,
+      };
     default:
       return {
         amount: null,
@@ -306,11 +313,11 @@ export const INVITED_SPEAKERS: Speaker[] = [
   },
   {
     id: 'speaker-3',
-    name: 'Maitri Sanghavi',
+    name: 'Maitri Sanghavi, M.S.',
     titlePrefix: 'Ms.',
-    affiliationPlaceholder: 'Senior Bioinformatician & Life Sciences Specialist (Affiliation details will be announced)',
+    affiliationPlaceholder: 'Research Scientist, Simcyp, Certara',
     linkedInUrl: 'https://www.linkedin.com/in/maitri-sanghavi-b572ba66/',
-    domain: 'Computational Biology & Clinical Analytics',
+    domain: 'Biopharmaceutics & Mechanistic Modelling',
   },
 ];
 

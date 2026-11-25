@@ -918,19 +918,26 @@ function buildRegistrationPdfInternal(
       : reg.category || 'Not Specified';
 
   const modeClassification = classifyParticipationMode(reg);
+  const isVirtual = modeClassification === 'online';
   const modeDisplay =
-    modeClassification === 'offline'
+    isVirtual
+      ? 'Virtual'
+      : modeClassification === 'offline'
       ? 'Offline'
-      : modeClassification === 'online'
-      ? 'Online'
       : reg.participationMode || reg.modeOfParticipation || 'Not Specified';
 
-  const foodDisplay = formatFoodPreferenceDisplay(reg);
-
-  renderSectionCard('Registration Details', drawIconClipboardCheck, [
+  const registrationDetailRows: CardRow[] = [
     { label: 'Participant Category', value: categoryText },
+    ...(isVirtual
+      ? [{ label: 'Participant Type', value: 'International Virtual Participant' }]
+      : []),
     { label: 'Participation Mode', value: modeDisplay },
-    {
+  ];
+
+  // Physical (Offline) registrations include Food Preference; Virtual registrations omit it completely
+  if (!isVirtual) {
+    const foodDisplay = formatFoodPreferenceDisplay(reg);
+    registrationDetailRows.push({
       label: 'Food Preference',
       value: foodDisplay,
       customRenderer: (valX, rowY) => {
@@ -967,8 +974,10 @@ function buildRegistrationPdfInternal(
         }
         return 6.5;
       },
-    },
-  ]);
+    });
+  }
+
+  renderSectionCard('Registration Details', drawIconClipboardCheck, registrationDetailRows);
 
   // 3. Payment Details Card
   // - Confirmed Stage: displays verified payment information.
@@ -1029,7 +1038,11 @@ function buildRegistrationPdfInternal(
 
   // 4. Statement Callout Box
   const statementText = isConfirmedStage
-    ? "This document confirms that the above participant's registration for SRMCON 2027 has been successfully verified and confirmed."
+    ? isVirtual
+      ? "This document confirms that the above International Virtual Participant's registration for SRMCON 2027 (Virtual Mode) has been successfully verified and confirmed. Virtual conference participation details will be communicated via email prior to the event."
+      : "This document confirms that the above participant's registration for SRMCON 2027 has been successfully verified and confirmed."
+    : isVirtual
+    ? 'This receipt confirms submission of your International Virtual Participant registration details and payment reference only. Registration will be officially confirmed only after payment verification and approval by the Organising Secretary.'
     : 'This receipt confirms submission of your registration details and payment reference only. Registration will be officially confirmed only after payment verification and approval by the Organising Secretary.';
   doc.setFont('helvetica', 'bolditalic');
   doc.setFontSize(isConfirmedStage ? 9.1 : 8.8);

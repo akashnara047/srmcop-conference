@@ -76,6 +76,13 @@ import {
 } from '../lib/duplicatePreventionService';
 import {
   INTERNAL_INSTITUTION_NAME,
+  OFFLINE_PARTICIPATION_MODE,
+  VIRTUAL_PARTICIPATION_MODE,
+  VIRTUAL_INTERNATIONAL_ONLY_ERROR,
+  isInternationalRegistrationCategory,
+  isVirtualParticipationMode,
+  validateParticipationModeForCategory,
+  type CanonicalParticipationMode,
   type InstitutionCategoryValue,
 } from '../lib/presentationDashboardStats';
 import { IMAGES } from '../lib/images';
@@ -92,6 +99,7 @@ export type RegistrationCategory =
   | 'Faculty'
   | 'Industry Professional'
   | 'Researcher'
+  | 'International'
   | 'Others';
 
 const COMMON_COUNTRIES = [
@@ -147,9 +155,9 @@ export const RegistrationView: React.FC = () => {
   // =========================================================================
   // SECTION 3: REGISTRATION DETAILS
   // =========================================================================
-  const [participationMode, setParticipationMode] = useState<
-    'Offline (On-site at SRMIST)' | 'Online (Virtual)'
-  >('Offline (On-site at SRMIST)');
+  const [participationMode, setParticipationMode] = useState<CanonicalParticipationMode>(
+    OFFLINE_PARTICIPATION_MODE
+  );
   const [presentationPlans, setPresentationPlans] = useState<string[]>([]);
   const [participatePharmaQuest, setParticipatePharmaQuest] = useState<'Yes' | 'No'>('No');
 
@@ -179,6 +187,8 @@ export const RegistrationView: React.FC = () => {
   const [registeredId, setRegisteredId] = useState<string | null>(null);
   const [submittedRecord, setSubmittedRecord] = useState<RegistrationRecord | null>(null);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [ackEmailStatus, setAckEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [ackEmailError, setAckEmailError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState(false);
 
@@ -574,14 +584,26 @@ export const RegistrationView: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [newTransRef, lookupRecord, resubmitLastCheckedUtr, resubmitUtrStatus, runResubmitUtrCheck]);
 
-  // Category change handler: when moving away from 'Others', clear its custom specification
+  // Category change handler: clears 'Others' specification and enforces International-only Virtual mode
   const handleCategorySelect = (selected: RegistrationCategory) => {
     setCategory(selected);
     if (selected !== 'Others') {
       setOtherCategoryDescription('');
     }
-    if (validationErrors.category || validationErrors.otherCategoryDescription) {
-      setValidationErrors((prev) => ({ ...prev, category: '', otherCategoryDescription: '' }));
+    if (!isInternationalRegistrationCategory(selected) && isVirtualParticipationMode(participationMode)) {
+      setParticipationMode(OFFLINE_PARTICIPATION_MODE);
+    }
+    if (
+      validationErrors.category ||
+      validationErrors.otherCategoryDescription ||
+      validationErrors.participationMode
+    ) {
+      setValidationErrors((prev) => ({
+        ...prev,
+        category: '',
+        otherCategoryDescription: '',
+        participationMode: '',
+      }));
     }
   };
 
@@ -606,18 +628,31 @@ export const RegistrationView: React.FC = () => {
     }
   };
 
-  const isOfflineParticipation = participationMode === 'Offline (On-site at SRMIST)';
+  const isInternationalParticipant = isInternationalRegistrationCategory(category);
+  const isVirtualParticipation = isVirtualParticipationMode(participationMode);
+  const isOfflineParticipation = !isVirtualParticipation;
 
-  // Participation mode handler: clear stale food preference when switching to Online
-  const handleParticipationModeSelect = (
-    selectedMode: 'Offline (On-site at SRMIST)' | 'Online (Virtual)'
-  ) => {
+  // Participation mode handler: restricts Virtual strictly to International participants and clears food preference on Virtual
+  const handleParticipationModeSelect = (selectedMode: CanonicalParticipationMode) => {
+    if (selectedMode === VIRTUAL_PARTICIPATION_MODE && !isInternationalParticipant) {
+      setParticipationMode(OFFLINE_PARTICIPATION_MODE);
+      setValidationErrors((prev) => ({
+        ...prev,
+        participationMode: VIRTUAL_INTERNATIONAL_ONLY_ERROR,
+      }));
+      return;
+    }
+
     setParticipationMode(selectedMode);
-    if (selectedMode === 'Online (Virtual)') {
+    if (selectedMode === VIRTUAL_PARTICIPATION_MODE) {
       setDietaryPreference('');
-      if (validationErrors.dietaryPreference) {
-        setValidationErrors((prev) => ({ ...prev, dietaryPreference: '' }));
-      }
+      setValidationErrors((prev) => ({
+        ...prev,
+        participationMode: '',
+        dietaryPreference: '',
+      }));
+    } else if (validationErrors.participationMode) {
+      setValidationErrors((prev) => ({ ...prev, participationMode: '' }));
     }
   };
 
@@ -752,13 +787,19 @@ export const RegistrationView: React.FC = () => {
       errors.otherCategoryDescription = 'Please specify your registration category';
     }
 
+    // Strict International-only Virtual participation validation
+    const modeCheck = validateParticipationModeForCategory(category, participationMode);
+    if (!modeCheck.valid) {
+      errors.participationMode = modeCheck.error || VIRTUAL_INTERNATIONAL_ONLY_ERROR;
+    }
+
     // Manual Payment Amount Validation (must be positive number)
     const rawAmount = paymentAmount.trim();
     const numericAmount = parseFloat(rawAmount);
     if (!rawAmount) {
       errors.paymentAmount = 'Please enter the registration fee amount paid';
     } else if (isNaN(numericAmount) || numericAmount <= 0) {
-      errors.paymentAmount = 'Please enter a valid positive payment amount (greater than ₹0)';
+      errors.paymentAmount = 'Please enter a valid positive payment amount';
     }
 
     if (!paymentMode.trim()) errors.paymentMode = 'Please select a payment mode';
@@ -775,7 +816,7 @@ export const RegistrationView: React.FC = () => {
       errors.paymentProof = 'Payment proof exceeds the maximum 1 MB limit';
     }
 
-    // Conditional Food Preference validation: mandatory for Offline participants only
+    // Conditional Food Preference validation: mandatory for Physical (Offline) participants only; disabled for Virtual
     if (
       isOfflineParticipation &&
       dietaryPreference !== 'Vegetarian' &&
@@ -787,6 +828,28 @@ export const RegistrationView: React.FC = () => {
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
+
+  // Dispatch Event 1 (Registration Received) acknowledgement email safely without affecting committed registration
+  const dispatchRegistrationReceivedEmail = useCallback(async (record: RegistrationRecord) => {
+    setAckEmailStatus('sending');
+    setAckEmailError(null);
+    try {
+      const result = await triggerRegistrationReceivedEmail(record);
+      if (result.success) {
+        setAckEmailStatus('sent');
+        setAckEmailError(null);
+      } else {
+        setAckEmailStatus('failed');
+        setAckEmailError(
+          result.error || 'Acknowledgement email could not be delivered right now.'
+        );
+      }
+    } catch (emailErr) {
+      console.warn('Registration received email dispatch note:', emailErr);
+      setAckEmailStatus('failed');
+      setAckEmailError('Acknowledgement email could not be delivered right now.');
+    }
+  }, []);
 
   // Final Registration Submission Handler with Concurrency-Safe Automatic ID Allocation
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -861,6 +924,19 @@ export const RegistrationView: React.FC = () => {
           ? INTERNAL_INSTITUTION_NAME
           : institution.trim();
 
+      const modeCheck = validateParticipationModeForCategory(category, participationMode);
+      if (!modeCheck.valid) {
+        const modeErr = modeCheck.error || VIRTUAL_INTERNATIONAL_ONLY_ERROR;
+        setValidationErrors((prev) => ({ ...prev, participationMode: modeErr }));
+        setFormError(modeErr);
+        setSubmitting(false);
+        window.scrollTo({ top: 260, behavior: 'smooth' });
+        return;
+      }
+
+      const canonicalMode = modeCheck.normalizedMode;
+      const isVirtualSubmission = canonicalMode === VIRTUAL_PARTICIPATION_MODE;
+
       const regPayload: Omit<RegistrationRecord, 'id' | 'registrationId' | 'createdAt'> = {
         fullName: fullName.trim(),
         email: email.trim(),
@@ -872,7 +948,7 @@ export const RegistrationView: React.FC = () => {
         country: country.trim(),
         category,
         otherCategoryDescription: category === 'Others' ? otherCategoryDescription.trim() : '',
-        participationMode,
+        participationMode: canonicalMode,
         presentationPlans: presentationPlans.length > 0 ? presentationPlans : ['None'],
         participatePharmaQuest,
         paymentMode,
@@ -880,7 +956,7 @@ export const RegistrationView: React.FC = () => {
         paymentAmount: parsedAmount,
         paymentProofName: paymentProofName || 'proof_receipt.pdf',
         paymentProofData: paymentProofData || '',
-        ...(isOfflineParticipation ? { dietaryPreference: dietaryPreference.trim() } : {}),
+        ...(!isVirtualSubmission ? { dietaryPreference: dietaryPreference.trim() } : {}),
         linkedAbstractId: null,
         abstractSubmitted: false,
         recordType: 'live',
@@ -889,20 +965,19 @@ export const RegistrationView: React.FC = () => {
         adminRemarks: '',
       };
 
-      // 1. Concurrency-safe atomic transaction write to Firestore (validates unique email/mobile/UTR & allocates AICONDDxxx)
+      // 1. Concurrency-safe atomic transaction write to Firestore FIRST
+      //    (validates International-only Virtual mode, unique email/mobile/UTR, and allocates AICONDDxxx)
       const { regDoc, regId } = await submitConferenceRegistration(regPayload);
 
-      // 2. Trigger Event 1 (Registration Received) email asynchronously without blocking UI
-      triggerRegistrationReceivedEmail(regDoc).catch((emailErr) => {
-        console.warn('Background registration received email note:', emailErr);
-      });
-
-      // 3. Update state to display confirmation dialog and downloadable receipt
+      // 2. Display standard Registration Success confirmation immediately after Firestore commit
       setSubmittedRecord(regDoc);
       setRegisteredId(regId);
       setShowConfirmationModal(true);
       confetti({ particleCount: 85, spread: 70, origin: { y: 0.6 } });
       window.scrollTo({ top: 120, behavior: 'smooth' });
+
+      // 3. Reliably trigger Event 1 (Registration Received) acknowledgement email (non-blocking; never reverses registration on failure)
+      void dispatchRegistrationReceivedEmail(regDoc);
     } catch (err: any) {
       if (isDuplicateRecordError(err) || isDuplicateTransactionReferenceError(err)) {
         const code = (err as { code?: string }).code;
@@ -1067,6 +1142,8 @@ export const RegistrationView: React.FC = () => {
     setRegisteredId(null);
     setSubmittedRecord(null);
     setShowConfirmationModal(false);
+    setAckEmailStatus('idle');
+    setAckEmailError(null);
     setFullName('');
     setEmail('');
     setMobile('');
@@ -1076,7 +1153,7 @@ export const RegistrationView: React.FC = () => {
     setCountry('India');
     setCategory('Student / Scholar');
     setOtherCategoryDescription('');
-    setParticipationMode('Offline (On-site at SRMIST)');
+    setParticipationMode(OFFLINE_PARTICIPATION_MODE);
     setPresentationPlans([]);
     setParticipatePharmaQuest('No');
     setPaymentAmount('');
@@ -1177,10 +1254,59 @@ export const RegistrationView: React.FC = () => {
                     <span>{copied ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
-                <div className="text-xs text-slate-700 pt-1 border-t border-[#DDD6FE]/70">
-                  Participant: <strong>{fullName}</strong> ({email})
+                <div className="text-xs text-slate-700 pt-1 border-t border-[#DDD6FE]/70 space-y-1">
+                  <div>
+                    Participant: <strong>{submittedRecord?.fullName || fullName}</strong> ({submittedRecord?.email || email})
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                    <span>
+                      Participation Mode:{' '}
+                      <strong>
+                        {isVirtualParticipationMode(submittedRecord || participationMode)
+                          ? 'Virtual'
+                          : 'Offline (On-site at SRMIST)'}
+                      </strong>
+                    </span>
+                    {isVirtualParticipationMode(submittedRecord || participationMode) && (
+                      <span className="px-2 py-0.5 rounded-md text-[10.5px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        International Virtual Participant
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {/* Acknowledgement Email Delivery Status & Non-Duplicating Retry */}
+              {ackEmailStatus === 'sending' && (
+                <div className="text-[11.5px] text-[#5B21B6] bg-[#FAF8FE] border border-[#DDD6FE] rounded-xl px-3 py-2 flex items-center justify-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span>Sending registration acknowledgement email to <strong>{submittedRecord?.email || email}</strong>...</span>
+                </div>
+              )}
+              {ackEmailStatus === 'sent' && (
+                <div className="text-[11.5px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Registration acknowledgement email sent to <strong>{submittedRecord?.email || email}</strong>.</span>
+                </div>
+              )}
+              {ackEmailStatus === 'failed' && submittedRecord && (
+                <div className="text-[11.5px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3 text-left space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      Your registration (<strong>{registeredId}</strong>) is safely saved, but the acknowledgement email could not be delivered right now.{ackEmailError ? ` (${ackEmailError})` : ''}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void dispatchRegistrationReceivedEmail(submittedRecord)}
+                    className="w-full h-[34px] px-3 bg-amber-700 hover:bg-amber-800 text-white font-bold text-[12px] rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry Acknowledgement Email</span>
+                  </button>
+                </div>
+              )}
 
               {/* Notice */}
               <p className="text-[11.5px] text-slate-600 leading-relaxed text-left bg-slate-50 p-3 rounded-xl border border-slate-200">
@@ -1668,6 +1794,14 @@ export const RegistrationView: React.FC = () => {
                 </strong>
               </div>
               <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
+                <span className="text-slate-500 font-normal">Participation Mode:</span>
+                <strong className="text-[#101B4B] font-semibold">
+                  {isVirtualParticipationMode(submittedRecord || participationMode)
+                    ? 'Virtual (International Virtual Participant)'
+                    : 'Offline (On-site at SRMIST)'}
+                </strong>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
                 <span className="text-slate-500 font-normal">Payment Status:</span>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
                   Pending Verification
@@ -1680,20 +1814,47 @@ export const RegistrationView: React.FC = () => {
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-normal">Total Fee Paid:</span>
-                <strong className="text-[#101B4B] font-mono font-bold text-[15px]">₹{paymentAmount}</strong>
+                <span className="text-slate-500 font-normal">Submitted Amount:</span>
+                <strong className="text-[#101B4B] font-mono font-bold text-[15px]">
+                  {isInternationalRegistrationCategory(submittedRecord?.category || category)
+                    ? paymentAmount
+                    : `₹${paymentAmount}`}
+                </strong>
               </div>
             </div>
 
-            <div className="text-[12px] text-slate-500 max-w-lg mx-auto">
-              A formal acknowledgement has been dispatched to <strong>{email}</strong> and the organizing secretariat at <strong>dean.pharmacy.ktr@srmist.edu.in</strong> and <strong>narayanj@srmist.edu.in</strong>.
+            <div className="text-[12px] text-slate-600 max-w-lg mx-auto space-y-2">
+              {ackEmailStatus === 'sending' ? (
+                <div className="inline-flex items-center gap-1.5 text-[#5B21B6] font-medium">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Sending formal acknowledgement email to <strong>{submittedRecord?.email || email}</strong>...</span>
+                </div>
+              ) : ackEmailStatus === 'failed' && submittedRecord ? (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2">
+                  <div>
+                    Your registration is safely recorded under <strong>{registeredId}</strong>, but the acknowledgement email could not be sent right now.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void dispatchRegistrationReceivedEmail(submittedRecord)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry Acknowledgement Email</span>
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  A formal acknowledgement email has been dispatched to <strong>{submittedRecord?.email || email}</strong> (with a copy to the Organising Secretariat at <strong>org.secy.cp@srmist.edu.in</strong>).
+                </div>
+              )}
             </div>
           </div>
         ) : (
           /* ===================================================================
               SINGLE-PAGE SCROLLING REGISTRATION FORM (All 5 Sections Visible)
              =================================================================== */
-          <form onSubmit={handleRegisterSubmit} className="space-y-4 sm:space-y-5">
+          <form noValidate onSubmit={handleRegisterSubmit} className="space-y-4 sm:space-y-5">
             {/* Global Error Banner if validation fails */}
             {formError && (
               <div className="p-3 bg-red-50/90 border border-red-300 rounded-xl flex items-center gap-2 text-[13px] text-red-800 shadow-2xs">
@@ -2244,9 +2405,9 @@ export const RegistrationView: React.FC = () => {
                 </h2>
               </div>
 
-              {/* Form Content Area: 5 Selectable Cards in One Row on Desktop */}
+              {/* Form Content Area: 6 Selectable Cards in One Row on Desktop */}
               <div className="p-4 sm:p-5 lg:p-6 space-y-3.5">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   {[
                     {
                       id: 'Student / Scholar' as RegistrationCategory,
@@ -2271,6 +2432,12 @@ export const RegistrationView: React.FC = () => {
                       label: 'Researcher',
                       feeLabel: '₹2,000',
                       icon: FlaskConical,
+                    },
+                    {
+                      id: 'International' as RegistrationCategory,
+                      label: 'International Participant',
+                      feeLabel: 'MYR 200 / USD 45',
+                      icon: Globe,
                     },
                     {
                       id: 'Others' as RegistrationCategory,
@@ -2391,24 +2558,36 @@ export const RegistrationView: React.FC = () => {
               {/* Form Content Area: 3 Columns with subtle vertical dividers */}
               <div className="p-4 sm:p-5 lg:p-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
-                  {/* Column 1: Mode of Participation */}
+                  {/* Column 1: Mode of Participation (Virtual strictly restricted to International participants) */}
                   <div className="space-y-2 md:border-r md:border-[#E3DEF9] md:pr-5">
                     <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1">
                       Mode of Participation <span className="text-red-500">*</span>
                     </label>
                     <div className="space-y-2">
-                      {[
-                        {
-                          value: 'Offline (On-site at SRMIST)' as const,
-                          label: 'Offline (On-site at SRMIST)',
-                          icon: MapPin,
-                        },
-                        {
-                          value: 'Online (Virtual)' as const,
-                          label: 'Online (Virtual)',
-                          icon: Globe,
-                        },
-                      ].map((mode) => {
+                      {(isInternationalParticipant
+                        ? [
+                            {
+                              value: OFFLINE_PARTICIPATION_MODE,
+                              label: 'Offline (On-site at SRMIST)',
+                              badge: null as string | null,
+                              icon: MapPin,
+                            },
+                            {
+                              value: VIRTUAL_PARTICIPATION_MODE,
+                              label: 'Virtual',
+                              badge: 'International Only',
+                              icon: Globe,
+                            },
+                          ]
+                        : [
+                            {
+                              value: OFFLINE_PARTICIPATION_MODE,
+                              label: 'Offline (On-site at SRMIST)',
+                              badge: null as string | null,
+                              icon: MapPin,
+                            },
+                          ]
+                      ).map((mode) => {
                         const isSelected = participationMode === mode.value;
                         const Icon = mode.icon;
                         return (
@@ -2423,23 +2602,47 @@ export const RegistrationView: React.FC = () => {
                                 handleParticipationModeSelect(mode.value);
                               }
                             }}
-                            className={`h-[38px] px-3 rounded-xl border flex items-center gap-2.5 cursor-pointer transition-all ${
+                            className={`min-h-[38px] px-3 py-1.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-all ${
                               isSelected
                                 ? 'border-[#713CE0]/50 bg-[#F1EDFD] text-[#101B4B] shadow-2xs'
                                 : 'border-[#D8D2F8] bg-white/70 hover:border-slate-300'
                             }`}
                           >
-                            <div className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center shrink-0">
-                              {isSelected && <div className="w-2 h-2 rounded-full bg-[#713CE0]" />}
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center shrink-0">
+                                {isSelected && <div className="w-2 h-2 rounded-full bg-[#713CE0]" />}
+                              </div>
+                              <Icon className="w-3.5 h-3.5 text-[#713CE0] shrink-0" />
+                              <span className="text-[13px] sm:text-[14px] font-medium text-[#101B4B] truncate">
+                                {mode.label}
+                              </span>
                             </div>
-                            <Icon className="w-3.5 h-3.5 text-[#713CE0] shrink-0" />
-                            <span className="text-[13px] sm:text-[14px] font-medium text-[#101B4B] truncate">
-                              {mode.label}
-                            </span>
+                            {mode.badge && (
+                              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 shrink-0">
+                                {mode.badge}
+                              </span>
+                            )}
                           </div>
                         );
                       })}
                     </div>
+
+                    <div className="p-2.5 rounded-xl bg-[#FAF8FE] border border-[#E3DEF9] text-[11.5px] text-slate-600 flex items-start gap-1.5 leading-snug">
+                      <Info className="w-3.5 h-3.5 text-[#713CE0] shrink-0 mt-0.5" />
+                      <span>
+                        {isInternationalParticipant
+                          ? isVirtualParticipation
+                            ? 'Virtual participation is exclusively for International participants. Food preference is not applicable and has been disabled.'
+                            : 'Virtual participation is available exclusively for International participants.'
+                          : 'Virtual participation is available exclusively for International participants.'}
+                      </span>
+                    </div>
+
+                    {validationErrors.participationMode && (
+                      <span className="text-[11px] text-red-600 font-medium block mt-1">
+                        {validationErrors.participationMode}
+                      </span>
+                    )}
                   </div>
 
                   {/* Column 2: Presentation Plan (If applicable) */}
@@ -2980,7 +3183,6 @@ export const RegistrationView: React.FC = () => {
                     <div className="relative">
                       <select
                         id="food-preference-select"
-                        required
                         value={dietaryPreference}
                         onChange={(e) => {
                           setDietaryPreference(e.target.value);

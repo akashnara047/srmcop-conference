@@ -452,7 +452,6 @@ export async function triggerRegistrationReceivedEmail(
 
   return coalesceClientDispatch(eventId, async () => {
     const now = new Date().toISOString();
-    let createdPendingLog = false;
 
     try {
       const pendingDoc: EmailLogRecord = {
@@ -481,7 +480,6 @@ export async function triggerRegistrationReceivedEmail(
         updatedAt: now,
       };
       await setDoc(doc(db, 'emailLogs', eventId), pendingDoc);
-      createdPendingLog = true;
     } catch (logErr) {
       if (isPermissionDeniedError(logErr)) {
         // Document already exists on server; still invoke /api/email/send so Apps Script
@@ -504,16 +502,14 @@ export async function triggerRegistrationReceivedEmail(
         },
       });
 
-      if (createdPendingLog) {
-        await finalizeEmailLogDoc({
-          eventId,
-          ok: apiResult.ok,
-          sentAt: apiResult.sentAt,
-          error: apiResult.error,
-          duplicatePrevented: apiResult.duplicatePrevented,
-          service: apiResult.service,
-        });
-      }
+      await finalizeEmailLogDoc({
+        eventId,
+        ok: apiResult.ok,
+        sentAt: apiResult.sentAt,
+        error: apiResult.error,
+        duplicatePrevented: apiResult.duplicatePrevented,
+        service: apiResult.service,
+      });
 
       return {
         success: apiResult.ok,
@@ -527,16 +523,14 @@ export async function triggerRegistrationReceivedEmail(
       };
     } catch (err) {
       const msg = sanitizeClientError(err, 'Unable to send registration received email.');
-      if (createdPendingLog) {
-        await finalizeEmailLogDoc({
-          eventId,
-          ok: false,
-          sentAt: null,
-          error: msg,
-          duplicatePrevented: false,
-          service: 'SRMCOP Conference Email Service',
-        });
-      }
+      await finalizeEmailLogDoc({
+        eventId,
+        ok: false,
+        sentAt: null,
+        error: msg,
+        duplicatePrevented: false,
+        service: 'SRMCOP Conference Email Service',
+      });
       return {
         success: false,
         eventId,

@@ -14,10 +14,11 @@
  *   3. registration_confirmation  (Event 2 - Registration Confirmed after Payment Verification + PDF)
  *   4. abstract_confirmation      (Event 3 - Abstract Submission Acknowledgement + PDF)
  *   5. abstract_acceptance        (Event 4 - Abstract Accepted + PDF)
+ *   6. presentation_allocation    (Event 5 - Official Presentation Allocation Confirmation + PDF)
  */
 
 var SERVICE_NAME = 'SRMCOP Conference Email Service';
-var SCRIPT_VERSION = '2027.4-verified-contract';
+var SCRIPT_VERSION = '2027.5-presentation-allocation';
 var DEFAULT_CC_EMAIL = 'org.secy.cp@srmist.edu.in';
 var EVENT_LOCK_PREFIX = 'SENT_EVENT_';
 
@@ -57,6 +58,15 @@ function doPost(e) {
         service: SERVICE_NAME,
         version: SCRIPT_VERSION,
         attachmentSupported: true,
+        presentationAllocationSupported: true,
+        supportedActions: [
+          'health',
+          'registration_received',
+          'registration_confirmation',
+          'abstract_confirmation',
+          'abstract_acceptance',
+          'presentation_allocation',
+        ],
         defaultCcEmail: activeCc,
         remainingQuota: MailApp.getRemainingDailyQuota(),
       });
@@ -67,6 +77,7 @@ function doPost(e) {
       registration_confirmation: true,
       abstract_confirmation: true,
       abstract_acceptance: true,
+      presentation_allocation: true,
     };
 
     if (!supportedActions[action]) {
@@ -92,7 +103,21 @@ function doPost(e) {
     var requiresAttachment =
       action === 'registration_confirmation' ||
       action === 'abstract_confirmation' ||
-      action === 'abstract_acceptance';
+      action === 'abstract_acceptance' ||
+      action === 'presentation_allocation';
+
+    // Read-only presentation allocation metadata for event logging (never generates or mutates IDs)
+    var allocationMeta = null;
+    if (action === 'presentation_allocation') {
+      var rawData = payload.data && typeof payload.data === 'object' ? payload.data : {};
+      allocationMeta = {
+        allocationId: String(rawData.allocationId || '').trim() || 'n/a',
+        officialCategory: String(rawData.officialCategory || '').trim() || 'n/a',
+        submittedPreference: String(rawData.submittedPreference || '').trim() || 'n/a',
+        abstractId: String(rawData.abstractId || '').trim() || 'n/a',
+        registrationId: String(rawData.registrationId || '').trim() || 'n/a',
+      };
+    }
 
     // Lock + persistent + cache eventId duplicate protection
     var lock = LockService.getScriptLock();
@@ -103,6 +128,18 @@ function doPost(e) {
       var eventKey = EVENT_LOCK_PREFIX + eventId;
 
       if (cache.get(eventKey) || props.getProperty(eventKey)) {
+        if (allocationMeta) {
+          Logger.log(
+            '[SRMCON][Presentation Allocation] Duplicate dispatch prevented: eventId=' +
+              eventId +
+              ', allocationId=' +
+              allocationMeta.allocationId +
+              ', abstractId=' +
+              allocationMeta.abstractId +
+              ', officialCategory=' +
+              allocationMeta.officialCategory
+          );
+        }
         return jsonResponse({
           success: true,
           service: SERVICE_NAME,
@@ -307,6 +344,25 @@ function doPost(e) {
         mailOptions.attachments = blobs;
       }
 
+      if (allocationMeta) {
+        Logger.log(
+          '[SRMCON][Presentation Allocation] Dispatching official allocation email: eventId=' +
+            eventId +
+            ', allocationId=' +
+            allocationMeta.allocationId +
+            ', officialCategory=' +
+            allocationMeta.officialCategory +
+            ', submittedPreference=' +
+            allocationMeta.submittedPreference +
+            ', abstractId=' +
+            allocationMeta.abstractId +
+            ', registrationId=' +
+            allocationMeta.registrationId +
+            ', recipient=' +
+            recipient
+        );
+      }
+
       Logger.log(
         '[SRMCON] Calling MailApp.sendEmail: eventId=' +
           eventId +
@@ -330,6 +386,23 @@ function doPost(e) {
       var sentAt = new Date().toISOString();
       cache.put(eventKey, sentAt, 21600); // 6h fast cache
       props.setProperty(eventKey, sentAt); // Persistent idempotency guard
+
+      if (allocationMeta) {
+        Logger.log(
+          '[SRMCON][Presentation Allocation] Dispatch succeeded: eventId=' +
+            eventId +
+            ', allocationId=' +
+            allocationMeta.allocationId +
+            ', officialCategory=' +
+            allocationMeta.officialCategory +
+            ', abstractId=' +
+            allocationMeta.abstractId +
+            ', cc=' +
+            (ccRecipient || 'none') +
+            ', attachmentCount=' +
+            blobs.length
+        );
+      }
 
       Logger.log(
         '[SRMCON] MailApp execution succeeded: eventId=' +

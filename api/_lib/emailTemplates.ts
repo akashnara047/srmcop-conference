@@ -214,10 +214,21 @@ export function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Co
   const baseCategory = String(reg.category || 'Delegate').trim();
   const otherCategory = String(reg.otherCategoryDescription || '').trim();
   const categoryDisplay = otherCategory ? `${baseCategory} (${otherCategory})` : baseCategory;
-  const participationMode = String(reg.participationMode || reg.modeOfParticipation || 'Not specified').trim();
+  const rawParticipationMode = String(
+    reg.participationMode || reg.modeOfParticipation || 'Not specified'
+  ).trim();
+  const isVirtual =
+    rawParticipationMode.toLowerCase().includes('virtual') ||
+    rawParticipationMode.toLowerCase().includes('online');
+  const participationModeDisplay = isVirtual ? 'Virtual' : rawParticipationMode;
   const transactionReference = String(reg.transactionReference || '').trim();
   const paymentAmount = reg.paymentAmount ?? reg.amount ?? '';
-  const amountDisplay = paymentAmount ? `INR ${paymentAmount}` : 'Submitted on form';
+  const rawCurrency = String(reg.paymentCurrency || reg.currency || '').trim().toUpperCase();
+  const amountDisplay = paymentAmount
+    ? rawCurrency === 'MYR' || rawCurrency === 'USD'
+      ? `${rawCurrency} ${paymentAmount}`
+      : `INR ${paymentAmount}`
+    : 'Submitted on form';
 
   const subject = 'SRMCON 2027 – Registration Received';
 
@@ -226,31 +237,46 @@ export function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Co
     { label: 'Registration ID', value: registrationId, monospace: true },
     { label: 'Registered Email', value: email },
     { label: 'Participant Category', value: categoryDisplay },
-    { label: 'Participation Mode', value: participationMode },
+    ...(isVirtual
+      ? [{ label: 'Participant Type', value: 'International Virtual Participant' }]
+      : []),
+    { label: 'Participation Mode', value: participationModeDisplay },
     { label: 'Conference Title', value: CONFERENCE_TITLE },
     { label: 'Conference Dates', value: CONFERENCE_DATES },
-    { label: 'Venue', value: CONFERENCE_VENUE },
+    ...(isVirtual
+      ? [{ label: 'Attendance Mode', value: 'Virtual / Online Conference Access (International Participants)' }]
+      : [{ label: 'Venue', value: CONFERENCE_VENUE }]),
     { label: 'Payment Verification Status', value: 'Pending Verification (Submitted for Review)' },
   ];
 
   const htmlBody = wrapInstitutionalEmailLayout({
-    badgeText: 'Registration Received · Payment Pending Verification',
+    badgeText: isVirtual
+      ? 'Registration Received · International Virtual Participant'
+      : 'Registration Received · Payment Pending Verification',
     badgeBg: '#fef3c7',
     badgeColor: '#92400e',
     heading: 'Registration Details Received',
     recipientName: fullName,
-    introParagraphHtml: `Thank you for submitting your registration for the <strong>${escapeHtml(
-      CONFERENCE_TITLE
-    )} (${CONFERENCE_SHORT})</strong>. Your registration details have been recorded under Registration ID <strong>${escapeHtml(
-      registrationId
-    )}</strong>.<br /><br /><strong>Important:</strong> Your registration is currently <strong>awaiting payment verification</strong> and is not yet officially confirmed.`,
+    introParagraphHtml: isVirtual
+      ? `Thank you for submitting your registration as an <strong>International Virtual Participant</strong> for the <strong>${escapeHtml(
+          CONFERENCE_TITLE
+        )} (${CONFERENCE_SHORT})</strong>. Your virtual registration details have been recorded under Registration ID <strong>${escapeHtml(
+          registrationId
+        )}</strong>.<br /><br /><strong>Important:</strong> Your registration is currently <strong>awaiting payment verification</strong> and is not yet officially confirmed.`
+      : `Thank you for submitting your registration for the <strong>${escapeHtml(
+          CONFERENCE_TITLE
+        )} (${CONFERENCE_SHORT})</strong>. Your registration details have been recorded under Registration ID <strong>${escapeHtml(
+          registrationId
+        )}</strong>.<br /><br /><strong>Important:</strong> Your registration is currently <strong>awaiting payment verification</strong> and is not yet officially confirmed.`,
     detailsRows,
     nextStepsTitle: 'Payment Verification & Next Steps',
     nextStepsItemsHtml: [
       `Your submitted payment details (Amount: <strong>${escapeHtml(
         amountDisplay
       )}</strong>${transactionReference ? `, Reference/UTR: <strong>${escapeHtml(transactionReference)}</strong>` : ''}) are queued for verification by the Organising Secretariat.`,
-      `Once your payment is verified and approved, you will receive an official <strong>Registration Confirmation email</strong> along with your official Registration Receipt PDF.`,
+      isVirtual
+        ? `Once your payment is verified and approved, you will receive an official <strong>Registration Confirmation email</strong> along with your official Registration Confirmation PDF for Virtual participation.`
+        : `Once your payment is verified and approved, you will receive an official <strong>Registration Confirmation email</strong> along with your official Registration Confirmation PDF.`,
       `Please retain your Registration ID (<strong>${escapeHtml(
         registrationId
       )}</strong>). You can track your verification status anytime via the Registration Portal and use this ID if you wish to submit a scientific abstract.`,
@@ -260,21 +286,26 @@ export function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Co
   const textBody = [
     `Dear ${fullName},`,
     '',
-    `Thank you for submitting your registration for ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}).`,
+    isVirtual
+      ? `Thank you for submitting your registration as an International Virtual Participant for ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}).`
+      : `Thank you for submitting your registration for ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}).`,
     'Your registration details have been received and are currently awaiting payment verification (not yet officially confirmed).',
     '',
     `Registration ID: ${registrationId}`,
     `Registered Email: ${email}`,
     `Participant Category: ${categoryDisplay}`,
-    `Participation Mode: ${participationMode}`,
+    ...(isVirtual ? ['Participant Type: International Virtual Participant'] : []),
+    `Participation Mode: ${participationModeDisplay}`,
     `Conference Dates: ${CONFERENCE_DATES}`,
-    `Venue: ${CONFERENCE_VENUE}`,
+    ...(isVirtual
+      ? ['Attendance Mode: Virtual / Online Conference Access (International Participants)']
+      : [`Venue: ${CONFERENCE_VENUE}`]),
     `Collaborating Institution: ${CONFERENCE_COLLABORATOR}`,
     `Payment Status: Pending Verification (${amountDisplay}${transactionReference ? `, Ref: ${transactionReference}` : ''})`,
     '',
     'Next Steps:',
     '- The Organising Secretariat will verify your submitted payment reference.',
-    '- Once verified, you will receive an official Registration Confirmed email with your PDF receipt.',
+    '- Once verified, you will receive an official Registration Confirmed email with your official Confirmation PDF.',
     `- Quote Registration ID ${registrationId} for status checks or abstract submission.`,
     '',
     'Warm regards,',
@@ -291,10 +322,13 @@ export function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Co
       registrationId,
       email,
       category: categoryDisplay,
-      participationMode,
+      ...(isVirtual ? { participantType: 'International Virtual Participant' } : {}),
+      participationMode: participationModeDisplay,
       conferenceTitle: CONFERENCE_TITLE,
       conferenceDates: CONFERENCE_DATES,
-      venue: CONFERENCE_VENUE,
+      ...(isVirtual
+        ? { attendanceMode: 'Virtual / Online Conference Access' }
+        : { venue: CONFERENCE_VENUE }),
       paymentStatus: 'Pending Verification',
     },
   };
@@ -307,17 +341,33 @@ export function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): C
   const baseCategory = String(reg.category || 'Delegate').trim();
   const otherCategory = String(reg.otherCategoryDescription || '').trim();
   const categoryDisplay = otherCategory ? `${baseCategory} (${otherCategory})` : baseCategory;
-  const participationMode = String(reg.participationMode || reg.modeOfParticipation || 'Offline (On-site at SRMIST)').trim();
+  const rawParticipationMode = String(
+    reg.participationMode || reg.modeOfParticipation || 'Offline (On-site at SRMIST)'
+  ).trim();
+  const isVirtual =
+    rawParticipationMode.toLowerCase().includes('virtual') ||
+    rawParticipationMode.toLowerCase().includes('online');
+  const participationModeDisplay = isVirtual ? 'Virtual' : rawParticipationMode;
   const paymentAmount = reg.paymentAmount ?? reg.amount ?? '';
+  const rawCurrency = String(reg.paymentCurrency || reg.currency || '').trim().toUpperCase();
   const paymentMode = String(reg.paymentMode || '').trim();
   const transactionReference = String(reg.transactionReference || '').trim();
-  const verifiedAtFormatted = reg.verifiedAt ? formatDateReadable(reg.verifiedAt) : formatDateReadable(new Date().toISOString());
+  const verifiedAtFormatted = reg.verifiedAt
+    ? formatDateReadable(reg.verifiedAt)
+    : formatDateReadable(new Date().toISOString());
 
   const paymentSummaryParts: string[] = [];
-  if (paymentAmount) paymentSummaryParts.push(`INR ${paymentAmount}`);
+  if (paymentAmount) {
+    paymentSummaryParts.push(
+      rawCurrency === 'MYR' || rawCurrency === 'USD'
+        ? `${rawCurrency} ${paymentAmount}`
+        : `INR ${paymentAmount}`
+    );
+  }
   if (paymentMode) paymentSummaryParts.push(paymentMode);
   if (transactionReference) paymentSummaryParts.push(`Ref/UTR: ${transactionReference}`);
-  const paymentSummary = paymentSummaryParts.length > 0 ? paymentSummaryParts.join(' · ') : 'Verified by Secretariat';
+  const paymentSummary =
+    paymentSummaryParts.length > 0 ? paymentSummaryParts.join(' · ') : 'Verified by Secretariat';
 
   const subject = 'SRMCON 2027 – Registration Confirmed';
 
@@ -325,33 +375,42 @@ export function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): C
     { label: 'Participant Name', value: fullName },
     { label: 'Official Registration ID', value: registrationId, monospace: true },
     { label: 'Participant Category', value: categoryDisplay },
-    { label: 'Participation Mode', value: participationMode },
+    ...(isVirtual
+      ? [{ label: 'Participant Type', value: 'International Virtual Participant' }]
+      : []),
+    { label: 'Participation Mode', value: participationModeDisplay },
     { label: 'Payment Verification', value: `Verified on ${verifiedAtFormatted}` },
     { label: 'Payment Details', value: paymentSummary },
     { label: 'Conference Dates', value: CONFERENCE_DATES },
-    { label: 'Venue', value: CONFERENCE_VENUE },
+    ...(isVirtual
+      ? [{ label: 'Attendance Mode', value: 'Virtual / Online Conference Access (International Participants)' }]
+      : [{ label: 'Venue', value: CONFERENCE_VENUE }]),
   ];
 
-  const isOnline = participationMode.toLowerCase().includes('online') || participationMode.toLowerCase().includes('virtual');
-
   const htmlBody = wrapInstitutionalEmailLayout({
-    badgeText: 'Payment Verified · Registration Confirmed',
+    badgeText: isVirtual
+      ? 'Payment Verified · Confirmed International Virtual Participant'
+      : 'Payment Verified · Registration Confirmed',
     badgeBg: '#d1fae5',
     badgeColor: '#065f46',
     heading: 'Official Conference Registration Confirmation',
     recipientName: fullName,
-    introParagraphHtml: `We are pleased to confirm that your payment has been verified and your registration for the <strong>${escapeHtml(
-      CONFERENCE_TITLE
-    )} (${CONFERENCE_SHORT})</strong> is officially <strong>CONFIRMED</strong>.<br /><br />Your official Registration Receipt PDF is attached to this email for your records.`,
+    introParagraphHtml: isVirtual
+      ? `We are pleased to confirm that your payment has been verified and your registration as an <strong>International Virtual Participant</strong> for the <strong>${escapeHtml(
+          CONFERENCE_TITLE
+        )} (${CONFERENCE_SHORT})</strong> is officially <strong>CONFIRMED</strong>.<br /><br />Your official Registration Confirmation PDF is attached to this email for your records.`
+      : `We are pleased to confirm that your payment has been verified and your registration for the <strong>${escapeHtml(
+          CONFERENCE_TITLE
+        )} (${CONFERENCE_SHORT})</strong> is officially <strong>CONFIRMED</strong>.<br /><br />Your official Registration Confirmation PDF is attached to this email for your records.`,
     detailsRows,
-    nextStepsTitle: 'Participation Information',
+    nextStepsTitle: isVirtual ? 'Virtual Participation Information' : 'Participation Information',
     nextStepsItemsHtml: [
       `Please retain your official Registration ID (<strong>${escapeHtml(
         registrationId
-      )}</strong>) and the attached Registration Receipt PDF.`,
-      isOnline
-        ? `As an <strong>Online (Virtual)</strong> participant, keep your Registration ID handy for session participation communications from the Organising Secretariat.`
-        : `For <strong>On-site</strong> check-in and delegate kit issuance at SRMIST Kattankulathur, please present the attached Registration Receipt PDF along with a valid photo ID at the registration desk.`,
+      )}</strong>) and the attached Registration Confirmation PDF.`,
+      isVirtual
+        ? `As an <strong>International Virtual Participant</strong> (Participation Mode: <strong>Virtual</strong>), you will receive virtual conference access links and session schedule communications from the Organising Secretariat prior to the conference.`
+        : `For <strong>On-site</strong> check-in and delegate kit issuance at SRMIST Kattankulathur, please present the attached Registration Confirmation PDF along with a valid photo ID at the registration desk.`,
       `If you plan to present research work, you may submit and track your abstract via the Abstract Portal using Registration ID <strong>${escapeHtml(
         registrationId
       )}</strong>.`,
@@ -361,17 +420,27 @@ export function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): C
   const textBody = [
     `Dear ${fullName},`,
     '',
-    `Your payment has been verified and your registration for ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}) is officially CONFIRMED.`,
+    isVirtual
+      ? `Your payment has been verified and your registration as an International Virtual Participant for ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}) is officially CONFIRMED.`
+      : `Your payment has been verified and your registration for ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}) is officially CONFIRMED.`,
     '',
     `Official Registration ID: ${registrationId}`,
     `Participant Category: ${categoryDisplay}`,
-    `Participation Mode: ${participationMode}`,
+    ...(isVirtual ? ['Participant Type: International Virtual Participant'] : []),
+    `Participation Mode: ${participationModeDisplay}`,
     `Payment Confirmation: Verified on ${verifiedAtFormatted} (${paymentSummary})`,
     `Conference Dates: ${CONFERENCE_DATES}`,
-    `Venue: ${CONFERENCE_VENUE}`,
+    ...(isVirtual
+      ? ['Attendance Mode: Virtual / Online Conference Access (International Participants)']
+      : [`Venue: ${CONFERENCE_VENUE}`]),
     `Collaborating Institution: ${CONFERENCE_COLLABORATOR}`,
     '',
-    'Your official Registration Receipt PDF is attached to this email.',
+    'Your official Registration Confirmation PDF is attached to this email.',
+    ...(isVirtual
+      ? [
+          'As an International Virtual Participant, virtual session access instructions will be shared by the Organising Secretariat prior to the conference.',
+        ]
+      : []),
     `Please quote Registration ID ${registrationId} in all conference communications.`,
     '',
     'Warm regards,',
@@ -388,14 +457,17 @@ export function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): C
       registrationId,
       email,
       category: categoryDisplay,
-      participationMode,
+      ...(isVirtual ? { participantType: 'International Virtual Participant' } : {}),
+      participationMode: participationModeDisplay,
       paymentStatus: 'Verified',
       registrationStatus: 'Approved',
       paymentSummary,
       verifiedAt: verifiedAtFormatted,
       conferenceTitle: CONFERENCE_TITLE,
       conferenceDates: CONFERENCE_DATES,
-      venue: CONFERENCE_VENUE,
+      ...(isVirtual
+        ? { attendanceMode: 'Virtual / Online Conference Access' }
+        : { venue: CONFERENCE_VENUE }),
     },
   };
 }

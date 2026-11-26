@@ -5,9 +5,45 @@
       "includeFiles": "firebase-applet-config.json"
     }
   },
+  "headers": [
+    {
+      "source": "/downloads/(.*)\\.pptx",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        },
+        {
+          "key": "Content-Disposition",
+          "value": "attachment"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ]
+    },
+    {
+      "source": "/downloads/(.*)\\.ppt",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/vnd.ms-powerpoint"
+        },
+        {
+          "key": "Content-Disposition",
+          "value": "attachment"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|downloads/).*)",
       "destination": "/index.html"
     }
   ]

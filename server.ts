@@ -69,6 +69,43 @@ async function startServer() {
     });
   });
 
+  // Serve static downloadable presentation templates with explicit MIME types and
+  // Content-Disposition headers before Vite/SPA middlewares (prevents empty MIME types
+  // or HTML SPA fallback responses for missing files).
+  app.get('/downloads/:filename', (req, res) => {
+    const safeName = path.basename(String(req.params.filename || ''));
+    if (!safeName || safeName !== req.params.filename) {
+      res.status(400).send('Invalid filename.');
+      return;
+    }
+
+    const candidates = isProduction
+      ? [
+          path.resolve(__dirname, 'dist', 'downloads', safeName),
+          path.resolve(__dirname, 'public', 'downloads', safeName),
+        ]
+      : [path.resolve(__dirname, 'public', 'downloads', safeName)];
+
+    const targetPath = candidates.find((p) => fs.existsSync(p) && fs.statSync(p).isFile());
+    if (!targetPath) {
+      res.status(404).send('Template file not found.');
+      return;
+    }
+
+    const ext = path.extname(safeName).toLowerCase();
+    if (ext === '.pptx') {
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      );
+    } else if (ext === '.ppt') {
+      res.setHeader('Content-Type', 'application/vnd.ms-powerpoint');
+    }
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(targetPath);
+  });
+
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

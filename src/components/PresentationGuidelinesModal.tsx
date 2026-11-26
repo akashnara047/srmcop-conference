@@ -253,7 +253,7 @@ export const PresentationGuidelinesModal: React.FC<PresentationGuidelinesModalPr
 
                 <ul className="space-y-2 text-xs text-[#334155]">
                   {EPOSTER_PRESENTATION_GUIDELINES.section3AuthorDetails.map((rule, idx) => {
-                    const isCodeRule = rule.includes('Presentation Code');
+                    const isCodeRule = rule.includes('Presentation ID');
                     return (
                       <li
                         key={idx}
@@ -487,7 +487,7 @@ export const PresentationGuidelinesModal: React.FC<PresentationGuidelinesModalPr
                 </ol>
               </div>
 
-              {/* E. Presentation Code – Abstract ID */}
+              {/* E. Presentation Identification – Presentation ID */}
               <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/75 border border-amber-200/90 space-y-2.5">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
@@ -496,7 +496,7 @@ export const PresentationGuidelinesModal: React.FC<PresentationGuidelinesModalPr
                   <div className="flex items-center gap-2">
                     <span className="w-1 h-4 rounded-full bg-amber-600" />
                     <h4 className="font-['Plus_Jakarta_Sans',sans-serif] text-sm sm:text-base font-bold text-[#082746]">
-                      E. Presentation Code – Abstract ID
+                      E. Presentation Identification – Presentation ID
                     </h4>
                   </div>
                 </div>
@@ -635,7 +635,7 @@ export const PresentationGuidelinesModal: React.FC<PresentationGuidelinesModalPr
                 </ol>
               </div>
 
-              {/* D. Presentation Code – Abstract ID */}
+              {/* D. Presentation Identification – Presentation ID */}
               <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/75 border border-amber-200/90 space-y-2.5">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
@@ -644,7 +644,7 @@ export const PresentationGuidelinesModal: React.FC<PresentationGuidelinesModalPr
                   <div className="flex items-center gap-2">
                     <span className="w-1 h-4 rounded-full bg-amber-600" />
                     <h4 className="font-['Plus_Jakarta_Sans',sans-serif] text-sm sm:text-base font-bold text-[#082746]">
-                      D. Presentation Code – Abstract ID
+                      D. Presentation Identification – Presentation ID
                     </h4>
                   </div>
                 </div>

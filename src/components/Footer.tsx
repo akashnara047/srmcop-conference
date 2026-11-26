@@ -16,6 +16,7 @@ import {
   Compass,
 } from 'lucide-react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 
 interface FooterProps {
   onSelectTab: (tab: string) => void;
@@ -40,10 +41,12 @@ export const Footer: React.FC<FooterProps> = ({ onSelectTab, onOpenAdmin }) => {
               HOST UNIVERSITY
             </span>
             <div className="flex items-center gap-3">
-              <img
-                src="/assets/aistudio/SRm_Logo_blue_background_17b4fbe7.png"
+              <OptimizedPicture
+                src={IMAGES.srmistLogoBlueBg}
                 alt="SRM Institute of Science and Technology"
                 className="h-10 sm:h-12 w-auto object-contain rounded-sm shrink-0"
+                sizes="160px"
+                loading="lazy"
               />
             </div>
           </div>
@@ -54,10 +57,12 @@ export const Footer: React.FC<FooterProps> = ({ onSelectTab, onOpenAdmin }) => {
               HOST INSTITUTION
             </span>
             <div className="flex items-center gap-3">
-              <img
+              <OptimizedPicture
                 src={IMAGES.srmPharmacyLogo}
                 alt="SRM College of Pharmacy"
                 className="h-9 w-9 sm:h-10 sm:w-10 object-contain rounded-full bg-white p-0.5 shrink-0 shadow-2xs"
+                sizes="40px"
+                loading="lazy"
               />
               <div className="flex flex-col text-left leading-tight">
                 <span className="text-[13px] sm:text-[14px] font-bold text-white tracking-tight">
@@ -105,11 +110,12 @@ export const Footer: React.FC<FooterProps> = ({ onSelectTab, onOpenAdmin }) => {
             <div className="flex items-center gap-3">
               {/* Official Combined IPA Emblem, Name & Tagline */}
               <div className="bg-white px-2.5 py-1.5 rounded-sm shadow-2xs flex items-center shrink-0">
-                <img
+                <OptimizedPicture
                   src={IMAGES.ipaOfficialLogo}
                   alt="The Indian Pharmaceutical Association (IPA) - ...CRUSADE FOR THE PROFESSION"
                   className="h-8 sm:h-9 w-auto max-w-[190px] sm:max-w-[220px] object-contain shrink-0"
-                  loading="eager"
+                  sizes="220px"
+                  loading="lazy"
                 />
               </div>
             </div>

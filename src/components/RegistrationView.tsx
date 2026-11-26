@@ -44,6 +44,16 @@ import {
   type RegistrationRecord,
 } from '../lib/managementService';
 import {
+  PARTICIPANT_TITLE_OPTIONS,
+  COURSE_PROGRAMME_OPTIONS,
+  DESIGNATION_OPTIONS,
+  FACULTY_DESIGNATION_OPTIONS,
+  getYearOfStudyOptions,
+  isYearOfStudyApplicable,
+  formatParticipantDisplayName,
+  getParticipantStructuredDetailRows,
+} from '../lib/participantFields';
+import {
   UTR_AVAILABLE_MESSAGE,
   UTR_CHECKING_MESSAGE,
   UTR_DUPLICATE_MESSAGE,
@@ -130,21 +140,77 @@ const ACCEPTED_FILE_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 const ACCEPTED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
 const MAX_FILE_SIZE_BYTES = 1024 * 1024; // Strict 1 MB (1,048,576 bytes)
 
-export const RegistrationView: React.FC = () => {
+interface RegistrationViewProps {
+  onProceedToAbstractSubmission?: (registrationId: string) => void;
+}
+
+export const RegistrationView: React.FC<RegistrationViewProps> = ({
+  onProceedToAbstractSubmission,
+}) => {
   // Top-right tab toggle: 'register' (New Registration) or 'status' (Registration Status)
   const [activeTab, setActiveTab] = useState<'register' | 'status'>('register');
 
   // =========================================================================
   // SECTION 1: PARTICIPANT DETAILS
   // =========================================================================
+  const [title, setTitle] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [mobile, setMobile] = useState('');
-  const [courseOrDesignation, setCourseOrDesignation] = useState('');
+  const [course, setCourse] = useState('');
+  const [specialisation, setSpecialisation] = useState('');
+  const [otherDegree, setOtherDegree] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [facultyDesignation, setFacultyDesignation] = useState('');
+  const [yearOfStudy, setYearOfStudy] = useState('');
   const [institutionCategory, setInstitutionCategory] = useState<InstitutionCategoryValue | ''>('');
   const [institution, setInstitution] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('India');
+
+  const availableYearOptions = getYearOfStudyOptions(course);
+  const showStudentYearOfStudy = isYearOfStudyApplicable(designation, course);
+
+  const handleCourseChange = (nextCourse: string) => {
+    setCourse(nextCourse);
+    if (nextCourse !== 'M.Pharm') {
+      setSpecialisation('');
+    }
+    if (nextCourse !== 'Other Degrees') {
+      setOtherDegree('');
+    }
+    const nextYearOptions = getYearOfStudyOptions(nextCourse);
+    const shouldKeepYear =
+      designation === 'Student' &&
+      nextYearOptions.length > 0 &&
+      nextYearOptions.includes(yearOfStudy);
+    if (!shouldKeepYear) {
+      setYearOfStudy('');
+    }
+    setValidationErrors((prev) => ({
+      ...prev,
+      course: '',
+      ...(nextCourse !== 'M.Pharm' ? { specialisation: '' } : {}),
+      ...(nextCourse !== 'Other Degrees' ? { otherDegree: '' } : {}),
+      ...(!shouldKeepYear ? { yearOfStudy: '' } : {}),
+    }));
+  };
+
+  const handleDesignationChange = (nextDesignation: string) => {
+    setDesignation(nextDesignation);
+    if (nextDesignation !== 'Faculty') {
+      setFacultyDesignation('');
+    }
+    if (nextDesignation !== 'Student') {
+      setYearOfStudy('');
+    }
+    setValidationErrors((prev) => ({
+      ...prev,
+      designation: '',
+      ...(nextDesignation !== 'Faculty' ? { facultyDesignation: '' } : {}),
+      ...(nextDesignation !== 'Student' ? { yearOfStudy: '' } : {}),
+    }));
+  };
 
   // =========================================================================
   // SECTION 2: REGISTRATION CATEGORY & CONDITIONAL OTHERS SPECIFICATION
@@ -756,6 +822,7 @@ export const RegistrationView: React.FC = () => {
   const validateForm = () => {
     const errors: Record<string, string> = {};
 
+    if (!title.trim()) errors.title = 'Title is required';
     if (!fullName.trim()) errors.fullName = 'Full Name is required';
 
     if (!email.trim()) {
@@ -774,7 +841,22 @@ export const RegistrationView: React.FC = () => {
       errors.mobile = DUPLICATE_MOBILE_MESSAGE;
     }
 
-    if (!courseOrDesignation.trim()) errors.courseOrDesignation = 'Course / Designation is required';
+    if (!course.trim()) errors.course = 'Course / Programme is required';
+    if (course === 'M.Pharm' && !specialisation.trim()) {
+      errors.specialisation = 'Specialisation is required';
+    }
+    if (course === 'Other Degrees' && !otherDegree.trim()) {
+      errors.otherDegree = 'Please specify your degree';
+    }
+
+    if (!designation.trim()) errors.designation = 'Designation is required';
+    if (designation === 'Faculty' && !facultyDesignation.trim()) {
+      errors.facultyDesignation = 'Faculty Designation is required';
+    }
+    if (isYearOfStudyApplicable(designation, course) && !yearOfStudy.trim()) {
+      errors.yearOfStudy = 'Year of Study is required';
+    }
+
     if (!institutionCategory) {
       errors.institutionCategory = 'Please select your Institution Category (Internal or External)';
     }
@@ -937,11 +1019,24 @@ export const RegistrationView: React.FC = () => {
       const canonicalMode = modeCheck.normalizedMode;
       const isVirtualSubmission = canonicalMode === VIRTUAL_PARTICIPATION_MODE;
 
+      const trimmedSpecialisation = course === 'M.Pharm' ? specialisation.trim() : '';
+      const trimmedOtherDegree = course === 'Other Degrees' ? otherDegree.trim() : '';
+      const trimmedFacultyDesignation = designation === 'Faculty' ? facultyDesignation.trim() : '';
+      const trimmedYearOfStudy = isYearOfStudyApplicable(designation, course)
+        ? yearOfStudy.trim()
+        : '';
+
       const regPayload: Omit<RegistrationRecord, 'id' | 'registrationId' | 'createdAt'> = {
+        title: title.trim(),
         fullName: fullName.trim(),
         email: email.trim(),
         mobile: mobile.trim(),
-        courseOrDesignation: courseOrDesignation.trim(),
+        course: course.trim(),
+        ...(trimmedSpecialisation ? { specialisation: trimmedSpecialisation } : {}),
+        ...(trimmedOtherDegree ? { otherDegree: trimmedOtherDegree } : {}),
+        designation: designation.trim(),
+        ...(trimmedFacultyDesignation ? { facultyDesignation: trimmedFacultyDesignation } : {}),
+        ...(trimmedYearOfStudy ? { yearOfStudy: trimmedYearOfStudy } : {}),
         institutionCategory: institutionCategory as InstitutionCategoryValue,
         institution: resolvedInstitution,
         city: city.trim(),
@@ -1144,10 +1239,16 @@ export const RegistrationView: React.FC = () => {
     setShowConfirmationModal(false);
     setAckEmailStatus('idle');
     setAckEmailError(null);
+    setTitle('');
     setFullName('');
     setEmail('');
     setMobile('');
-    setCourseOrDesignation('');
+    setCourse('');
+    setSpecialisation('');
+    setOtherDegree('');
+    setDesignation('');
+    setFacultyDesignation('');
+    setYearOfStudy('');
     setInstitution('');
     setCity('');
     setCountry('India');
@@ -1189,7 +1290,8 @@ export const RegistrationView: React.FC = () => {
     <div
       className="w-full bg-[#F4F1FD] bg-cover bg-center bg-no-repeat min-h-screen py-7 sm:py-9 relative overflow-x-hidden font-['Inter',sans-serif]"
       style={{
-        backgroundImage: `url(${IMAGES.registrationPageBg})`,
+        backgroundImage:
+          "image-set(url('/images/opt/registrationPageBg-1024.avif') type('image/avif'), url('/images/opt/registrationPageBg-1024.webp') type('image/webp'))",
       }}
     >
       {/* =====================================================================
@@ -1256,8 +1358,36 @@ export const RegistrationView: React.FC = () => {
                 </div>
                 <div className="text-xs text-slate-700 pt-1 border-t border-[#DDD6FE]/70 space-y-1">
                   <div>
-                    Participant: <strong>{submittedRecord?.fullName || fullName}</strong> ({submittedRecord?.email || email})
+                    Participant:{' '}
+                    <strong>
+                      {formatParticipantDisplayName(submittedRecord || { title, fullName })}
+                    </strong>{' '}
+                    ({submittedRecord?.email || email})
                   </div>
+                  {(() => {
+                    const profileRows = getParticipantStructuredDetailRows(
+                      submittedRecord || {
+                        title,
+                        fullName,
+                        course,
+                        specialisation,
+                        otherDegree,
+                        designation,
+                        facultyDesignation,
+                        yearOfStudy,
+                      }
+                    );
+                    if (profileRows.length === 0) return null;
+                    return (
+                      <div className="flex items-center justify-center gap-x-3 gap-y-0.5 flex-wrap text-[11.5px] text-slate-600">
+                        {profileRows.map((row) => (
+                          <span key={row.label}>
+                            {row.label}: <strong className="text-[#101B4B]">{row.value}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   <div className="flex items-center justify-center gap-1.5 flex-wrap">
                     <span>
                       Participation Mode:{' '}
@@ -1315,6 +1445,20 @@ export const RegistrationView: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="space-y-2.5 pt-1">
+                {onProceedToAbstractSubmission && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowConfirmationModal(false);
+                      onProceedToAbstractSubmission(registeredId);
+                    }}
+                    className="w-full h-[46px] px-5 bg-gradient-to-r from-[#059669] to-[#0D9488] hover:from-[#047857] hover:to-[#0F766E] text-white font-bold text-[14.5px] rounded-xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 shrink-0" />
+                    <span>Proceed to Abstract Submission →</span>
+                  </button>
+                )}
+
                 {submittedRecord && (
                   <button
                     type="button"
@@ -1526,7 +1670,9 @@ export const RegistrationView: React.FC = () => {
                       <span className="text-slate-400 text-[11px] uppercase font-medium block">
                         Participant Name
                       </span>
-                      <strong className="text-[#101B4B] font-semibold">{lookupRecord.fullName}</strong>
+                      <strong className="text-[#101B4B] font-semibold">
+                        {formatParticipantDisplayName(lookupRecord)}
+                      </strong>
                     </div>
                     <div>
                       <span className="text-slate-400 text-[11px] uppercase font-medium block">
@@ -1553,6 +1699,14 @@ export const RegistrationView: React.FC = () => {
                         {lookupRecord.transactionReference}
                       </strong>
                     </div>
+                    {getParticipantStructuredDetailRows(lookupRecord).map((row) => (
+                      <div key={row.label}>
+                        <span className="text-slate-400 text-[11px] uppercase font-medium block">
+                          {row.label}
+                        </span>
+                        <strong className="text-[#101B4B] font-semibold">{row.value}</strong>
+                      </div>
+                    ))}
                   </div>
 
                   {lookupRecord.adminRemarks && (
@@ -1746,6 +1900,20 @@ export const RegistrationView: React.FC = () => {
               </button>
             </div>
 
+            {/* Primary Next-Step CTA: Proceed to Abstract Submission */}
+            {onProceedToAbstractSubmission && (
+              <div className="max-w-lg mx-auto pt-1">
+                <button
+                  type="button"
+                  onClick={() => onProceedToAbstractSubmission(registeredId)}
+                  className="w-full sm:w-auto min-w-[290px] h-[46px] px-7 bg-gradient-to-r from-[#059669] to-[#0D9488] hover:from-[#047857] hover:to-[#0F766E] text-white font-bold text-[14.5px] rounded-xl inline-flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all cursor-pointer"
+                >
+                  <FileText className="w-4 h-4 shrink-0" />
+                  <span>Proceed to Abstract Submission →</span>
+                </button>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
               {submittedRecord && (
@@ -1784,8 +1952,30 @@ export const RegistrationView: React.FC = () => {
             <div className="p-4.5 bg-[#FAF8FE] border border-slate-200 rounded-xl text-left max-w-md mx-auto space-y-2 text-[13px]">
               <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
                 <span className="text-slate-500 font-normal">Participant Name:</span>
-                <strong className="text-[#101B4B] font-semibold">{fullName}</strong>
+                <strong className="text-[#101B4B] font-semibold">
+                  {formatParticipantDisplayName(submittedRecord || { title, fullName })}
+                </strong>
               </div>
+              {getParticipantStructuredDetailRows(
+                submittedRecord || {
+                  title,
+                  fullName,
+                  course,
+                  specialisation,
+                  otherDegree,
+                  designation,
+                  facultyDesignation,
+                  yearOfStudy,
+                }
+              ).map((row) => (
+                <div
+                  key={row.label}
+                  className="flex justify-between items-center pb-2 border-b border-slate-200/80 gap-2"
+                >
+                  <span className="text-slate-500 font-normal">{row.label}:</span>
+                  <strong className="text-[#101B4B] font-semibold text-right">{row.value}</strong>
+                </div>
+              ))}
               <div className="flex justify-between items-center pb-2 border-b border-slate-200/80">
                 <span className="text-slate-500 font-normal">Registration Category:</span>
                 <strong className="text-[#713CE0] font-semibold">
@@ -1939,40 +2129,80 @@ export const RegistrationView: React.FC = () => {
               {/* Form Content Area */}
               <div className="p-4 sm:p-5 lg:p-6 space-y-3.5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-3.5">
-                  {/* Full Name (with Non-Blocking Similar Name Advisory Check) */}
-                  <div>
-                    <label
-                      htmlFor="registration-fullname-input"
-                      className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
-                    >
-                      Full Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        id="registration-fullname-input"
-                        type="text"
-                        placeholder="Dr. / Prof. / Full Name"
-                        value={fullName}
-                        onChange={(e) => {
-                          setFullName(e.target.value);
-                          if (validationErrors.fullName) {
-                            setValidationErrors((prev) => ({ ...prev, fullName: '' }));
-                          }
-                        }}
-                        onBlur={() => {
-                          if (normalizePersonName(fullName).length >= 3) {
-                            void runNameAdvisoryCheck(fullName, effectiveInstitution);
-                          }
-                        }}
-                        className={`w-full h-[38px] sm:h-[40px] pl-3.5 pr-9 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
-                          validationErrors.fullName
-                            ? 'border-red-400 bg-red-50/20 focus:ring-red-500/20 focus:border-red-500'
-                            : nameAdvisoryStatus === 'same_name_and_institution' ||
-                              nameAdvisoryStatus === 'similar_name'
-                            ? 'border-amber-400 bg-amber-50/20 focus:ring-amber-500/20 focus:border-amber-500'
-                            : 'border-[#D8D2F8] focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
-                        }`}
-                      />
+                  {/* Title & Full Name (Separate Mandatory Fields, with Non-Blocking Similar Name Advisory Check) */}
+                  <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-[170px_1fr] gap-x-5 gap-y-3.5 items-start">
+                    <div>
+                      <label
+                        htmlFor="registration-title-select"
+                        className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                      >
+                        Title <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <select
+                          id="registration-title-select"
+                          value={title}
+                          onChange={(e) => {
+                            setTitle(e.target.value);
+                            if (validationErrors.title) {
+                              setValidationErrors((prev) => ({ ...prev, title: '' }));
+                            }
+                          }}
+                          className={`w-full h-[38px] sm:h-[40px] pl-3.5 pr-8 text-[14px] rounded-xl border bg-white/95 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] cursor-pointer appearance-none transition-colors ${
+                            validationErrors.title ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
+                          }`}
+                        >
+                          <option value="">Select Title</option>
+                          {PARTICIPANT_TITLE_OPTIONS.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs">
+                          ▼
+                        </div>
+                      </div>
+                      {validationErrors.title && (
+                        <span className="text-[11px] text-red-600 font-medium block mt-1">
+                          {validationErrors.title}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="registration-fullname-input"
+                        className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                      >
+                        Full Name <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="registration-fullname-input"
+                          type="text"
+                          placeholder="Enter full name"
+                          value={fullName}
+                          onChange={(e) => {
+                            setFullName(e.target.value);
+                            if (validationErrors.fullName) {
+                              setValidationErrors((prev) => ({ ...prev, fullName: '' }));
+                            }
+                          }}
+                          onBlur={() => {
+                            if (normalizePersonName(fullName).length >= 3) {
+                              void runNameAdvisoryCheck(fullName, effectiveInstitution);
+                            }
+                          }}
+                          className={`w-full h-[38px] sm:h-[40px] pl-3.5 pr-9 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
+                            validationErrors.fullName
+                              ? 'border-red-400 bg-red-50/20 focus:ring-red-500/20 focus:border-red-500'
+                              : nameAdvisoryStatus === 'same_name_and_institution' ||
+                                nameAdvisoryStatus === 'similar_name'
+                              ? 'border-amber-400 bg-amber-50/20 focus:ring-amber-500/20 focus:border-amber-500'
+                              : 'border-[#D8D2F8] focus:ring-[#713CE0]/20 focus:border-[#713CE0]'
+                          }`}
+                        />
                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                         {nameAdvisoryStatus === 'checking' && (
                           <RefreshCw className="w-4 h-4 text-[#713CE0] animate-spin" />
@@ -2001,6 +2231,7 @@ export const RegistrationView: React.FC = () => {
                         </div>
                       ) : null}
                     </div>
+                  </div>
                   </div>
 
                   {/* Email Address (with Real-Time Duplicate Check) */}
@@ -2200,34 +2431,240 @@ export const RegistrationView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Course / Designation */}
-                  <div>
-                    <label className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5">
-                      Course / Designation <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#713CE0]">
-                        <GraduationCap className="w-4 h-4" />
+                  {/* Course / Programme & Conditional Specialisation / Specify Degree */}
+                  <div className="space-y-3">
+                    <div>
+                      <label
+                        htmlFor="registration-course-select"
+                        className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                      >
+                        Course / Programme <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#713CE0]">
+                          <GraduationCap className="w-4 h-4" />
+                        </div>
+                        <select
+                          id="registration-course-select"
+                          value={course}
+                          onChange={(e) => handleCourseChange(e.target.value)}
+                          className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-8 text-[14px] rounded-xl border bg-white/95 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] cursor-pointer appearance-none transition-colors ${
+                            validationErrors.course ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
+                          }`}
+                        >
+                          <option value="">Select Course / Programme</option>
+                          {COURSE_PROGRAMME_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs">
+                          ▼
+                        </div>
                       </div>
-                      <input
-                        type="text"
-                        placeholder="e.g. M.Pharm Scholar / Assistant Professor"
-                        value={courseOrDesignation}
-                        onChange={(e) => {
-                          setCourseOrDesignation(e.target.value);
-                          if (validationErrors.courseOrDesignation) {
-                            setValidationErrors((prev) => ({ ...prev, courseOrDesignation: '' }));
-                          }
-                        }}
-                        className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] transition-colors ${
-                          validationErrors.courseOrDesignation ? 'border-red-400 bg-red-50/20' : 'border-[#D8D2F8]'
-                        }`}
-                      />
+                      {validationErrors.course && (
+                        <span className="text-[11px] text-red-600 font-medium block mt-1">
+                          {validationErrors.course}
+                        </span>
+                      )}
                     </div>
-                    {validationErrors.courseOrDesignation && (
-                      <span className="text-[11px] text-red-600 font-medium block mt-1">
-                        {validationErrors.courseOrDesignation}
-                      </span>
+
+                    {course === 'M.Pharm' && (
+                      <div className="animate-in fade-in duration-150">
+                        <label
+                          htmlFor="registration-specialisation-input"
+                          className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                        >
+                          Specialisation <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="registration-specialisation-input"
+                          type="text"
+                          placeholder="Enter specialisation"
+                          value={specialisation}
+                          onChange={(e) => {
+                            setSpecialisation(e.target.value);
+                            if (validationErrors.specialisation) {
+                              setValidationErrors((prev) => ({ ...prev, specialisation: '' }));
+                            }
+                          }}
+                          className={`w-full h-[38px] sm:h-[40px] px-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] transition-colors ${
+                            validationErrors.specialisation
+                              ? 'border-red-400 bg-red-50/20'
+                              : 'border-[#D8D2F8]'
+                          }`}
+                        />
+                        {validationErrors.specialisation && (
+                          <span className="text-[11px] text-red-600 font-medium block mt-1">
+                            {validationErrors.specialisation}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {course === 'Other Degrees' && (
+                      <div className="animate-in fade-in duration-150">
+                        <label
+                          htmlFor="registration-other-degree-input"
+                          className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                        >
+                          Specify Degree <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          id="registration-other-degree-input"
+                          type="text"
+                          placeholder="Enter degree name"
+                          value={otherDegree}
+                          onChange={(e) => {
+                            setOtherDegree(e.target.value);
+                            if (validationErrors.otherDegree) {
+                              setValidationErrors((prev) => ({ ...prev, otherDegree: '' }));
+                            }
+                          }}
+                          className={`w-full h-[38px] sm:h-[40px] px-3.5 text-[14px] rounded-xl border bg-white/95 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] transition-colors ${
+                            validationErrors.otherDegree
+                              ? 'border-red-400 bg-red-50/20'
+                              : 'border-[#D8D2F8]'
+                          }`}
+                        />
+                        {validationErrors.otherDegree && (
+                          <span className="text-[11px] text-red-600 font-medium block mt-1">
+                            {validationErrors.otherDegree}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Designation & Conditional Faculty Designation / Student Year of Study */}
+                  <div className="space-y-3">
+                    <div>
+                      <label
+                        htmlFor="registration-designation-select"
+                        className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                      >
+                        Designation <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#713CE0]">
+                          <Briefcase className="w-4 h-4" />
+                        </div>
+                        <select
+                          id="registration-designation-select"
+                          value={designation}
+                          onChange={(e) => handleDesignationChange(e.target.value)}
+                          className={`w-full h-[38px] sm:h-[40px] pl-9.5 pr-8 text-[14px] rounded-xl border bg-white/95 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] cursor-pointer appearance-none transition-colors ${
+                            validationErrors.designation
+                              ? 'border-red-400 bg-red-50/20'
+                              : 'border-[#D8D2F8]'
+                          }`}
+                        >
+                          <option value="">Select Designation</option>
+                          {DESIGNATION_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs">
+                          ▼
+                        </div>
+                      </div>
+                      {validationErrors.designation && (
+                        <span className="text-[11px] text-red-600 font-medium block mt-1">
+                          {validationErrors.designation}
+                        </span>
+                      )}
+                    </div>
+
+                    {designation === 'Faculty' && (
+                      <div className="animate-in fade-in duration-150">
+                        <label
+                          htmlFor="registration-faculty-designation-select"
+                          className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                        >
+                          Faculty Designation <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            id="registration-faculty-designation-select"
+                            value={facultyDesignation}
+                            onChange={(e) => {
+                              setFacultyDesignation(e.target.value);
+                              if (validationErrors.facultyDesignation) {
+                                setValidationErrors((prev) => ({
+                                  ...prev,
+                                  facultyDesignation: '',
+                                }));
+                              }
+                            }}
+                            className={`w-full h-[38px] sm:h-[40px] pl-3.5 pr-8 text-[14px] rounded-xl border bg-white/95 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] cursor-pointer appearance-none transition-colors ${
+                              validationErrors.facultyDesignation
+                                ? 'border-red-400 bg-red-50/20'
+                                : 'border-[#D8D2F8]'
+                            }`}
+                          >
+                            <option value="">Select Faculty Designation</option>
+                            {FACULTY_DESIGNATION_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs">
+                            ▼
+                          </div>
+                        </div>
+                        {validationErrors.facultyDesignation && (
+                          <span className="text-[11px] text-red-600 font-medium block mt-1">
+                            {validationErrors.facultyDesignation}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {showStudentYearOfStudy && (
+                      <div className="animate-in fade-in duration-150">
+                        <label
+                          htmlFor="registration-year-select"
+                          className="text-[13px] sm:text-[14px] font-semibold text-[#1A1D4E] block mb-1.5"
+                        >
+                          Year of Study <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            id="registration-year-select"
+                            value={yearOfStudy}
+                            onChange={(e) => {
+                              setYearOfStudy(e.target.value);
+                              if (validationErrors.yearOfStudy) {
+                                setValidationErrors((prev) => ({ ...prev, yearOfStudy: '' }));
+                              }
+                            }}
+                            className={`w-full h-[38px] sm:h-[40px] pl-3.5 pr-8 text-[14px] rounded-xl border bg-white/95 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#713CE0]/20 focus:border-[#713CE0] cursor-pointer appearance-none transition-colors ${
+                              validationErrors.yearOfStudy
+                                ? 'border-red-400 bg-red-50/20'
+                                : 'border-[#D8D2F8]'
+                            }`}
+                          >
+                            <option value="">Select Year of Study</option>
+                            {availableYearOptions.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400 text-xs">
+                            ▼
+                          </div>
+                        </div>
+                        {validationErrors.yearOfStudy && (
+                          <span className="text-[11px] text-red-600 font-medium block mt-1">
+                            {validationErrors.yearOfStudy}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
 

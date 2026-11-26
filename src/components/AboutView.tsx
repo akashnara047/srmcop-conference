@@ -1,5 +1,6 @@
 import React from 'react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 import {
   Info,
   Target,
@@ -172,11 +173,17 @@ const INSTITUTIONAL_ACHIEVEMENTS = [
 export const AboutView: React.FC<AboutViewProps> = () => {
   return (
     <div
-      className="w-full bg-[#FAF8FF] bg-cover bg-center bg-no-repeat min-h-screen relative overflow-x-hidden py-6 sm:py-8 lg:py-10"
-      style={{
-        backgroundImage: `url(${IMAGES.aboutConferencePageBg})`,
-      }}
+      className="w-full bg-[#FAF8FF] min-h-screen relative overflow-x-hidden py-6 sm:py-8 lg:py-10"
     >
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <OptimizedPicture
+          src={IMAGES.aboutConferencePageBg}
+          alt=""
+          className="w-full h-full object-cover object-center"
+          sizes="100vw"
+          loading="eager"
+        />
+      </div>
       {/* =====================================================================
           RESPONSIVE CONTENT CONTAINER
          ===================================================================== */}
@@ -284,10 +291,13 @@ export const AboutView: React.FC<AboutViewProps> = () => {
                   className="relative w-full max-w-[260px] sm:max-w-none aspect-[2/3] sm:aspect-auto sm:h-full sm:max-h-[375px] overflow-hidden rounded-l-[22px] bg-[#082B84] shadow-sm"
                   style={{ clipPath: 'url(#aboutAiVisualOrganicCurve)' }}
                 >
-                  <img
+                  <OptimizedPicture
                     src={IMAGES.aboutConferenceAiVisual}
                     alt="Artificial intelligence in pharmaceutical research featuring AI chip, capsule, and DNA helix"
                     className="w-full h-full object-cover object-[18%_center]"
+                    sizes="(max-width: 640px) 260px, 360px"
+                    loading="eager"
+                    fetchPriority="high"
                   />
                   {/* Subtle right-edge cyan/lavender translucent rim blend */}
                   <div
@@ -448,18 +458,22 @@ export const AboutView: React.FC<AboutViewProps> = () => {
             <div className="grid grid-cols-1 lg:grid-cols-[42fr_58fr] gap-5 lg:gap-6 items-stretch">
               {/* Left Column – Large Landscape Campus Photograph with Identity Overlay */}
               <div className="relative rounded-2xl overflow-hidden border border-slate-200/80 bg-slate-100 aspect-[16/10] sm:aspect-[16/9] lg:aspect-auto lg:min-h-[260px]">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmPharmacyBuilding}
                   alt="SRM College of Pharmacy, SRMIST, Kattankulathur"
                   className="w-full h-full lg:absolute lg:inset-0 object-cover object-center"
+                  sizes="(max-width: 1024px) 100vw, 42vw"
+                  loading="lazy"
                 />
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#082746]/90 via-[#082746]/50 to-transparent p-3.5 sm:p-4">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white p-1 shrink-0 shadow-xs flex items-center justify-center">
-                      <img
+                      <OptimizedPicture
                         src={IMAGES.srmPharmacyLogo}
                         alt="SRM College of Pharmacy Logo"
                         className="w-full h-full object-contain"
+                        sizes="40px"
+                        loading="lazy"
                       />
                     </div>
                     <div className="text-white leading-tight min-w-0">
@@ -544,10 +558,11 @@ export const AboutView: React.FC<AboutViewProps> = () => {
                   className={`rounded-2xl border p-3.5 sm:px-4 sm:py-3.5 flex items-center gap-3.5 shadow-2xs transition-all hover:shadow-sm hover:border-[#7554D9]/45 ${item.tileClass}`}
                 >
                   <div className="w-14 h-12 rounded-xl bg-white border border-slate-200/80 p-1.5 flex items-center justify-center shrink-0 shadow-2xs">
-                    <img
+                    <OptimizedPicture
                       src={item.logo}
                       alt={item.logoAlt}
                       className="max-h-full max-w-full object-contain"
+                      sizes="56px"
                       loading="lazy"
                     />
                   </div>
@@ -654,11 +669,13 @@ export const AboutView: React.FC<AboutViewProps> = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
               {/* Left Column: Verified INTI International University Campus Photo & Official Logo */}
               <div className="lg:col-span-5 relative rounded-2xl overflow-hidden border border-slate-200/80 bg-[#F8FAFD] min-h-[240px] sm:min-h-[280px]">
-                <img
+                <OptimizedPicture
                   src={IMAGES.intiCampusPhoto}
                   alt="INTI International University campus in Putra Nilai, Negeri Sembilan, Malaysia"
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover object-center"
+                  sizes="(max-width: 1024px) 100vw, 42vw"
+                  loading="lazy"
                 />
                 <div className="absolute top-3 left-3 w-10 h-10 rounded-xl bg-white/95 p-1.5 shadow-xs border border-slate-200/80 flex items-center justify-center">
                   <svg
@@ -750,10 +767,12 @@ export const AboutView: React.FC<AboutViewProps> = () => {
           <div className="bg-white/95 backdrop-blur-sm rounded-3xl border border-[#DDD6FE]/85 shadow-sm p-5 sm:p-7 lg:p-8">
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
               <div className="md:col-span-4 rounded-2xl bg-[#F8FAFD] border border-slate-200/80 p-6 flex items-center justify-center">
-                <img
+                <OptimizedPicture
                   src={IMAGES.ipaOfficialLogo}
                   alt="The Indian Pharmaceutical Association (IPA)"
                   className="max-h-24 w-auto max-w-full object-contain"
+                  sizes="260px"
+                  loading="lazy"
                 />
               </div>
 
@@ -834,11 +853,12 @@ export const AboutView: React.FC<AboutViewProps> = () => {
                   Professional Association
                 </span>
                 <div className="flex items-center">
-                  <img
+                  <OptimizedPicture
                     src={IMAGES.ipaOfficialLogo}
                     alt="The Indian Pharmaceutical Association (IPA) - ...CRUSADE FOR THE PROFESSION"
                     className="h-10 sm:h-12 w-auto max-w-[220px] sm:max-w-[250px] object-contain"
-                    loading="eager"
+                    sizes="250px"
+                    loading="lazy"
                   />
                 </div>
               </div>

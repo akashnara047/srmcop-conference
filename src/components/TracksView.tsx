@@ -1,6 +1,7 @@
 import React from 'react';
 import { SCIENTIFIC_TRACKS } from '../data/conferenceData';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 import { Layers, ArrowRight } from 'lucide-react';
 
 interface TracksViewProps {
@@ -15,60 +16,66 @@ const TrackIllustration: React.FC<{ trackNumber: string; className?: string }> =
   switch (trackNumber) {
     case '01':
       return (
-        <img
-          src="/images/tracks/pharmaceutics-transparent.png"
+        <OptimizedPicture
+          src={IMAGES.track01Pharmaceutics}
           alt="Pharmaceutical Technology & Pharmaceutics"
           className={className}
+          sizes="240px"
           loading="lazy"
         />
       );
 
     case '02':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track02Pharmacology}
           alt="Pharmacology & Experimental Therapeutics"
           className={className}
+          sizes="240px"
           loading="lazy"
         />
       );
 
     case '03':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track03PharmaceuticalChemistry}
           alt="Pharmaceutical Chemistry & Drug Discovery"
           className={className}
+          sizes="240px"
           loading="lazy"
         />
       );
 
     case '04':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track04PharmaceuticalAnalysis}
           alt="Pharmaceutical Analysis & Analytical Technologies"
           className={className}
+          sizes="240px"
           loading="lazy"
         />
       );
 
     case '05':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track05PharmacyPractice}
           alt="Pharmacy Practice & Clinical Pharmacy"
           className={className}
+          sizes="240px"
           loading="lazy"
         />
       );
 
     case '06':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track06Pharmacognosy}
           alt="Pharmacognosy & Natural Product Research"
           className={className}
+          sizes="240px"
           loading="lazy"
         />
       );
@@ -76,10 +83,11 @@ const TrackIllustration: React.FC<{ trackNumber: string; className?: string }> =
     case '07':
     default:
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track07RegulatoryQuality}
           alt="Regulatory Affairs & Pharmaceutical Quality Assurance"
           className={className}
+          sizes="240px"
           loading="lazy"
         />
       );
@@ -151,11 +159,17 @@ const TRACK_CARD_STYLES: Record<
 export const TracksView: React.FC<TracksViewProps> = ({ onNavigate }) => {
   return (
     <div
-      className="w-full min-h-[calc(100svh-4.5rem)] relative overflow-hidden bg-[#EEF2FF] bg-cover bg-center bg-no-repeat"
-      style={{
-        backgroundImage: `url(${IMAGES.tracksPageBg})`,
-      }}
+      className="w-full min-h-[calc(100svh-4.5rem)] relative overflow-hidden bg-[#EEF2FF]"
     >
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <OptimizedPicture
+          src={IMAGES.tracksPageBg}
+          alt=""
+          className="w-full h-full object-cover object-center"
+          sizes="100vw"
+          loading="eager"
+        />
+      </div>
       {/* =====================================================================
           MAIN CONTENT AREA
          ===================================================================== */}

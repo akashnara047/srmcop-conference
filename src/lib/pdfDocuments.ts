@@ -6,6 +6,10 @@ import {
   classifyParticipationMode,
   formatFoodPreferenceDisplay,
 } from './presentationDashboardStats';
+import {
+  formatParticipantDisplayName,
+  getParticipantStructuredDetailRows,
+} from './participantFields';
 import { INTI_LOGO, PdfLogoAsset, SRMIST_LOGO, SRM_PHARMACY_LOGO } from './pdfLogos';
 import { drawCommonPageBackground } from './pdfBackground';
 
@@ -805,7 +809,12 @@ function buildRegistrationPdfInternal(
     doc.text('AWAITING PAYMENT VERIFICATION', badgeX + 11.8, badgeY + 9.7);
   }
 
-  currentY += highlightH + (isConfirmedStage ? 4.5 : 3.2);
+  const participantNameDisplay = formatParticipantDisplayName(reg, 'Not Available');
+  const structuredParticipantRows = getParticipantStructuredDetailRows(reg);
+  const useCompactCardSpacing = structuredParticipantRows.length > 1;
+  const cardGap = useCompactCardSpacing ? 3.0 : isConfirmedStage ? 4.5 : 3.2;
+
+  currentY += highlightH + cardGap;
 
   // Helper to render a two-tone section card matching the Registration Confirmation mockup
   interface CardRow {
@@ -818,7 +827,7 @@ function buildRegistrationPdfInternal(
     title: string,
     drawIcon: (pdf: jsPDF, cx: number, cy: number) => void,
     rows: CardRow[],
-    minHeight = isConfirmedStage ? 32 : 26
+    minHeight = useCompactCardSpacing ? 25 : isConfirmedStage ? 32 : 26
   ) => {
     const iconColW = 24;
     const innerLeft = MARGIN_X + iconColW + 5;
@@ -827,26 +836,30 @@ function buildRegistrationPdfInternal(
     const valueX = colonX + 4;
     const valueMaxW = MARGIN_X + CONTENT_WIDTH - valueX - 5;
 
+    const isDenseRows = useCompactCardSpacing || rows.length > 5;
+    const fontSize = isDenseRows ? 8.8 : 9.2;
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.2);
+    doc.setFontSize(fontSize);
 
     // Pre-calculate row heights for dynamic vertical fit
-    const lineH = isConfirmedStage ? 4.4 : 4.1;
+    const lineH = isDenseRows ? 3.8 : isConfirmedStage ? 4.4 : 4.1;
+    const minRowH = isDenseRows ? 4.7 : isConfirmedStage ? 5.8 : 5.2;
+    const extraLinePad = isDenseRows ? 1.0 : isConfirmedStage ? 1.6 : 1.2;
     const computedRows = rows.map((row) => {
       if (row.customRenderer) {
-        return { row, lines: [] as string[], height: isConfirmedStage ? 7.2 : 6.2 };
+        return { row, lines: [] as string[], height: isDenseRows ? 5.8 : isConfirmedStage ? 7.2 : 6.2 };
       }
       const wrapped = doc.splitTextToSize(sanitizePdfText(row.value) || 'Not Available', valueMaxW);
       return {
         row,
         lines: wrapped,
-        height: Math.max(wrapped.length * lineH + (isConfirmedStage ? 1.6 : 1.2), isConfirmedStage ? 5.8 : 5.2),
+        height: Math.max(wrapped.length * lineH + extraLinePad, minRowH),
       };
     });
 
     const totalBodyH = computedRows.reduce((sum, item) => sum + item.height, 0);
-    const cardHeaderOffset = isConfirmedStage ? 11.5 : 10.2;
-    const cardBottomPad = isConfirmedStage ? 3.5 : 2.3;
+    const cardHeaderOffset = isDenseRows ? 9.8 : isConfirmedStage ? 11.5 : 10.2;
+    const cardBottomPad = isDenseRows ? 1.6 : isConfirmedStage ? 3.5 : 2.3;
     const cardH = Math.max(minHeight, cardHeaderOffset + totalBodyH + cardBottomPad);
 
     // Ensure card never overlaps footer
@@ -871,19 +884,19 @@ function buildRegistrationPdfInternal(
     drawIcon(doc, MARGIN_X + iconColW / 2, currentY + cardH / 2);
 
     // Header strip inside right area
-    const stripH = isConfirmedStage ? 8.2 : 7.5;
+    const stripH = isDenseRows ? 7.2 : isConfirmedStage ? 8.2 : 7.5;
     doc.setFillColor(235, 239, 253);
     doc.rect(MARGIN_X + iconColW + 0.2, currentY + 0.2, CONTENT_WIDTH - iconColW - 0.5, stripH, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(isConfirmedStage ? 10.2 : 9.9);
+    doc.setFontSize(isDenseRows ? 9.8 : isConfirmedStage ? 10.2 : 9.9);
     doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
-    doc.text(title, innerLeft, currentY + (isConfirmedStage ? 5.7 : 5.2));
+    doc.text(title, innerLeft, currentY + (isDenseRows ? 5.0 : isConfirmedStage ? 5.7 : 5.2));
 
     // Render rows
-    let ry = currentY + (isConfirmedStage ? 13.5 : 12.1);
+    let ry = currentY + (isDenseRows ? 11.4 : isConfirmedStage ? 13.5 : 12.1);
     for (const item of computedRows) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.2);
+      doc.setFontSize(fontSize);
       doc.setTextColor(COLORS.slateDark[0], COLORS.slateDark[1], COLORS.slateDark[2]);
       doc.text(item.row.label, innerLeft, ry);
       doc.text(':', colonX, ry);
@@ -892,7 +905,7 @@ function buildRegistrationPdfInternal(
         item.row.customRenderer(valueX, ry);
       } else {
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9.2);
+        doc.setFontSize(fontSize);
         doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
         doc.text(item.lines, valueX, ry);
       }
@@ -900,15 +913,17 @@ function buildRegistrationPdfInternal(
       ry += item.height;
     }
 
-    currentY += cardH + (isConfirmedStage ? 4.5 : 3.2);
+    currentY += cardH + cardGap;
   };
 
   // 1. Participant Details Card
   renderSectionCard('Participant Details', drawIconUser, [
-    { label: 'Full Name', value: reg.fullName || 'Not Available' },
+    { label: 'Full Name', value: participantNameDisplay },
     { label: 'Email', value: reg.email || 'Not Available' },
     { label: 'Affiliation', value: reg.institution || 'Not Available' },
-    { label: 'Designation', value: reg.courseOrDesignation || 'Not Specified' },
+    ...(structuredParticipantRows.length > 0
+      ? structuredParticipantRows
+      : [{ label: 'Designation', value: 'Not Specified' }]),
   ]);
 
   // 2. Registration Details Card

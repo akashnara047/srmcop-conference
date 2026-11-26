@@ -19,6 +19,7 @@ import {
   VIRTUAL_PARTICIPATION_MODE,
   normalizeFoodPreferenceValue,
 } from './presentationDashboardStats';
+import { isYearOfStudyApplicable } from './participantFields';
 import {
   generateRegistrationSubmissionReceiptPDF,
   createRegistrationSubmissionReceiptPreviewUrl,
@@ -63,6 +64,7 @@ import {
 export interface RegistrationRecord {
   id: string; // Document ID (e.g. REG-...)
   registrationId?: string | null; // Official sequential ID: AICONDD001
+  title?: string;
   fullName: string;
   normalizedFullName?: string;
   nameAdvisoryKey?: string;
@@ -74,6 +76,12 @@ export interface RegistrationRecord {
   mobile: string;
   normalizedMobile?: string;
   mobileReservationKey?: string;
+  course?: string;
+  specialisation?: string;
+  otherDegree?: string;
+  designation?: string;
+  facultyDesignation?: string;
+  yearOfStudy?: string;
   courseOrDesignation?: string;
   institution: string;
   institutionCategory?: 'internal' | 'external' | null;
@@ -214,9 +222,25 @@ export interface AbstractRecord {
 export async function submitConferenceRegistration(
   registrationData: Omit<RegistrationRecord, 'id' | 'registrationId' | 'createdAt'>
 ): Promise<{ regDoc: RegistrationRecord; regId: string }> {
+  const trimmedTitle = (registrationData.title || '').trim();
   const trimmedName = (registrationData.fullName || '').trim().replace(/\s+/g, ' ');
   const trimmedEmail = (registrationData.email || '').trim();
   const trimmedMobile = (registrationData.mobile || '').trim();
+  const trimmedCourse = (registrationData.course || '').trim();
+  const trimmedSpecialisation =
+    trimmedCourse === 'M.Pharm'
+      ? (registrationData.specialisation || '').trim().replace(/\s+/g, ' ')
+      : '';
+  const trimmedOtherDegree =
+    trimmedCourse === 'Other Degrees'
+      ? (registrationData.otherDegree || '').trim().replace(/\s+/g, ' ')
+      : '';
+  const trimmedDesignation = (registrationData.designation || '').trim();
+  const trimmedFacultyDesignation =
+    trimmedDesignation === 'Faculty' ? (registrationData.facultyDesignation || '').trim() : '';
+  const trimmedYearOfStudy = isYearOfStudyApplicable(trimmedDesignation, trimmedCourse)
+    ? (registrationData.yearOfStudy || '').trim()
+    : '';
   const trimmedInstitution = (registrationData.institution || '').trim().replace(/\s+/g, ' ');
   const trimmedUtr = (registrationData.transactionReference || '').trim();
   const trimmedCategory = (registrationData.category || '').trim();
@@ -423,6 +447,13 @@ export async function submitConferenceRegistration(
         duplicateUtrExceptionApprovedAt: _ignoredDupAt,
         dietaryPreference: _ignoredRawDietaryPreference,
         modeOfParticipation: _ignoredRawModeOfParticipation,
+        title: _ignoredRawTitle,
+        course: _ignoredRawCourse,
+        specialisation: _ignoredRawSpecialisation,
+        otherDegree: _ignoredRawOtherDegree,
+        designation: _ignoredRawDesignation,
+        facultyDesignation: _ignoredRawFacultyDesignation,
+        yearOfStudy: _ignoredRawYearOfStudy,
         ...safeRegistrationData
       } = registrationData;
 
@@ -433,6 +464,7 @@ export async function submitConferenceRegistration(
         ...(isVirtualRegistration
           ? {}
           : { dietaryPreference: normalizedDietaryPref || undefined }),
+        ...(trimmedTitle ? { title: trimmedTitle } : {}),
         fullName: trimmedName,
         ...(normalizedFullName ? { normalizedFullName } : {}),
         ...(nameAdvisoryKey ? { nameAdvisoryKey } : {}),
@@ -444,6 +476,12 @@ export async function submitConferenceRegistration(
         mobile: trimmedMobile,
         normalizedMobile,
         mobileReservationKey: mobileKey,
+        ...(trimmedCourse ? { course: trimmedCourse } : {}),
+        ...(trimmedSpecialisation ? { specialisation: trimmedSpecialisation } : {}),
+        ...(trimmedOtherDegree ? { otherDegree: trimmedOtherDegree } : {}),
+        ...(trimmedDesignation ? { designation: trimmedDesignation } : {}),
+        ...(trimmedFacultyDesignation ? { facultyDesignation: trimmedFacultyDesignation } : {}),
+        ...(trimmedYearOfStudy ? { yearOfStudy: trimmedYearOfStudy } : {}),
         institution: trimmedInstitution,
         transactionReference: trimmedUtr,
         normalizedTransactionReference: normalizedUtr,
@@ -1625,11 +1663,21 @@ export function exportRegistrationsToExcel(registrations: RegistrationRecord[], 
   const data = registrations.map((r) => ({
     'Official Reg ID': r.registrationId || 'Pending Verification',
     'Application Ref': r.id,
+    'Title': r.title || '',
     'Participant Name': r.fullName,
     'Email Address': r.email,
     'Mobile Number': r.mobile,
     'Category': r.category + (r.otherCategoryDescription ? ` (${r.otherCategoryDescription})` : ''),
     'Course / Designation': r.courseOrDesignation || '',
+    'Course / Programme': r.course || '',
+    'Specialisation': r.course === 'M.Pharm' ? (r.specialisation || '') : '',
+    'Other Degree': r.course === 'Other Degrees' ? (r.otherDegree || '') : '',
+    'Designation': r.designation || '',
+    'Faculty Designation': r.designation === 'Faculty' ? (r.facultyDesignation || '') : '',
+    'Year of Study':
+      r.designation === 'Student' && isYearOfStudyApplicable(r.designation, r.course)
+        ? (r.yearOfStudy || '')
+        : '',
     'Institution Category': formatExcelInstitutionCategory(r.institutionCategory),
     'Institution / University': r.institution || '',
     'City': r.city || '',
@@ -1729,9 +1777,19 @@ export function exportMasterParticipantsToExcel(
     const linkedAbs = regKey ? abstractMap.get(regKey) : null;
     return {
       'Registration ID': reg.registrationId || 'Pending Verification',
+      'Title': reg.title || '',
       'Delegate Name': reg.fullName,
       'Email': reg.email,
       'Mobile': reg.mobile,
+      'Course / Programme': reg.course || '',
+      'Specialisation': reg.course === 'M.Pharm' ? (reg.specialisation || '') : '',
+      'Other Degree': reg.course === 'Other Degrees' ? (reg.otherDegree || '') : '',
+      'Designation': reg.designation || '',
+      'Faculty Designation': reg.designation === 'Faculty' ? (reg.facultyDesignation || '') : '',
+      'Year of Study':
+        reg.designation === 'Student' && isYearOfStudyApplicable(reg.designation, reg.course)
+          ? (reg.yearOfStudy || '')
+          : '',
       'Institution Category': formatExcelInstitutionCategory(reg.institutionCategory),
       'Institution': reg.institution,
       'Category': reg.category,

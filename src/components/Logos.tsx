@@ -1,5 +1,6 @@
 import React from 'react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 
 export const SRMISTLogo: React.FC<{ className?: string; inverted?: boolean; showText?: boolean }> = ({
   className = 'h-9 sm:h-10',
@@ -9,10 +10,11 @@ export const SRMISTLogo: React.FC<{ className?: string; inverted?: boolean; show
   return (
     <div className={`flex items-center gap-2 shrink-0 ${className}`}>
       <div className={`h-full flex items-center justify-center shrink-0 ${inverted ? 'bg-white px-2 py-0.5 rounded-xs shadow-2xs' : ''}`}>
-        <img
+        <OptimizedPicture
           src={IMAGES.srmistLogo}
           alt="SRM Institute of Science and Technology"
           className="h-7 sm:h-8 md:h-9 w-auto max-w-[130px] sm:max-w-[160px] object-contain shrink-0"
+          sizes="(max-width: 640px) 130px, 160px"
           loading="eager"
         />
       </div>
@@ -38,10 +40,11 @@ export const SRMPharmacyLogo: React.FC<{ className?: string; inverted?: boolean;
   return (
     <div className={`flex items-center gap-2 shrink-0 ${className}`}>
       <div className={`h-8 w-8 sm:h-9 sm:w-9 aspect-square flex items-center justify-center shrink-0 ${inverted ? 'bg-white p-0.5 rounded-full shadow-2xs' : ''}`}>
-        <img
+        <OptimizedPicture
           src={IMAGES.srmPharmacyLogo}
           alt="SRM College of Pharmacy"
           className="h-full w-full object-contain shrink-0"
+          sizes="40px"
           loading="eager"
         />
       </div>
@@ -88,10 +91,12 @@ export const IPALogo: React.FC<{
   className?: string;
   imgClassName?: string;
   inverted?: boolean;
+  loading?: 'eager' | 'lazy';
 }> = ({
   className = '',
   imgClassName = 'h-7 sm:h-8 md:h-9 w-auto',
   inverted = false,
+  loading = 'eager',
 }) => {
   return (
     <div
@@ -100,25 +105,29 @@ export const IPALogo: React.FC<{
       } ${className}`}
       title="The Indian Pharmaceutical Association (IPA) - ...CRUSADE FOR THE PROFESSION"
     >
-      <img
+      <OptimizedPicture
         src={IMAGES.ipaOfficialLogo}
         alt="The Indian Pharmaceutical Association (IPA) - ...CRUSADE FOR THE PROFESSION"
         className={`object-contain max-w-full ${imgClassName}`}
-        loading="eager"
+        sizes="220px"
+        loading={loading}
       />
     </div>
   );
 };
 
 // Recognition 1: NIRF
-export const NIRFLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const NIRFLogo: React.FC<{ className?: string; loading?: 'eager' | 'lazy' }> = ({
+  className = '',
+  loading = 'eager',
+}) => {
   return (
     <div className={`flex items-center gap-2 xl:gap-2.5 shrink-0 ${className}`}>
-      <img
+      <OptimizedPicture
         src={IMAGES.nirfLogo}
         alt="NIRF - National Institutional Ranking Framework"
         className="h-8 xl:h-9 w-auto max-w-[54px] xl:max-w-[64px] object-contain shrink-0"
-        loading="lazy"
+        loading={loading}
       />
       <div className="flex flex-col text-left leading-tight">
         <span className="text-[9.5px] xl:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
@@ -136,14 +145,17 @@ export const NIRFLogo: React.FC<{ className?: string }> = ({ className = '' }) =
 };
 
 // Recognition 2: QCI
-export const QCILogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const QCILogo: React.FC<{ className?: string; loading?: 'eager' | 'lazy' }> = ({
+  className = '',
+  loading = 'eager',
+}) => {
   return (
     <div className={`flex items-center gap-2 xl:gap-2.5 shrink-0 ${className}`}>
-      <img
+      <OptimizedPicture
         src={IMAGES.qciLogo}
         alt="QCI - Quality Council of India"
         className="h-8 xl:h-9 w-auto max-w-[58px] xl:max-w-[68px] object-contain shrink-0"
-        loading="lazy"
+        loading={loading}
       />
       <div className="flex flex-col text-left leading-tight">
         <span className="text-[9.5px] xl:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
@@ -158,14 +170,18 @@ export const QCILogo: React.FC<{ className?: string }> = ({ className = '' }) =>
 };
 
 // Recognition 4: NAAC A++ Accreditation
-export const NAACLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const NAACLogo: React.FC<{ className?: string; loading?: 'eager' | 'lazy' }> = ({
+  className = '',
+  loading = 'eager',
+}) => {
   return (
     <div className={`flex items-center gap-2 xl:gap-2.5 shrink-0 ${className}`}>
-      <img
+      <OptimizedPicture
         src={IMAGES.naacLogo}
         alt="NAAC A++ Accredited - Highest Grade"
         className="h-7 xl:h-8 w-auto max-w-[58px] xl:max-w-[70px] object-contain shrink-0"
-        loading="lazy"
+        sizes="70px"
+        loading={loading}
       />
       <div className="flex flex-col text-left leading-tight">
         <span className="text-[9.5px] xl:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
@@ -183,14 +199,18 @@ export const NAACLogo: React.FC<{ className?: string }> = ({ className = '' }) =
 };
 
 // Recognition 3: NBA Accreditation
-export const NBALogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const NBALogo: React.FC<{ className?: string; loading?: 'eager' | 'lazy' }> = ({
+  className = '',
+  loading = 'eager',
+}) => {
   return (
     <div className={`flex items-center gap-2 xl:gap-2.5 shrink-0 ${className}`}>
-      <img
+      <OptimizedPicture
         src={IMAGES.nbaLogo}
         alt="NBA - National Board of Accreditation"
         className="h-8 xl:h-9 w-auto max-w-[38px] xl:max-w-[44px] object-contain shrink-0"
-        loading="lazy"
+        sizes="44px"
+        loading={loading}
       />
       <div className="flex flex-col text-left leading-tight">
         <span className="text-[9.5px] xl:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
@@ -208,14 +228,18 @@ export const NBALogo: React.FC<{ className?: string }> = ({ className = '' }) =>
 };
 
 // Recognition 5: QS World Rankings
-export const QSWorldRankingLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const QSWorldRankingLogo: React.FC<{ className?: string; loading?: 'eager' | 'lazy' }> = ({
+  className = '',
+  loading = 'eager',
+}) => {
   return (
     <div className={`flex items-center gap-2 xl:gap-2.5 shrink-0 ${className}`}>
-      <img
+      <OptimizedPicture
         src={IMAGES.qsWorldRankingLogo}
         alt="QS World University Rankings by Subject 2026"
         className="h-8 xl:h-9 w-auto max-w-[44px] xl:max-w-[52px] object-contain shrink-0 rounded-xs shadow-2xs"
-        loading="lazy"
+        sizes="52px"
+        loading={loading}
       />
       <div className="flex flex-col text-left leading-tight">
         <span className="text-[9.5px] xl:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">
@@ -233,14 +257,18 @@ export const QSWorldRankingLogo: React.FC<{ className?: string }> = ({ className
 };
 
 // Recognition 6: QS I-GAUGE
-export const QSIGaugeLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const QSIGaugeLogo: React.FC<{ className?: string; loading?: 'eager' | 'lazy' }> = ({
+  className = '',
+  loading = 'eager',
+}) => {
   return (
     <div className={`flex items-center gap-2 xl:gap-2.5 shrink-0 ${className}`}>
-      <img
+      <OptimizedPicture
         src={IMAGES.qsIGaugeLogo}
         alt="QS I-GAUGE Platinum Rating"
         className="h-8 xl:h-9 w-auto max-w-[44px] xl:max-w-[52px] object-contain shrink-0 rounded-xs shadow-2xs"
-        loading="lazy"
+        sizes="52px"
+        loading={loading}
       />
       <div className="flex flex-col text-left leading-tight">
         <span className="text-[9.5px] xl:text-[10.5px] text-slate-500 font-semibold tracking-wide uppercase font-['Inter',sans-serif]">

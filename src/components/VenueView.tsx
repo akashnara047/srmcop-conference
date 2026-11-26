@@ -10,6 +10,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 
 export const VenueView: React.FC = () => {
   return (
@@ -20,10 +21,13 @@ export const VenueView: React.FC = () => {
       <section className="relative w-full overflow-hidden bg-[#081B38] text-white">
         {/* Background Aerial Campus Photograph */}
         <div className="absolute inset-0 w-full h-full">
-          <img
+          <OptimizedPicture
             src={IMAGES.srmistCampusAerial}
             alt="SRMIST Kattankulathur Campus Aerial Panorama"
             className="w-full h-full object-cover object-center scale-105"
+            sizes="100vw"
+            loading="eager"
+            fetchPriority="high"
           />
           {/* Deep Navy Gradient Scrim Overlay for high legibility */}
           <div className="absolute inset-0 bg-gradient-to-r from-[#081B38]/95 via-[#0A2246]/85 to-transparent sm:to-black/30" />
@@ -94,10 +98,12 @@ export const VenueView: React.FC = () => {
             <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3.5">
               {/* Exact Auditorium Photograph Uploaded by User */}
               <div className="relative w-full h-56 sm:h-64 lg:h-[280px] rounded-xl overflow-hidden border border-slate-200/90 shadow-2xs bg-slate-100">
-                <img
+                <OptimizedPicture
                   src="/assets/aistudio/image_e62a06de.png"
                   alt="Dr. T. P. Ganesan Auditorium - SRM Institute of Science and Technology, Kattankulathur"
                   className="w-full h-full object-cover object-center hover:scale-102 transition-transform duration-300"
+                  sizes="(max-width: 1024px) 100vw, 50vw"
+                  loading="eager"
                 />
               </div>
 

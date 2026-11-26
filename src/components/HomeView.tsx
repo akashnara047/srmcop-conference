@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 import {
   CONFERENCE_INFO,
   SCIENTIFIC_TRACKS,
@@ -13,7 +14,7 @@ import {
   Mic, Presentation, Handshake, Star, ArrowUp, ExternalLink, Shield, Clock,
   Trophy, Lightbulb, Target, X, Mail, FlaskConical, TrendingUp, Info,
   Layers, Pill, Microscope, GraduationCap, UserPlus, Download, BookOpen,
-  UserCheck, ClipboardCheck, Bell
+  UserCheck, ClipboardCheck, Bell, Globe, Landmark
 } from 'lucide-react';
 import {
   SRMISTLogo, SRMPharmacyLogo, INTILogo, IPALogo,
@@ -173,17 +174,21 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           <div className="w-full pt-1 space-y-3.5 sm:space-y-4">
             {/* Mobile (<768px): Upper-left and upper-right logos row */}
             <div className="flex md:hidden items-center justify-between w-full">
-              <img
+              <OptimizedPicture
                 src={IMAGES.srmistLogo}
                 alt="SRM Institute of Science and Technology"
                 className="h-10 sm:h-12 w-auto object-contain [filter:drop-shadow(0_0_5px_rgba(255,255,255,0.92))_drop-shadow(0_1px_5px_rgba(255,255,255,0.65))]"
+                sizes="(max-width: 640px) 130px, 160px"
                 loading="eager"
+                fetchPriority="high"
               />
-              <img
+              <OptimizedPicture
                 src={IMAGES.srmPharmacyLogo}
                 alt="SRM College of Pharmacy Official Crest"
                 className="h-12 w-12 sm:h-14 sm:w-14 object-contain [filter:drop-shadow(0_0_5px_rgba(255,255,255,0.9))_drop-shadow(0_1px_5px_rgba(255,255,255,0.6))]"
+                sizes="60px"
                 loading="eager"
+                fetchPriority="high"
               />
             </div>
 
@@ -191,11 +196,13 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-start md:gap-4 lg:gap-8">
               {/* Extreme Upper-Left: Authentic Transparent SRMIST Logo */}
               <div className="hidden md:flex items-center justify-start">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmistLogo}
                   alt="SRM Institute of Science and Technology"
                   className="h-14 lg:h-[66px] w-auto object-contain [filter:drop-shadow(0_0_6px_rgba(255,255,255,0.92))_drop-shadow(0_1px_6px_rgba(255,255,255,0.65))]"
+                  sizes="160px"
                   loading="eager"
+                  fetchPriority="high"
                 />
               </div>
 
@@ -225,11 +232,13 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
 
               {/* Extreme Upper-Right: Authentic Transparent SRM College of Pharmacy Crest */}
               <div className="hidden md:flex items-center justify-end">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmPharmacyLogo}
                   alt="SRM College of Pharmacy Official Crest"
                   className="h-[64px] w-[64px] lg:h-[76px] lg:w-[76px] object-contain hover:scale-105 transition-transform [filter:drop-shadow(0_0_6px_rgba(255,255,255,0.9))_drop-shadow(0_1px_6px_rgba(255,255,255,0.6))]"
+                  sizes="80px"
                   loading="eager"
+                  fetchPriority="high"
                 />
               </div>
             </div>
@@ -421,14 +430,18 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Bottom CTA: "View Speakers & Programme →"
          ========================================================================= */}
       <section
-        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-cover bg-center bg-no-repeat"
-        style={{
-          backgroundImage: `url(${IMAGES.expertInsightsBg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-        }}
+        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#F6F4FF]"
       >
+        {/* Responsive Lazy Background Layer */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          <OptimizedPicture
+            src={IMAGES.expertInsightsBg}
+            alt=""
+            className="w-full h-full object-cover object-center"
+            sizes="100vw"
+            loading="lazy"
+          />
+        </div>
 
         {/* Foreground Content */}
         <div className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-center space-y-5 sm:space-y-6 lg:space-y-7">
@@ -481,13 +494,18 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 LEFT PANEL: INVITED SPEAKERS (58% WIDTH ON DESKTOP)
                =============================================================== */}
             <div
-              className="w-full lg:w-[58%] relative rounded-[32px] p-6 sm:p-7 md:p-8 text-white shadow-xl border border-white/20 overflow-hidden flex flex-col justify-between min-h-[360px] sm:min-h-[390px] group bg-no-repeat"
-              style={{
-                backgroundImage: `url(${IMAGES.spotlightMicrophone})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'left center',
-              }}
+              className="w-full lg:w-[58%] relative rounded-[32px] p-6 sm:p-7 md:p-8 text-white shadow-xl border border-white/20 overflow-hidden flex flex-col justify-between min-h-[360px] sm:min-h-[390px] group bg-[#12072B]"
             >
+              {/* Responsive Lazy Background Photo */}
+              <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+                <OptimizedPicture
+                  src={IMAGES.spotlightMicrophone}
+                  alt=""
+                  className="w-full h-full object-cover object-left"
+                  sizes="(max-width: 1024px) 100vw, 58vw"
+                  loading="lazy"
+                />
+              </div>
               {/* Subtle Gradient Overlays to preserve microphone clarity on left and ensure high text contrast on right */}
               <div className="absolute inset-0 bg-gradient-to-r from-black/5 via-[#100726]/40 to-[#0A031A]/80 pointer-events-none" />
               <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#0A031A]/50 to-transparent pointer-events-none" />
@@ -504,37 +522,58 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                   </h3>
                 </div>
 
-                {/* Speaker Statistics: 10 Invited Speakers, 7 Offline, 3 Online */}
-                <div className="bg-[#12072B]/75 backdrop-blur-md rounded-2xl p-4 sm:p-5 text-white shadow-xl border border-white/20 flex items-center justify-between gap-3 sm:gap-4 max-w-sm sm:max-w-md ml-auto w-full">
-                  {/* Left: Total Speaker Count (10 Invited Speakers) */}
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#8B50E8] to-[#6366F1] text-white flex items-center justify-center shrink-0 shadow-md border border-white/25">
-                      <Users className="w-6 h-6 stroke-[2.2]" />
+                {/* Speaker Statistics: 8 Invited Speakers, 4 International, 4 National */}
+                <div className="bg-[#12072B]/75 backdrop-blur-md rounded-2xl p-4 sm:p-5 text-white shadow-xl border border-white/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 max-w-sm sm:max-w-[460px] ml-auto w-full">
+                  {/* Left: Total Speaker Count (8 Invited Speakers) */}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-[#8B50E8] to-[#6366F1] text-white flex items-center justify-center shrink-0 shadow-md border border-white/25">
+                      <Users className="w-5.5 h-5.5 sm:w-6 sm:h-6 stroke-[2.2]" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-3xl sm:text-4xl font-black text-white font-heading leading-none tabular-nums drop-shadow-xs">
-                        10
+                        8
                       </div>
-                      <div className="text-xs sm:text-[12.5px] font-bold text-white/95 uppercase tracking-wider mt-1">
+                      <div className="text-[11.5px] sm:text-[12.5px] font-bold text-white/95 uppercase tracking-wider mt-1">
                         Invited Speakers
                       </div>
                     </div>
                   </div>
 
-                  {/* Vertical Divider */}
-                  <div className="h-11 w-px bg-white/25 shrink-0" />
+                  {/* Responsive Divider */}
+                  <div className="h-px w-full sm:h-16 sm:w-px bg-white/20 shrink-0" />
 
-                  {/* Right: Mode Breakdown (7 Offline, 3 Online) */}
-                  <div className="space-y-1.5 text-left shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0 shadow-xs" />
-                      <span className="text-base sm:text-lg font-black text-white font-heading tabular-nums">7</span>
-                      <span className="text-xs sm:text-[13.5px] font-bold text-white/95">Offline</span>
+                  {/* Right: Geographic Classification (4 International, 4 National) */}
+                  <div className="grid grid-cols-2 sm:flex sm:flex-col gap-2 text-left shrink-0">
+                    {/* International Speakers (Cyan/Blue Accent) */}
+                    <div className="flex items-center gap-2.5 rounded-xl bg-cyan-400/10 border border-cyan-300/25 px-2.5 py-1.5 backdrop-blur-xs">
+                      <div className="w-7 h-7 rounded-lg bg-cyan-400/20 border border-cyan-300/35 text-[#67E8F9] flex items-center justify-center shrink-0">
+                        <Globe className="w-3.5 h-3.5 stroke-[2.2]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-1.5 leading-none">
+                          <span className="text-sm sm:text-base font-black text-white font-heading tabular-nums">4</span>
+                          <span className="text-[11.5px] sm:text-[12.5px] font-bold text-white whitespace-nowrap">International</span>
+                        </div>
+                        <div className="text-[10px] font-medium text-cyan-200/85 leading-tight mt-0.5 whitespace-nowrap">
+                          Global experts
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-[#38BDF8] shrink-0 shadow-xs" />
-                      <span className="text-base sm:text-lg font-black text-white font-heading tabular-nums">3</span>
-                      <span className="text-xs sm:text-[13.5px] font-bold text-white/95">Online</span>
+
+                    {/* National Speakers (Violet/Purple Accent) */}
+                    <div className="flex items-center gap-2.5 rounded-xl bg-violet-400/12 border border-violet-300/25 px-2.5 py-1.5 backdrop-blur-xs">
+                      <div className="w-7 h-7 rounded-lg bg-violet-400/25 border border-violet-300/35 text-[#DDD6FE] flex items-center justify-center shrink-0">
+                        <Landmark className="w-3.5 h-3.5 stroke-[2.2]" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-1.5 leading-none">
+                          <span className="text-sm sm:text-base font-black text-white font-heading tabular-nums">4</span>
+                          <span className="text-[11.5px] sm:text-[12.5px] font-bold text-white whitespace-nowrap">National</span>
+                        </div>
+                        <div className="text-[10px] font-medium text-violet-200/85 leading-tight mt-0.5 whitespace-nowrap">
+                          Indian experts
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -675,11 +714,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
       <section id="about-the-conference" className="snap-section relative w-full bg-white border-b border-[#E2E7F0] overflow-hidden">
         {/* 1. PANORAMIC SRMIST CAMPUS AERIAL PHOTOGRAPH AT TOP EDGE */}
         <div className="relative w-full h-36 sm:h-48 md:h-56 lg:h-64 overflow-hidden shrink-0">
-          <img
+          <OptimizedPicture
             src={IMAGES.srmistCampusAerial}
             alt="SRMIST Campus Landscape and Reflective Lake Panorama"
             className="w-full h-full object-cover object-[center_36%] filter saturate-105"
-            loading="eager"
+            sizes="100vw"
+            loading="lazy"
           />
 
           {/* Translucent sky/atmosphere gradient for depth */}
@@ -713,10 +753,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
         <div className="relative w-full py-8 sm:py-12 lg:py-16 overflow-hidden">
           {/* Contained Background Layer: Futuristic AI Science Conference Banner */}
           <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-            <img
+            <OptimizedPicture
               src={IMAGES.aboutSectionBg}
               alt=""
               className="w-full h-full object-cover object-center"
+              sizes="100vw"
+              loading="lazy"
             />
             {/* Soft translucent wash ensuring optimal contrast and readability */}
             <div className="absolute inset-0 bg-white/40 backdrop-blur-[0.5px]" />
@@ -846,10 +888,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
       >
         {/* Full-Width Contained Background Artwork: Glowing AI Pharmaceutical Waves */}
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <img
+          <OptimizedPicture
             src={IMAGES.scientificTracksBg}
             alt=""
             className="w-full h-full object-cover object-center"
+            sizes="100vw"
             loading="lazy"
           />
           {/* Subtle translucent overlay preserving artwork vibrancy while maintaining optimal text readability */}
@@ -948,10 +991,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                     {/* Right 3D Scientific Illustration */}
                     <div className="shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform duration-300 z-10">
                       {track.number === '01' ? (
-                        <img
-                          src="/images/tracks/pharmaceutics-transparent.png"
+                        <OptimizedPicture
+                          src={IMAGES.track01Pharmaceutics}
                           alt={track.title}
                           className="w-[104px] h-[104px] sm:w-[116px] sm:h-[116px] xl:w-[122px] xl:h-[122px] object-contain"
+                          sizes="130px"
                           loading="lazy"
                         />
                       ) : (
@@ -1063,11 +1107,18 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - CTA: "Register to Participate →"
          ========================================================================= */}
       <section
-        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#FAF8FF] bg-cover bg-center bg-no-repeat"
-        style={{
-          backgroundImage: `url(${IMAGES.whoShouldParticipateBg})`,
-        }}
+        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-6 sm:py-8 lg:py-10 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden bg-[#FAF8FF]"
       >
+        {/* Responsive Lazy Background Layer */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          <OptimizedPicture
+            src={IMAGES.whoShouldParticipateBg}
+            alt=""
+            className="w-full h-full object-cover object-center"
+            sizes="100vw"
+            loading="lazy"
+          />
+        </div>
         {/* Main Foreground Content */}
         <div className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col justify-center space-y-4 sm:space-y-5">
           {/* 1. SECTION HEADING & IDENTITY */}
@@ -1503,10 +1554,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                   <div>
                     {/* Top Image Preview */}
                     <div className="relative rounded-xl sm:rounded-2xl overflow-hidden aspect-[16/9.5] bg-slate-100 mb-3.5 shadow-xs">
-                      <img
+                      <OptimizedPicture
                         src={imageSrc}
                         alt={card.imageAlt}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        sizes="(max-width: 768px) 100vw, 33vw"
                         loading="lazy"
                       />
                     </div>
@@ -1605,6 +1657,21 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 </div>
               );
             })}
+          </div>
+
+          {/* Presentation Guidelines Notice – Presentation ID Clarification */}
+          <div className="mt-5 lg:mt-6 bg-amber-50/95 backdrop-blur-sm border border-amber-200/90 rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 shadow-xs flex items-start gap-3">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
+              <Info className="w-4 h-4 stroke-[2.2]" />
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="font-['Plus_Jakarta_Sans',sans-serif] text-xs sm:text-[13.5px] font-bold text-[#082746] leading-snug">
+                Participants must enter their Presentation ID (not their Abstract ID) when preparing and submitting their presentation.
+              </p>
+              <p className="font-['Inter',sans-serif] text-[11.5px] sm:text-xs text-[#45536B] leading-relaxed mt-1">
+                Use only the official <strong className="font-semibold text-[#082746]">Presentation ID</strong> allocated to your presentation (e.g., <code className="font-mono font-semibold text-amber-900">AICONDD-OR-2027-xxx</code>, <code className="font-mono font-semibold text-amber-900">AICONDD-POST-2027-xxx</code>, or <code className="font-mono font-semibold text-amber-900">AICONDD-EPOST-2027-xxx</code>); do not enter your Abstract ID (<code className="font-mono font-semibold text-slate-700">AICONDD-ABS-xxx</code>) in the presentation identification field.
+              </p>
+            </div>
           </div>
 
           {/* 3. Abstract Submission Process Workflow Panel */}
@@ -1713,10 +1780,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
       >
         {/* Full-Width Contained Background Artwork: Pastel Pharmaceutical Conference Background */}
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <img
+          <OptimizedPicture
             src={IMAGES.pharmaQuestBg}
             alt=""
             className="w-full h-full object-cover object-center"
+            sizes="100vw"
             loading="lazy"
           />
           {/* Subtle translucent wash preserving artwork vibrancy while maintaining optimal text legibility */}
@@ -1867,10 +1935,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
       >
         {/* Full-Width Contained Background Artwork: Futuristic Biotech Dates and Deadlines */}
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <img
+          <OptimizedPicture
             src={IMAGES.importantDatesBg}
             alt=""
             className="w-full h-full object-cover object-[left_center] md:object-center"
+            sizes="100vw"
             loading="lazy"
           />
           {/* Subtle translucent wash ensuring contrast while keeping artwork vibrant */}
@@ -2202,11 +2271,18 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
           - Faint architectural skyline illustration at bottom right
          ========================================================================= */}
       <section
-        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-[#F6F2FF] bg-cover bg-center bg-no-repeat relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden"
-        style={{
-          backgroundImage: `url(${IMAGES.venueSectionBg})`,
-        }}
+        className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-[#F6F2FF] relative flex flex-col justify-between py-8 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden"
       >
+        {/* Responsive Lazy Background Layer */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          <OptimizedPicture
+            src={IMAGES.venueSectionBg}
+            alt=""
+            className="w-full h-full object-cover object-center"
+            sizes="100vw"
+            loading="lazy"
+          />
+        </div>
         <div className="max-w-[1360px] mx-auto w-full flex-1 flex flex-col justify-center space-y-6 sm:space-y-7 relative z-10">
           {/* 1. SECTION HEADING & IDENTITY */}
           <div className="text-center space-y-2">
@@ -2254,10 +2330,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* CARD 1: MAIN CONFERENCE VENUE */}
             <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
               <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmAuditoriumPhoto}
                   alt="Dr. T. P. Ganesan Auditorium - SRMIST Kattankulathur"
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                  loading="lazy"
                 />
               </div>
               <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
@@ -2283,10 +2361,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* CARD 2: ACADEMIC HOST */}
             <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
               <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmPharmacyBuilding}
                   alt="SRM College of Pharmacy Entrance"
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                  loading="lazy"
                 />
               </div>
               <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
@@ -2319,10 +2399,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* CARD 3: SRMIST CAMPUS */}
             <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
               <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmistCampusAerial}
                   alt="SRMIST Campus Landscape and Reflective Lake Panorama"
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                  loading="lazy"
                 />
               </div>
               <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
@@ -2357,11 +2439,13 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* CARD 4: ACADEMIC COLLABORATOR – INTI INTERNATIONAL UNIVERSITY */}
             <div className="bg-white rounded-3xl border border-slate-200/90 shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col justify-between group min-h-[320px]">
               <div className="h-44 sm:h-48 relative overflow-hidden bg-slate-100 shrink-0">
-                <img
+                <OptimizedPicture
                   src={IMAGES.intiCampusPhoto}
                   alt="INTI International University Main Campus, Malaysia"
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                  loading="lazy"
                 />
               </div>
               <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
@@ -2424,10 +2508,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
       <section className="snap-section min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] relative flex flex-col justify-between py-10 sm:py-12 lg:py-14 px-4 sm:px-6 lg:px-8 border-b border-[#D8DFEB] overflow-hidden">
         {/* Full-Width Background Artwork: Pastel Biotech Waves with Molecular Flask */}
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <img
+          <OptimizedPicture
             src={IMAGES.callForAbstractsBg}
             alt=""
             className="w-full h-full object-cover object-center"
+            sizes="100vw"
             loading="lazy"
           />
           {/* Subtle translucent wash preserving artwork vibrancy while maintaining optimal text legibility */}
@@ -2747,11 +2832,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 HOST INSTITUTION
               </div>
               <div className="flex items-center justify-center w-full h-full px-4 pt-2">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmistLogo}
                   alt="SRM Institute of Science and Technology"
                   className="h-22 sm:h-24 lg:h-28 w-auto max-w-[94%] object-contain transition-transform duration-300 group-hover:scale-103"
-                  loading="eager"
+                  sizes="280px"
+                  loading="lazy"
                 />
               </div>
             </div>
@@ -2759,11 +2845,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* Card 2: SRM College of Pharmacy (Organiser) */}
             <div className="lg:w-[22%] bg-white border border-slate-200/90 rounded-[28px] p-5 sm:p-6 shadow-[0_8px_24px_rgba(0,0,0,0.04)] hover:shadow-md transition-all flex flex-col items-center justify-between text-center min-h-[220px] lg:min-h-[235px] group">
               <div className="w-20 h-20 sm:w-22 sm:h-22 flex items-center justify-center shrink-0 my-auto">
-                <img
+                <OptimizedPicture
                   src={IMAGES.srmPharmacyLogo}
                   alt="SRM College of Pharmacy"
                   className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
-                  loading="eager"
+                  sizes="96px"
+                  loading="lazy"
                 />
               </div>
               <div className="mt-2 space-y-2 w-full">
@@ -2805,10 +2892,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             {/* Card 4: Indian Pharmaceutical Association (IPA) */}
             <div className="lg:w-[22%] bg-white border border-slate-200/90 rounded-[28px] p-5 sm:p-6 shadow-[0_8px_24px_rgba(0,0,0,0.04)] hover:shadow-md transition-all flex flex-col items-center justify-between text-center min-h-[220px] lg:min-h-[235px] group">
               <div className="flex items-center justify-center my-auto w-full px-2">
-                <img
+                <OptimizedPicture
                   src={IMAGES.ipaOfficialLogo}
                   alt="The Indian Pharmaceutical Association (IPA) - ...CRUSADE FOR THE PROFESSION"
                   className="h-14 sm:h-16 lg:h-18 w-auto max-w-[270px] object-contain transition-transform duration-300 group-hover:scale-103"
+                  sizes="270px"
+                  loading="lazy"
                 />
               </div>
               <div className="mt-2 w-full">

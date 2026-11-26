@@ -101,6 +101,11 @@ import {
   createAbstractAcceptanceLetterPreviewUrl,
 } from '../lib/managementService';
 import {
+  formatParticipantDisplayName,
+  formatAcademicProfileSummary,
+  getParticipantStructuredDetailRows,
+} from '../lib/participantFields';
+import {
   analyzeDuplicateTransactionReferences,
   getConflictingRegistrationsForRecord,
 } from '../lib/utrValidationService';
@@ -207,8 +212,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
   const [retryingEmailEventId, setRetryingEmailEventId] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(true);
 
-  // Global Record Type Filter ('all' | 'live' | 'test')
-  const [recordTypeFilter, setRecordTypeFilter] = useState<'all' | 'live' | 'test'>('all');
+  // Global Record Type Filter ('all' | 'live' | 'test') — defaults to showing all records directly
+  const [recordTypeFilter] = useState<'all' | 'live' | 'test'>('all');
 
   // Registration Filter & Search states (all default to 'all' / empty so complete database shows on load)
   const [regSearchQuery, setRegSearchQuery] = useState('');
@@ -736,8 +741,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
       setActionSuccessMsg(
         duplicateException?.approved
-          ? `Authorised duplicate UTR exception logged & payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).${emailNote}`
-          : `Payment verified for ${reg.fullName} (Registration ID: ${allocatedId}).${emailNote}`
+          ? `Authorised duplicate UTR exception logged & payment verified for ${formatParticipantDisplayName(reg)} (Registration ID: ${allocatedId}).${emailNote}`
+          : `Payment verified for ${formatParticipantDisplayName(reg)} (Registration ID: ${allocatedId}).${emailNote}`
       );
       setSelectedReg(null);
       setDuplicateExceptionTarget(null);
@@ -769,7 +774,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
       setSelectedReg(null);
       setActionRemarks('');
-      setActionSuccessMsg(`Payment rejected for ${reg.fullName}. Marked as requiring correction.`);
+      setActionSuccessMsg(`Payment rejected for ${formatParticipantDisplayName(reg)}. Marked as requiring correction.`);
     } catch (err: any) {
       console.error('Failed to reject payment:', err);
       alert('Error updating payment status in Firestore.');
@@ -1807,6 +1812,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       (r.registrationId && r.registrationId.toLowerCase().includes(q)) ||
       r.id.toLowerCase().includes(q) ||
       r.fullName.toLowerCase().includes(q) ||
+      formatParticipantDisplayName(r).toLowerCase().includes(q) ||
       r.email.toLowerCase().includes(q) ||
       r.institution.toLowerCase().includes(q) ||
       r.transactionReference.toLowerCase().includes(q);
@@ -2184,7 +2190,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         if (!q) return true;
 
         const regIdMatch = (reg.registrationId || reg.id || '').toLowerCase().includes(q);
-        const nameMatch = (reg.fullName || '').toLowerCase().includes(q);
+        const nameMatch =
+          (reg.fullName || '').toLowerCase().includes(q) ||
+          formatParticipantDisplayName(reg).toLowerCase().includes(q);
         const emailMatch = (reg.email || '').toLowerCase().includes(q);
         const instMatch = (reg.institution || '').toLowerCase().includes(q);
         const absIdMatch = linkedAbs ? linkedAbs.id.toLowerCase().includes(q) : false;
@@ -2222,6 +2230,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       (r.registrationId && r.registrationId.toLowerCase().includes(q)) ||
       r.id.toLowerCase().includes(q) ||
       r.fullName.toLowerCase().includes(q) ||
+      formatParticipantDisplayName(r).toLowerCase().includes(q) ||
       r.email.toLowerCase().includes(q) ||
       (r.linkedAbstractId && r.linkedAbstractId.toLowerCase().includes(q));
 
@@ -2404,40 +2413,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
           {/* Right Status & Controls */}
           <div className="flex items-center gap-3 sm:gap-4">
-            {/* Record Type Toggle Indicator */}
-            <div className="hidden md:flex items-center bg-[#151D42] rounded-full p-0.5 border border-purple-500/30 text-[11px]">
-              <button
-                onClick={() => setRecordTypeFilter('all')}
-                className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
-                  recordTypeFilter === 'all'
-                    ? 'bg-purple-600 text-white font-semibold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                All Records
-              </button>
-              <button
-                onClick={() => setRecordTypeFilter('live')}
-                className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
-                  recordTypeFilter === 'live'
-                    ? 'bg-emerald-600 text-white font-semibold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Live Records
-              </button>
-              <button
-                onClick={() => setRecordTypeFilter('test')}
-                className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
-                  recordTypeFilter === 'test'
-                    ? 'bg-amber-600 text-white font-semibold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Test Records ({testCount})
-              </button>
-            </div>
-
             <div className="text-right hidden sm:block">
               <div className="text-[12px] font-bold text-white leading-tight">
                 Dr. N. Damodharan
@@ -3465,8 +3440,11 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
 
                                 {/* Participant (Compact) */}
                                 <td className="px-2.5 py-2 border-b border-slate-100 min-w-[215px] max-w-[265px]">
-                                  <div className="font-bold text-slate-900 leading-tight truncate" title={reg.fullName}>
-                                    {reg.fullName}
+                                  <div
+                                    className="font-bold text-slate-900 leading-tight truncate"
+                                    title={formatParticipantDisplayName(reg)}
+                                  >
+                                    {formatParticipantDisplayName(reg)}
                                   </div>
                                   <div
                                     className="text-[11px] text-slate-600 truncate leading-snug"
@@ -3829,7 +3807,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                           onClick={() =>
                                             openPdfPreview({
                                               title: 'Registration Receipt PDF',
-                                              subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                              subtitle: `${reg.registrationId || reg.id} · ${formatParticipantDisplayName(reg)}`,
                                               build: () => createRegistrationSubmissionReceiptPreviewUrl(reg),
                                               onDownload: () => generateRegistrationSubmissionReceiptPDF(reg),
                                             })
@@ -3849,7 +3827,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                                 onClick={() =>
                                                   openPdfPreview({
                                                     title: 'Registration Confirmation PDF',
-                                                    subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                                    subtitle: `${reg.registrationId || reg.id} · ${formatParticipantDisplayName(reg)}`,
                                                     build: () => createRegistrationConfirmationPreviewUrl(reg),
                                                     onDownload: () => generateRegistrationReceiptPDF(reg),
                                                   })
@@ -3923,7 +3901,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                         <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
                                           Course / Designation
                                         </span>
-                                        <span>{reg.courseOrDesignation || '—'}</span>
+                                        <span>{formatAcademicProfileSummary(reg) || '—'}</span>
                                       </div>
                                       <div>
                                         <span className="text-[9.5px] uppercase font-bold text-slate-400 block">
@@ -5015,7 +4993,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 {reg.registrationId || reg.id}
                               </td>
                               <td className="p-3.5 min-w-[260px]">
-                                <div className="font-bold text-slate-900">{reg.fullName}</div>
+                                <div className="font-bold text-slate-900">{formatParticipantDisplayName(reg)}</div>
                                 <div className="text-[11px] text-slate-600 break-all">
                                   {reg.email}
                                 </div>
@@ -5863,9 +5841,16 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Left: Registration Details */}
                           <div className="space-y-2 bg-slate-50/70 p-3.5 rounded-lg border border-slate-100 text-xs">
-                            <div className="font-bold text-slate-900 text-sm">{reg.fullName}</div>
+                            <div className="font-bold text-slate-900 text-sm">
+                              {formatParticipantDisplayName(reg)}
+                            </div>
                             <div className="text-slate-600">{reg.email} · {reg.mobile}</div>
                             <div className="text-slate-600">{reg.institution}</div>
+                            {formatAcademicProfileSummary(reg) && (
+                              <div className="text-slate-500">
+                                <strong>Profile:</strong> {formatAcademicProfileSummary(reg)}
+                              </div>
+                            )}
                             <div className="text-slate-500 pt-1">
                               <strong>Category:</strong> {reg.category} | <strong>Mode:</strong> {reg.participationMode}
                             </div>
@@ -5899,7 +5884,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 onClick={() =>
                                   openPdfPreview({
                                     title: 'Registration Receipt PDF',
-                                    subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                    subtitle: `${reg.registrationId || reg.id} · ${formatParticipantDisplayName(reg)}`,
                                     build: () => createRegistrationSubmissionReceiptPreviewUrl(reg),
                                     onDownload: () => generateRegistrationSubmissionReceiptPDF(reg),
                                   })
@@ -5925,7 +5910,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                     onClick={() =>
                                       openPdfPreview({
                                         title: 'Registration Confirmation PDF',
-                                        subtitle: `${reg.registrationId || reg.id} · ${reg.fullName}`,
+                                        subtitle: `${reg.registrationId || reg.id} · ${formatParticipantDisplayName(reg)}`,
                                         build: () => createRegistrationConfirmationPreviewUrl(reg),
                                         onDownload: () => generateRegistrationReceiptPDF(reg),
                                       })
@@ -6272,7 +6257,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   Registration Scrutiny
                 </span>
                 <h3 className="text-base font-bold font-heading">
-                  {selectedReg.fullName}
+                  {formatParticipantDisplayName(selectedReg)}
                 </h3>
               </div>
               <button
@@ -6345,10 +6330,27 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <span className="text-[10px] uppercase text-slate-400 font-semibold block">Category</span>
                   <strong className="text-slate-800">{selectedReg.category}</strong>
                 </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Designation</span>
-                  <strong className="text-slate-800">{selectedReg.courseOrDesignation || 'N/A'}</strong>
-                </div>
+                {(() => {
+                  const detailRows = getParticipantStructuredDetailRows(selectedReg);
+                  if (detailRows.length === 0) {
+                    return (
+                      <div>
+                        <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                          Designation
+                        </span>
+                        <strong className="text-slate-800">N/A</strong>
+                      </div>
+                    );
+                  }
+                  return detailRows.map((row) => (
+                    <div key={row.label}>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        {row.label}
+                      </span>
+                      <strong className="text-slate-800">{row.value}</strong>
+                    </div>
+                  ));
+                })()}
                 <div>
                   <span className="text-[10px] uppercase text-slate-400 font-semibold block">Food Preference</span>
                   <strong className="text-slate-800">{formatFoodPreferenceDisplay(selectedReg)}</strong>
@@ -6607,7 +6609,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       onClick={() =>
                         openPdfPreview({
                           title: 'Registration Receipt PDF',
-                          subtitle: `${selectedReg.registrationId || selectedReg.id} · ${selectedReg.fullName}`,
+                          subtitle: `${selectedReg.registrationId || selectedReg.id} · ${formatParticipantDisplayName(selectedReg)}`,
                           build: () => createRegistrationSubmissionReceiptPreviewUrl(selectedReg),
                           onDownload: () => generateRegistrationSubmissionReceiptPDF(selectedReg),
                         })
@@ -6647,7 +6649,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                         onClick={() =>
                           openPdfPreview({
                             title: 'Registration Confirmation PDF',
-                            subtitle: `${selectedReg.registrationId || selectedReg.id} · ${selectedReg.fullName}`,
+                            subtitle: `${selectedReg.registrationId || selectedReg.id} · ${formatParticipantDisplayName(selectedReg)}`,
                             build: () => createRegistrationConfirmationPreviewUrl(selectedReg),
                             onDownload: () => generateRegistrationReceiptPDF(selectedReg),
                           })
@@ -7397,7 +7399,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <strong className="font-mono">
                     {duplicateExceptionTarget.reg.registrationId || duplicateExceptionTarget.reg.id}
                   </strong>{' '}
-                  (<strong>{duplicateExceptionTarget.reg.fullName}</strong>) uses Transaction Reference{' '}
+                  (<strong>{formatParticipantDisplayName(duplicateExceptionTarget.reg)}</strong>) uses Transaction Reference{' '}
                   <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-red-200">
                     {duplicateExceptionTarget.reg.transactionReference}
                   </strong>

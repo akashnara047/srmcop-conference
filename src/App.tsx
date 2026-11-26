@@ -65,6 +65,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<string>(initialRoute.tab);
   const [isAdminView, setIsAdminView] = useState<boolean>(initialRoute.isAdmin);
   const [selectedTrackForAbstract, setSelectedTrackForAbstract] = useState<string | undefined>(undefined);
+  const [prefilledRegIdForAbstract, setPrefilledRegIdForAbstract] = useState<string | undefined>(undefined);
 
   // Initialize and test connection on mount as mandated by Firebase skill
   useEffect(() => {
@@ -110,9 +111,14 @@ export default function App() {
     };
   }, [currentTab, isAdminView]);
 
-  const handleSelectTab = (tab: string, trackId?: string) => {
+  const handleSelectTab = (tab: string, trackId?: string, prefilledRegistrationId?: string) => {
     if (trackId) {
       setSelectedTrackForAbstract(trackId);
+    }
+    if (prefilledRegistrationId && prefilledRegistrationId.trim()) {
+      setPrefilledRegIdForAbstract(prefilledRegistrationId.trim().toUpperCase());
+    } else if (tab !== 'abstracts') {
+      setPrefilledRegIdForAbstract(undefined);
     }
     setCurrentTab(tab);
     setIsAdminView(false);
@@ -127,6 +133,10 @@ export default function App() {
     }
 
     window.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
+  const handleProceedToAbstractSubmission = (registrationId?: string) => {
+    handleSelectTab('abstracts', undefined, registrationId);
   };
 
   const handleToggleAdmin = () => {
@@ -157,10 +167,15 @@ export default function App() {
         {currentTab === 'abstracts' && (
           <AbstractsView
             initialTrackId={selectedTrackForAbstract}
+            initialRegistrationId={prefilledRegIdForAbstract}
             onNavigateToRegistration={() => handleSelectTab('registration')}
           />
         )}
-        {currentTab === 'registration' && <RegistrationView />}
+        {currentTab === 'registration' && (
+          <RegistrationView
+            onProceedToAbstractSubmission={handleProceedToAbstractSubmission}
+          />
+        )}
         {currentTab === 'committees' && <CommitteesView />}
         {currentTab === 'venue' && <VenueView />}
         {currentTab === 'accommodation' && <AccommodationView onNavigate={handleSelectTab} />}

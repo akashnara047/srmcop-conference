@@ -1,5 +1,6 @@
 import React from 'react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 
 export const TrackIllustration: React.FC<{ type: string; className?: string }> = ({
   type,
@@ -9,10 +10,11 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'formulation-pill':
     case 'liposome-carrier':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track01Pharmaceutics}
           alt="Pharmaceutical Technology & Pharmaceutics"
           className={`${className} object-contain`}
+          sizes="140px"
           loading="lazy"
         />
       );
@@ -20,10 +22,11 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'dna-target':
     case 'target-protein':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track02Pharmacology}
           alt="Pharmacology & Experimental Therapeutics"
           className={`${className} object-contain`}
+          sizes="140px"
           loading="lazy"
         />
       );
@@ -31,10 +34,11 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'chemistry-flask':
     case 'antibody-modality':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track03PharmaceuticalChemistry}
           alt="Pharmaceutical Chemistry & Drug Discovery"
           className={`${className} object-contain`}
+          sizes="140px"
           loading="lazy"
         />
       );
@@ -42,10 +46,11 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'analytics-flask':
     case 'laptop-ai':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track04PharmaceuticalAnalysis}
           alt="Pharmaceutical Analysis & Analytical Technologies"
           className={`${className} object-contain`}
+          sizes="140px"
           loading="lazy"
         />
       );
@@ -53,10 +58,11 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'clinical-hospital':
     case 'preclinical-mouse':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track05PharmacyPractice}
           alt="Pharmacy Practice & Clinical Pharmacy"
           className={`${className} object-contain`}
+          sizes="140px"
           loading="lazy"
         />
       );
@@ -64,10 +70,11 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'natural-leaf':
     case 'human-dna':
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track06Pharmacognosy}
           alt="Pharmacognosy & Natural Product Research"
           className={`${className} object-contain`}
+          sizes="140px"
           loading="lazy"
         />
       );
@@ -76,10 +83,11 @@ export const TrackIllustration: React.FC<{ type: string; className?: string }> =
     case 'regulatory-shield':
     default:
       return (
-        <img
+        <OptimizedPicture
           src={IMAGES.track07RegulatoryQuality}
           alt="Regulatory Affairs & Pharmaceutical Quality Assurance"
           className={`${className} object-contain`}
+          sizes="140px"
           loading="lazy"
         />
       );

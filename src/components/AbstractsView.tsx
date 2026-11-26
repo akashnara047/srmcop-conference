@@ -46,6 +46,10 @@ import {
   AbstractRecord,
   RegistrationRecord,
 } from '../lib/managementService';
+import {
+  formatParticipantDisplayName,
+  formatAcademicProfileSummary,
+} from '../lib/participantFields';
 import { triggerAbstractSubmittedEmail } from '../lib/emailService';
 import {
   CHECKING_ABSTRACT_MESSAGE,
@@ -61,6 +65,7 @@ import {
 
 interface AbstractsViewProps {
   initialTrackId?: string;
+  initialRegistrationId?: string;
   onNavigateToRegistration?: () => void;
 }
 
@@ -80,6 +85,7 @@ const MAX_DOC_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
 
 export const AbstractsView: React.FC<AbstractsViewProps> = ({
   initialTrackId,
+  initialRegistrationId,
   onNavigateToRegistration,
 }) => {
   // Navigation toggle: 'submit' (Submit Abstract) | 'track' (Track Status)
@@ -101,6 +107,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
   const [abstractDupMessage, setAbstractDupMessage] = useState<string>('');
   const [lastCheckedAbstractSig, setLastCheckedAbstractSig] = useState<string>('');
   const abstractDupSeqRef = useRef(0);
+  const lastAutoVerifiedRegIdRef = useRef<string | null>(null);
 
   // Presenting Author Details (Pre-filled from verified registration)
   const [fullName, setFullName] = useState('');
@@ -274,15 +281,13 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     abstractDupStatus === 'duplicate_content' ||
     abstractDupStatus === 'duplicate_title_author';
 
-  // Verify Registration ID handler
-  const handleVerifyRegistration = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const verifyRegistrationById = useCallback(async (rawInput: string) => {
     setRegVerificationError(null);
     setErrorType(null);
     setLinkedExistingAbstractId(null);
     setExistingAbstractIds([]);
 
-    const cleanInput = registrationIdInput.trim().toUpperCase();
+    const cleanInput = rawInput.trim().toUpperCase();
     if (!cleanInput) {
       setRegVerificationError('Please enter your official Registration ID (e.g. AICONDD001).');
       setErrorType('general');
@@ -297,10 +302,10 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       setExistingAbstractIds(res.existingAbstractIds || []);
 
       // Pre-populate presenting author details
-      setFullName(reg.fullName || '');
+      setFullName(formatParticipantDisplayName(reg));
       setEmail(reg.email || '');
       setMobile(reg.mobile || '');
-      setDesignation(reg.courseOrDesignation || '');
+      setDesignation(formatAcademicProfileSummary(reg));
       setAffiliation(reg.institution || '');
 
       // Set presentation preference from registration if specified
@@ -332,6 +337,23 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
     } finally {
       setVerifyingReg(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const cleanInitial = (initialRegistrationId || '').trim().toUpperCase();
+    if (!cleanInitial || lastAutoVerifiedRegIdRef.current === cleanInitial) {
+      return;
+    }
+    lastAutoVerifiedRegIdRef.current = cleanInitial;
+    setActiveTab('submit');
+    setRegistrationIdInput(cleanInitial);
+    void verifyRegistrationById(cleanInitial);
+  }, [initialRegistrationId, verifyRegistrationById]);
+
+  // Verify Registration ID handler
+  const handleVerifyRegistration = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    await verifyRegistrationById(registrationIdInput);
   };
 
   const handleResetVerification = () => {
@@ -755,7 +777,8 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
       className="w-full min-h-screen text-slate-800 font-['Inter',sans-serif] relative overflow-x-clip pb-20"
       style={{
         backgroundColor: '#F3EEFF',
-        backgroundImage: `url(${IMAGES.abstractSubmissionBg})`,
+        backgroundImage:
+          "image-set(url('/images/opt/abstractSubmissionBg-1024.avif') type('image/avif'), url('/images/opt/abstractSubmissionBg-1024.webp') type('image/webp'))",
         backgroundSize: '100% auto',
         backgroundPosition: 'top center',
         backgroundRepeat: 'repeat-y',
@@ -1146,7 +1169,7 @@ export const AbstractsView: React.FC<AbstractsViewProps> = ({
                             </span>
                           </div>
                           <div className="font-bold text-slate-900 text-base sm:text-lg">
-                            {verifiedRegistration.fullName}
+                            {formatParticipantDisplayName(verifiedRegistration)}
                           </div>
                         </div>
                       </div>

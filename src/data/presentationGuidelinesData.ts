@@ -60,7 +60,8 @@ export const EPOSTER_PRESENTATION_GUIDELINES = {
     'A maximum of five authors may be included.',
     'The presenting author should be clearly identifiable.',
     'Include the complete institutional affiliation of all authors.',
-    'The Presentation Code must be the Abstract ID assigned by the conference. Do not use the Registration ID as the Presentation Code.',
+    'Participants must enter their Presentation ID (not their Abstract ID) when preparing and submitting their presentation.',
+    'Use the official Presentation ID allocated to your presentation in the designated presentation identification field. Do not enter your Abstract ID or Registration ID.',
   ],
   section4OnlinePresentation: [
     'E-Poster presentations will be conducted exclusively in online mode.',
@@ -164,13 +165,13 @@ export const ORAL_PRESENTATION_GUIDELINES = {
     'Carefully verify spelling, scientific terminology, units, and element alignment before finalising.',
   ],
   presentationCodeRules: {
-    headline: 'Your Abstract ID is your official Presentation Code',
+    headline: 'Participants must enter their Presentation ID (not their Abstract ID) when preparing and submitting their presentation.',
     points: [
-      'Use the exact Abstract ID generated during your abstract submission as your Presentation Code.',
-      'Display your Abstract ID clearly in the designated Presentation Code area on every slide.',
+      'Use the official Presentation ID allocated to your presentation (for example, AICONDD-OR-2027-xxx) in the designated presentation identification field.',
+      'Do not enter your Abstract ID (AICONDD-ABS-xxx) or Registration ID in the presentation identification field.',
+      'Display your allocated Presentation ID clearly in the designated Presentation Code / Presentation ID area on every slide.',
       'Do not generate a separate or self-assigned code.',
-      'Do not use your Registration ID in place of your Abstract ID.',
-      'Keep the Presentation Code unobstructed and clearly visible throughout all 9 slides.',
+      'Keep your Presentation ID unobstructed and clearly visible throughout all 9 slides.',
     ],
   },
 };
@@ -223,19 +224,19 @@ export const POSTER_PRESENTATION_GUIDELINES = {
     'Maintain consistent alignment, grid structure, margins, and spacing across all poster blocks.',
   ],
   presentationCodeRules: {
-    headline: 'Your Abstract ID is your official Presentation Code',
+    headline: 'Participants must enter their Presentation ID (not their Abstract ID) when preparing and submitting their presentation.',
     points: [
-      'Use the exact Abstract ID generated during abstract submission as your official Presentation Code.',
-      'Display your Abstract ID clearly in the designated Presentation Code area on your poster.',
+      'Use the official Presentation ID allocated to your presentation (for example, AICONDD-POST-2027-xxx) in the designated presentation identification field.',
+      'Do not enter your Abstract ID (AICONDD-ABS-xxx) or Registration ID in the presentation identification field.',
+      'Display your allocated Presentation ID clearly in the designated Presentation Code / Presentation ID area on your poster.',
       'Do not generate a separate or self-assigned code.',
-      'Do not use your Registration ID in place of your Abstract ID.',
     ],
   },
   finalPreparationChecklist: [
     'Verify the final poster print dimensions are exactly 4 ft Height × 3 ft Width before sending to print.',
     'Confirm strict Portrait orientation matches the conference poster display board.',
     'Inspect all text, figures, graphs, tables, and institutional logos for crisp legibility at actual print size.',
-    'Proofread all author names, presenting author identification, institutional affiliations, and Abstract ID.',
+    'Proofread all author names, presenting author identification, institutional affiliations, and your allocated Presentation ID.',
     'Ensure the printed poster is durable and suitable for physical display at the conference venue.',
   ],
 };

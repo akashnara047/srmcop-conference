@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 import {
   Calendar,
   Clock,
@@ -216,13 +217,16 @@ export const ProgrammeView: React.FC = () => {
   return (
     <div
       className="w-full min-h-screen relative overflow-x-hidden flex flex-col justify-between py-6 sm:py-8 lg:py-10 bg-[#F3F1FC]"
-      style={{
-        backgroundImage: `url('${IMAGES.schedulePageBg}')`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-      }}
     >
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <OptimizedPicture
+          src={IMAGES.schedulePageBg}
+          alt=""
+          className="w-full h-full object-cover object-center"
+          sizes="100vw"
+          loading="eager"
+        />
+      </div>
       {/* =====================================================================
           MAIN CONTENT CONTAINER
          ===================================================================== */}

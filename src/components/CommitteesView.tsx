@@ -7,6 +7,7 @@ import {
   CommitteeDirectoryItem,
 } from '../data/conferenceData';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 import {
   Users,
   User,
@@ -65,11 +66,17 @@ export const CommitteesView: React.FC = () => {
 
   return (
     <div
-      className="w-full bg-[#FAF8FF] bg-cover bg-center bg-no-repeat min-h-screen relative overflow-x-hidden py-5 sm:py-6 lg:py-7"
-      style={{
-        backgroundImage: `url(${IMAGES.committeesPageBg})`,
-      }}
+      className="w-full bg-[#FAF8FF] min-h-screen relative overflow-x-hidden py-5 sm:py-6 lg:py-7"
     >
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <OptimizedPicture
+          src={IMAGES.committeesPageBg}
+          alt=""
+          className="w-full h-full object-cover object-center"
+          sizes="100vw"
+          loading="eager"
+        />
+      </div>
       {/* Subtle responsive readability veil on narrow viewports */}
       <div className="absolute inset-0 bg-white/15 sm:bg-transparent pointer-events-none z-0" aria-hidden="true" />
 

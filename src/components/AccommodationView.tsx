@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { IMAGES } from '../lib/images';
+import { OptimizedPicture } from './OptimizedImage';
 import {
   AccommodationCategory,
   AccommodationProperty,
@@ -149,11 +150,14 @@ export const AccommodationView: React.FC<AccommodationViewProps> = ({ onNavigate
          ======================================================================= */}
       <section className="relative w-full overflow-hidden bg-[#081B38] text-white">
         <div className="absolute inset-0 w-full h-full">
-          <img
+          <OptimizedPicture
             src={IMAGES.srmistCampusAerial}
             alt="SRMIST Kattankulathur Campus Aerial Panorama"
             className="w-full h-full object-cover object-center scale-105"
             referrerPolicy="no-referrer"
+            sizes="100vw"
+            loading="eager"
+            fetchPriority="high"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-[#081B38]/95 via-[#0A2246]/85 to-transparent sm:to-black/30" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#081B38] via-transparent to-black/20" />
@@ -601,10 +605,11 @@ export const AccommodationView: React.FC<AccommodationViewProps> = ({ onNavigate
                     {/* Attraction Image or Clean Neutral Location Fallback */}
                     <div className="w-full aspect-[16/10] overflow-hidden bg-slate-100 relative border-b border-slate-100">
                       {attraction.image ? (
-                        <img
+                        <OptimizedPicture
                           src={attraction.image}
                           alt={`${attraction.name}, ${attraction.locality}`}
                           className="w-full h-full object-cover object-center group-hover:scale-103 transition-transform duration-300 block"
+                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                           loading="lazy"
                         />
                       ) : (

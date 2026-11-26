@@ -645,8 +645,78 @@ function wrapInstitutionalEmailLayout(params: {
 </html>`;
 }
 
+function formatParticipantDisplayNameEmail(reg: Record<string, unknown>): string {
+  const title = typeof reg.title === 'string' ? reg.title.trim() : '';
+  const fullName = typeof reg.fullName === 'string' ? reg.fullName.trim() : '';
+  if (title && fullName) return `${title} ${fullName}`;
+  return fullName || title || 'Delegate';
+}
+
+function getEmailYearOptions(course: string): readonly string[] {
+  if (course === 'B.Pharm') return ['I Year', 'II Year', 'III Year', 'IV Year'];
+  if (course === 'Pharm.D') return ['I Year', 'II Year', 'III Year', 'IV Year', 'V Year', 'VI Year'];
+  if (course === 'M.Pharm') return ['I Year', 'II Year'];
+  return [];
+}
+
+function extractRegistrationProfileRowsEmail(reg: Record<string, unknown>): {
+  rows: Array<{ label: string; value: string }>;
+  structuredProps: Record<string, string>;
+} {
+  const title = typeof reg.title === 'string' ? reg.title.trim() : '';
+  const course = typeof reg.course === 'string' ? reg.course.trim() : '';
+  const specialisation = typeof reg.specialisation === 'string' ? reg.specialisation.trim() : '';
+  const otherDegree = typeof reg.otherDegree === 'string' ? reg.otherDegree.trim() : '';
+  const designation = typeof reg.designation === 'string' ? reg.designation.trim() : '';
+  const facultyDesignation =
+    typeof reg.facultyDesignation === 'string' ? reg.facultyDesignation.trim() : '';
+  const yearOfStudy = typeof reg.yearOfStudy === 'string' ? reg.yearOfStudy.trim() : '';
+  const legacyCourseOrDesig =
+    typeof reg.courseOrDesignation === 'string' ? reg.courseOrDesignation.trim() : '';
+
+  const rows: Array<{ label: string; value: string }> = [];
+  const structuredProps: Record<string, string> = {};
+  if (title) structuredProps.title = title;
+
+  if (course || designation) {
+    if (course) {
+      rows.push({ label: 'Course / Programme', value: course });
+      structuredProps.course = course;
+    }
+    if (course === 'M.Pharm' && specialisation) {
+      rows.push({ label: 'Specialisation', value: specialisation });
+      structuredProps.specialisation = specialisation;
+    }
+    if (course === 'Other Degrees' && otherDegree) {
+      rows.push({ label: 'Other Degree', value: otherDegree });
+      structuredProps.otherDegree = otherDegree;
+    }
+    if (designation) {
+      rows.push({ label: 'Designation', value: designation });
+      structuredProps.designation = designation;
+    }
+    if (designation === 'Faculty' && facultyDesignation) {
+      rows.push({ label: 'Faculty Designation', value: facultyDesignation });
+      structuredProps.facultyDesignation = facultyDesignation;
+    }
+    if (
+      designation === 'Student' &&
+      getEmailYearOptions(course).length > 0 &&
+      yearOfStudy
+    ) {
+      rows.push({ label: 'Year of Study', value: yearOfStudy });
+      structuredProps.yearOfStudy = yearOfStudy;
+    }
+  } else if (legacyCourseOrDesig) {
+    rows.push({ label: 'Course / Designation', value: legacyCourseOrDesig });
+  }
+
+  return { rows, structuredProps };
+}
+
 function buildRegistrationReceivedEmail(reg: Record<string, unknown>): ConferenceEmailBuildResult {
-  const fullName = String(reg.fullName || 'Delegate').trim();
+  const fullName = formatParticipantDisplayNameEmail(reg);
+  const profileDetails = extractRegistrationProfileRowsEmail(reg);
   const registrationId = String(reg.registrationId || reg.id || '').trim();
   const email = String(reg.email || '').trim();
   const baseCategory = String(reg.category || 'Delegate').trim();
@@ -674,6 +744,7 @@ function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Conferenc
     { label: 'Participant Name', value: fullName },
     { label: 'Registration ID', value: registrationId, monospace: true },
     { label: 'Registered Email', value: email },
+    ...profileDetails.rows,
     { label: 'Participant Category', value: categoryDisplay },
     ...(isVirtual
       ? [{ label: 'Participant Type', value: 'International Virtual Participant' }]
@@ -731,6 +802,7 @@ function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Conferenc
     '',
     `Registration ID: ${registrationId}`,
     `Registered Email: ${email}`,
+    ...profileDetails.rows.map((r) => `${r.label}: ${r.value}`),
     `Participant Category: ${categoryDisplay}`,
     ...(isVirtual ? ['Participant Type: International Virtual Participant'] : []),
     `Participation Mode: ${participationModeDisplay}`,
@@ -757,6 +829,7 @@ function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Conferenc
     textBody,
     structuredData: {
       participantName: fullName,
+      ...profileDetails.structuredProps,
       registrationId,
       email,
       category: categoryDisplay,
@@ -773,7 +846,8 @@ function buildRegistrationReceivedEmail(reg: Record<string, unknown>): Conferenc
 }
 
 function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): ConferenceEmailBuildResult {
-  const fullName = String(reg.fullName || 'Delegate').trim();
+  const fullName = formatParticipantDisplayNameEmail(reg);
+  const profileDetails = extractRegistrationProfileRowsEmail(reg);
   const registrationId = String(reg.registrationId || reg.id || '').trim();
   const email = String(reg.email || '').trim();
   const baseCategory = String(reg.category || 'Delegate').trim();
@@ -812,6 +886,7 @@ function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): Conferen
   const detailsRows = [
     { label: 'Participant Name', value: fullName },
     { label: 'Official Registration ID', value: registrationId, monospace: true },
+    ...profileDetails.rows,
     { label: 'Participant Category', value: categoryDisplay },
     ...(isVirtual
       ? [{ label: 'Participant Type', value: 'International Virtual Participant' }]
@@ -863,6 +938,7 @@ function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): Conferen
       : `Your payment has been verified and your registration for ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}) is officially CONFIRMED.`,
     '',
     `Official Registration ID: ${registrationId}`,
+    ...profileDetails.rows.map((r) => `${r.label}: ${r.value}`),
     `Participant Category: ${categoryDisplay}`,
     ...(isVirtual ? ['Participant Type: International Virtual Participant'] : []),
     `Participation Mode: ${participationModeDisplay}`,
@@ -892,6 +968,7 @@ function buildRegistrationConfirmedEmail(reg: Record<string, unknown>): Conferen
     textBody,
     structuredData: {
       participantName: fullName,
+      ...profileDetails.structuredProps,
       registrationId,
       email,
       category: categoryDisplay,

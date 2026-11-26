@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Award, ExternalLink, FlaskConical, Mic, User, X } from 'lucide-react';
 import { SectionBackToTop } from './BackToTop';
+import { OptimizedPicture } from './OptimizedImage';
 
 export type SpeakerCategory = 'International' | 'National';
 
@@ -241,13 +242,16 @@ export const SpeakersView: React.FC = () => {
     <div className="w-full overflow-x-hidden">
       <section
         className="relative min-h-[calc(100svh-4rem)] sm:min-h-[calc(100svh-4.5rem)] bg-[#F4FAFC] flex flex-col justify-between py-10 sm:py-12 overflow-hidden"
-        style={{
-          backgroundImage: "url('/assets/aistudio/background_88a32b7f.jpg')",
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-        }}
       >
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          <OptimizedPicture
+            src="/assets/aistudio/background_88a32b7f.jpg"
+            alt=""
+            className="w-full h-full object-cover object-center"
+            sizes="100vw"
+            loading="eager"
+          />
+        </div>
 
         <div className="relative z-10 w-[95%] max-w-[1680px] mx-auto space-y-6">
           {/* Section Heading */}
@@ -334,12 +338,14 @@ export const SpeakersView: React.FC = () => {
                         {/* 1. Compact Speaker Photograph (~125–140px desktop height) or Neutral Placeholder */}
                         <div className="w-full aspect-[4/3] max-h-[210px] lg:aspect-auto lg:h-[132px] xl:h-[138px] rounded-xl overflow-hidden bg-gradient-to-br from-[#EDE9FE]/85 via-[#F5F2FF] to-[#E6F4FE]/85 border border-[#E4DDFB]/85 flex items-center justify-center mb-3">
                           {speaker.photoUrl ? (
-                            <img
+                            <OptimizedPicture
                               src={speaker.photoUrl}
                               alt={speaker.name}
                               className={`w-full h-full object-cover ${
                                 speaker.photoPosition || 'object-[50%_20%]'
                               } transition-transform duration-300 group-hover:scale-[1.02]`}
+                              sizes="(max-width: 768px) 100vw, 360px"
+                              loading={category === 'International' ? 'eager' : 'lazy'}
                             />
                           ) : (
                             <div
@@ -464,10 +470,12 @@ export const SpeakersView: React.FC = () => {
               {/* Left: Larger Speaker Photograph or Neutral Placeholder */}
               <div className="w-full max-w-[260px] mx-auto sm:mx-0 sm:w-[230px] md:w-[250px] aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-[#EDE9FE] via-[#F3EFFE] to-[#E6ECFF] border border-[#DDD6FE] shrink-0 flex items-center justify-center shadow-xs">
                 {selectedSpeaker.photoUrl ? (
-                  <img
+                  <OptimizedPicture
                     src={selectedSpeaker.photoUrl}
                     alt={selectedSpeaker.name}
                     className="w-full h-full object-cover object-top"
+                    sizes="260px"
+                    loading="eager"
                   />
                 ) : (
                   <div

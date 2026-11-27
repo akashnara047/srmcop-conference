@@ -62,15 +62,22 @@ export const EMAIL_EVENT_LABELS: Record<EmailEventType, string> = {
   registration_received: 'Registration Done',
   registration_confirmation: 'Registration Confirmation',
   abstract_confirmation: 'Abstract Submission',
-  abstract_acceptance: 'Abstract Confirmation',
+  abstract_acceptance: 'Abstract Acceptance & Allocation',
 };
 
 export const EMAIL_EVENT_SUBJECTS: Record<EmailEventType, string> = {
   registration_received: 'SRMCON 2027 – Registration Received',
   registration_confirmation: 'SRMCON 2027 – Registration Confirmed',
   abstract_confirmation: 'SRMCON 2027 – Abstract Submission Acknowledgement',
-  abstract_acceptance: 'SRMCON 2027 – Abstract Accepted',
+  abstract_acceptance: 'SRMCON 2027 – Abstract Accepted | Presentation Allocation Confirmed',
 };
+
+export function getAbstractAcceptedEmailSubject(presentationId?: string | null): string {
+  const cleanId = (presentationId || '').trim();
+  return cleanId
+    ? `SRMCON 2027 – Abstract Accepted | Presentation Allocation Confirmed | ${cleanId}`
+    : EMAIL_EVENT_SUBJECTS.abstract_acceptance;
+}
 
 const inFlightClientDispatches = new Map<string, Promise<EmailDispatchResult>>();
 const STALE_PENDING_LOCK_MS = 25 * 1000;
@@ -128,6 +135,13 @@ export interface EmailHealthResult {
   ok: boolean;
   service: string | null;
   remainingQuota: number | null;
+  version?: string | null;
+  attachmentSupported?: boolean;
+  presentationAllocationSupported?: boolean;
+  supportedActions?: string[];
+  defaultCcEmail?: string | null;
+  telemetryComplete?: boolean;
+  telemetryWarnings?: string[];
   error: string | null;
 }
 
@@ -173,6 +187,31 @@ export async function checkEmailServiceHealth(): Promise<EmailHealthResult> {
       service: typeof data.service === 'string' ? data.service : 'SRMCOP Conference Email Service',
       remainingQuota:
         typeof data.remainingQuota === 'number' ? data.remainingQuota : null,
+      version: typeof data.version === 'string' ? data.version : null,
+      ...(typeof data.attachmentSupported === 'boolean'
+        ? { attachmentSupported: data.attachmentSupported }
+        : {}),
+      ...(typeof data.presentationAllocationSupported === 'boolean'
+        ? { presentationAllocationSupported: data.presentationAllocationSupported }
+        : {}),
+      ...(Array.isArray(data.supportedActions)
+        ? {
+            supportedActions: data.supportedActions.filter(
+              (item): item is string => typeof item === 'string' && item.trim().length > 0
+            ),
+          }
+        : {}),
+      defaultCcEmail: typeof data.defaultCcEmail === 'string' ? data.defaultCcEmail : null,
+      ...(typeof data.telemetryComplete === 'boolean'
+        ? { telemetryComplete: data.telemetryComplete }
+        : {}),
+      ...(Array.isArray(data.telemetryWarnings)
+        ? {
+            telemetryWarnings: data.telemetryWarnings.filter(
+              (item): item is string => typeof item === 'string'
+            ),
+          }
+        : {}),
       error: null,
     };
   } catch (err) {
@@ -334,6 +373,7 @@ async function reserveAdminEmailLogAttempt(params: {
   regDocId?: string | null;
   abstractId?: string | null;
   recipient: string;
+  subjectOverride?: string;
   hasAttachment: boolean;
   attachmentName?: string | null;
   triggeredBy: string;
@@ -341,6 +381,7 @@ async function reserveAdminEmailLogAttempt(params: {
 }): Promise<{ proceed: boolean; alreadySent: boolean; sentAt: string | null }> {
   const logRef = doc(db, 'emailLogs', params.eventId);
   const now = new Date().toISOString();
+  const resolvedSubject = (params.subjectOverride || EMAIL_EVENT_SUBJECTS[params.eventType]).trim();
 
   return await runTransaction(db, async (transaction) => {
     const snap = await transaction.get(logRef);
@@ -369,6 +410,7 @@ async function reserveAdminEmailLogAttempt(params: {
 
       transaction.update(logRef, {
         recipient: params.recipient,
+        subject: resolvedSubject,
         status: 'Pending',
         attemptCount: (typeof existing.attemptCount === 'number' ? existing.attemptCount : 1) + 1,
         lastAttemptedAt: now,
@@ -392,7 +434,7 @@ async function reserveAdminEmailLogAttempt(params: {
       regDocId: params.regDocId || null,
       abstractId: params.abstractId || null,
       recipient: params.recipient,
-      subject: EMAIL_EVENT_SUBJECTS[params.eventType],
+      subject: resolvedSubject,
       status: 'Pending',
       attemptCount: 1,
       createdAt: now,
@@ -755,8 +797,86 @@ export async function triggerAbstractSubmittedEmail(
   });
 }
 
+function resolveCommittedAbstractAllocation(abstract?: AbstractRecord | null): {
+  presentationId: string;
+  presentationCategory: string;
+} {
+  const presentationId = (abstract?.presentationAllocationId || '').trim();
+  const presentationCategory = (
+    abstract?.officialAllocationCategory ||
+    abstract?.allottedPresentationFormat ||
+    abstract?.finalPresentationFormat ||
+    ''
+  ).trim();
+  return { presentationId, presentationCategory };
+}
+
+async function syncAbstractAcceptanceCommunicationState(params: {
+  abstract: AbstractRecord;
+  pdfStatus?: 'Pending' | 'Generated' | 'Failed';
+  pdfFilename?: string | null;
+  pdfGeneratedAt?: string | null;
+  emailStatus?: 'Pending' | 'Sent' | 'Failed';
+  emailSentAt?: string | null;
+  emailError?: string | null;
+}): Promise<void> {
+  const absId = (params.abstract.id || '').trim();
+  if (!absId) return;
+
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    updatedAt: now,
+  };
+
+  if (params.pdfStatus !== undefined) {
+    patch.acceptancePdfStatus = params.pdfStatus;
+  }
+  if (params.pdfFilename !== undefined) {
+    patch.acceptancePdfFilename = params.pdfFilename;
+  }
+  if (params.pdfGeneratedAt !== undefined) {
+    patch.acceptancePdfGeneratedAt = params.pdfGeneratedAt;
+  }
+  if (params.emailStatus !== undefined) {
+    patch.acceptanceEmailStatus = params.emailStatus;
+    patch.allocationEmailStatus = params.emailStatus;
+    patch.allocationEmailError = params.emailError ?? null;
+    if (params.emailSentAt !== undefined) {
+      patch.acceptanceEmailSentAt = params.emailSentAt;
+      patch.allocationEmailSentAt = params.emailSentAt;
+    } else if (params.emailError !== undefined) {
+      patch.acceptanceEmailError = params.emailError;
+    }
+
+    const activeAllocId = (params.abstract.presentationAllocationId || '').trim();
+    if (activeAllocId && Array.isArray(params.abstract.allocationHistory)) {
+      patch.allocationHistory = params.abstract.allocationHistory.map((entry) => {
+        if (entry && entry.allocationId === activeAllocId && entry.status === 'Active') {
+          return {
+            ...entry,
+            emailStatus: params.emailStatus!,
+            emailSentAt: params.emailSentAt ?? entry.emailSentAt ?? null,
+            emailError: params.emailError ?? null,
+          };
+        }
+        return entry;
+      });
+    }
+  } else if (params.emailError !== undefined) {
+    patch.acceptanceEmailError = params.emailError;
+    patch.allocationEmailError = params.emailError;
+  }
+
+  try {
+    await updateDoc(doc(db, 'abstractSubmissions', absId), patch);
+  } catch (syncErr) {
+    console.warn(`[emailService] Unable to sync communication status on abstractSubmissions/${absId}:`, syncErr);
+  }
+}
+
 // ============================================================================
-// EVENT 4 – ABSTRACT ACCEPTANCE CONFIRMATION (Strictly Accepted Status Only)
+// EVENT 4 – CONSOLIDATED ABSTRACT ACCEPTANCE & PRESENTATION ALLOCATION
+// (Strictly Accepted Status + Committed Presentation ID & Category ONLY)
 // ============================================================================
 export async function triggerAbstractAcceptedEmail(
   abstract: AbstractRecord,
@@ -775,13 +895,116 @@ export async function triggerAbstractAcceptedEmail(
     };
   }
 
+  const { presentationId, presentationCategory } = resolveCommittedAbstractAllocation(abstract);
+  if (!presentationId || !presentationCategory) {
+    return {
+      success: false,
+      eventId,
+      eventType: 'abstract_acceptance',
+      status: 'Failed',
+      error:
+        'Consolidated acceptance confirmation requires a committed Presentation ID and Presentation Category.',
+    };
+  }
+
   return coalesceClientDispatch(eventId, async () => {
     let hasReservedLog = false;
+    const recipient = (abstract.presentingAuthor?.email || registration?.email || '').trim();
+    const subjectOverride = getAbstractAcceptedEmailSubject(presentationId);
+
     try {
       const bearerToken = await getRequiredAdminIdToken();
-      const recipient = (abstract.presentingAuthor?.email || registration?.email || '').trim();
-      const attachment = generateAcceptanceLetterPDFBase64(abstract, registration);
 
+      // Check existing Sent status before generating PDF / creating duplicate work
+      const preSnap = await getDoc(doc(db, 'emailLogs', eventId));
+      if (preSnap.exists()) {
+        const existingPre = preSnap.data() as Partial<EmailLogRecord>;
+        if (existingPre.status === 'Sent' || (existingPre.status as string) === 'Delivered') {
+          const preSentAt = existingPre.sentAt || existingPre.lastAttemptedAt || new Date().toISOString();
+          await syncAbstractAcceptanceCommunicationState({
+            abstract,
+            pdfStatus: existingPre.hasAttachment ? 'Generated' : abstract.acceptancePdfStatus || 'Generated',
+            pdfFilename: existingPre.attachmentName || abstract.acceptancePdfFilename || null,
+            emailStatus: 'Sent',
+            emailSentAt: preSentAt,
+            emailError: null,
+          });
+          return {
+            success: true,
+            eventId,
+            eventType: 'abstract_acceptance',
+            status: 'Sent',
+            duplicatePrevented: true,
+            sentAt: preSentAt,
+          };
+        }
+      }
+
+      // Generate Consolidated Acceptance & Presentation Allocation PDF from committed record
+      let attachment: { filename: string; mimeType: 'application/pdf'; base64: string };
+      try {
+        attachment = generateAcceptanceLetterPDFBase64(abstract, registration);
+      } catch (pdfErr) {
+        const pdfErrorMsg = sanitizeClientError(
+          pdfErr,
+          'Failed to generate consolidated Abstract Acceptance and Presentation Allocation PDF.'
+        );
+        const reservedFailureLog = await reserveAdminEmailLogAttempt({
+          eventId,
+          eventType: 'abstract_acceptance',
+          referenceId: absId,
+          registrationId: abstract.registrationId || null,
+          regDocId: abstract.registrationDocId || registration?.id || null,
+          abstractId: absId,
+          recipient,
+          subjectOverride,
+          hasAttachment: false,
+          attachmentName: null,
+          triggeredBy: auth.currentUser?.email || 'org.secy.cp@srmist.edu.in',
+          recordType: abstract.recordType || 'live',
+        }).catch(() => ({ proceed: false, alreadySent: false, sentAt: null }));
+
+        if (reservedFailureLog.alreadySent) {
+          return {
+            success: true,
+            eventId,
+            eventType: 'abstract_acceptance',
+            status: 'Sent',
+            duplicatePrevented: true,
+            sentAt: reservedFailureLog.sentAt,
+          };
+        }
+
+        if (reservedFailureLog.proceed) {
+          await finalizeEmailLogDoc({
+            eventId,
+            ok: false,
+            sentAt: null,
+            error: pdfErrorMsg,
+            duplicatePrevented: false,
+            service: 'SRMCOP Conference Email Service',
+          });
+        }
+
+        await syncAbstractAcceptanceCommunicationState({
+          abstract,
+          pdfStatus: 'Failed',
+          pdfFilename: null,
+          emailStatus: 'Failed',
+          emailSentAt: null,
+          emailError: pdfErrorMsg,
+        });
+
+        return {
+          success: false,
+          eventId,
+          eventType: 'abstract_acceptance',
+          status: 'Failed',
+          error: pdfErrorMsg,
+        };
+      }
+
+      const pdfGeneratedAt = new Date().toISOString();
       const reservation = await reserveAdminEmailLogAttempt({
         eventId,
         eventType: 'abstract_acceptance',
@@ -790,6 +1013,7 @@ export async function triggerAbstractAcceptedEmail(
         regDocId: abstract.registrationDocId || registration?.id || null,
         abstractId: absId,
         recipient,
+        subjectOverride,
         hasAttachment: true,
         attachmentName: attachment.filename,
         triggeredBy: auth.currentUser?.email || 'org.secy.cp@srmist.edu.in',
@@ -797,6 +1021,17 @@ export async function triggerAbstractAcceptedEmail(
       });
 
       if (!reservation.proceed) {
+        if (reservation.alreadySent) {
+          await syncAbstractAcceptanceCommunicationState({
+            abstract,
+            pdfStatus: 'Generated',
+            pdfFilename: attachment.filename,
+            pdfGeneratedAt,
+            emailStatus: 'Sent',
+            emailSentAt: reservation.sentAt,
+            emailError: null,
+          });
+        }
         return {
           success: reservation.alreadySent,
           eventId,
@@ -807,6 +1042,15 @@ export async function triggerAbstractAcceptedEmail(
         };
       }
       hasReservedLog = true;
+
+      await syncAbstractAcceptanceCommunicationState({
+        abstract,
+        pdfStatus: 'Generated',
+        pdfFilename: attachment.filename,
+        pdfGeneratedAt,
+        emailStatus: 'Pending',
+        emailError: null,
+      });
 
       const apiResult = await postToEmailSendApi({
         bearerToken,
@@ -827,6 +1071,16 @@ export async function triggerAbstractAcceptedEmail(
         service: apiResult.service,
       });
 
+      await syncAbstractAcceptanceCommunicationState({
+        abstract,
+        pdfStatus: 'Generated',
+        pdfFilename: attachment.filename,
+        pdfGeneratedAt,
+        emailStatus: apiResult.ok ? 'Sent' : 'Failed',
+        emailSentAt: apiResult.ok ? apiResult.sentAt || new Date().toISOString() : null,
+        emailError: apiResult.ok ? null : apiResult.error || 'Email delivery failed.',
+      });
+
       return {
         success: apiResult.ok,
         eventId,
@@ -838,7 +1092,7 @@ export async function triggerAbstractAcceptedEmail(
         error: apiResult.error,
       };
     } catch (err) {
-      const msg = sanitizeClientError(err, 'Unable to send abstract acceptance email.');
+      const msg = sanitizeClientError(err, 'Unable to send consolidated abstract acceptance email.');
       if (hasReservedLog) {
         await finalizeEmailLogDoc({
           eventId,
@@ -849,6 +1103,12 @@ export async function triggerAbstractAcceptedEmail(
           service: 'SRMCOP Conference Email Service',
         });
       }
+      await syncAbstractAcceptanceCommunicationState({
+        abstract,
+        emailStatus: 'Failed',
+        emailSentAt: null,
+        emailError: msg,
+      });
       return {
         success: false,
         eventId,
@@ -869,10 +1129,15 @@ export async function retryEmailNotification(params: {
   registration?: RegistrationRecord;
   abstract?: AbstractRecord;
 }): Promise<EmailDispatchResult> {
-  const { eventId, eventType, registration, abstract } = params;
+  const { eventId, eventType, registration } = params;
 
   return coalesceClientDispatch(`retry:${eventId}`, async () => {
     let hasReservedLog = false;
+    let resolvedAbstract = params.abstract;
+    let attachmentCreated = false;
+    let attachmentFilename: string | null = null;
+    let pdfGeneratedAt: string | null = null;
+
     try {
       const bearerToken = await getRequiredAdminIdToken();
 
@@ -880,13 +1145,24 @@ export async function retryEmailNotification(params: {
       const existingSnap = await getDoc(doc(db, 'emailLogs', eventId));
       const existingLog = existingSnap.exists() ? (existingSnap.data() as Partial<EmailLogRecord>) : null;
       if (existingLog && (existingLog.status === 'Sent' || (existingLog.status as string) === 'Delivered')) {
+        const existingSentAt = existingLog.sentAt || existingLog.lastAttemptedAt || null;
+        if (eventType === 'abstract_acceptance' && resolvedAbstract) {
+          await syncAbstractAcceptanceCommunicationState({
+            abstract: resolvedAbstract,
+            pdfStatus: existingLog.hasAttachment ? 'Generated' : resolvedAbstract.acceptancePdfStatus || 'Generated',
+            pdfFilename: existingLog.attachmentName || resolvedAbstract.acceptancePdfFilename || null,
+            emailStatus: 'Sent',
+            emailSentAt: existingSentAt,
+            emailError: null,
+          });
+        }
         return {
           success: true,
           eventId,
           eventType,
           status: 'Sent',
           duplicatePrevented: true,
-          sentAt: existingLog.sentAt || existingLog.lastAttemptedAt || null,
+          sentAt: existingSentAt,
         };
       }
 
@@ -903,7 +1179,27 @@ export async function retryEmailNotification(params: {
       }
 
       if (eventType === 'abstract_acceptance') {
-        if (!abstract || abstract.status !== 'Accepted') {
+        const lookupAbsId = (
+          resolvedAbstract?.id ||
+          existingLog?.abstractId ||
+          existingLog?.referenceId ||
+          ''
+        ).trim();
+        if (lookupAbsId) {
+          try {
+            const freshAbsSnap = await getDoc(doc(db, 'abstractSubmissions', lookupAbsId));
+            if (freshAbsSnap.exists()) {
+              resolvedAbstract = {
+                id: freshAbsSnap.id,
+                ...freshAbsSnap.data(),
+              } as AbstractRecord;
+            }
+          } catch {
+            // Fall back cleanly to provided abstract snapshot if direct fetch is unavailable
+          }
+        }
+
+        if (!resolvedAbstract || resolvedAbstract.status !== 'Accepted') {
           return {
             success: false,
             eventId,
@@ -912,29 +1208,66 @@ export async function retryEmailNotification(params: {
             error: 'Abstract acceptance email can only be sent when abstract status is Accepted.',
           };
         }
+
+        const { presentationId, presentationCategory } =
+          resolveCommittedAbstractAllocation(resolvedAbstract);
+        if (!presentationId || !presentationCategory) {
+          return {
+            success: false,
+            eventId,
+            eventType,
+            status: 'Failed',
+            error:
+              'Consolidated acceptance email requires a committed Presentation ID and Presentation Category.',
+          };
+        }
       }
 
       let attachment: { filename: string; mimeType: 'application/pdf'; base64: string } | undefined;
-      if (eventType === 'registration_confirmation' && registration) {
-        attachment = generateRegistrationReceiptPDFBase64(registration);
-      } else if (eventType === 'abstract_confirmation' && abstract) {
-        attachment = generateSubmissionReceiptPDFBase64(abstract, registration);
-      } else if (eventType === 'abstract_acceptance' && abstract) {
-        attachment = generateAcceptanceLetterPDFBase64(abstract, registration);
+      try {
+        if (eventType === 'registration_confirmation' && registration) {
+          attachment = generateRegistrationReceiptPDFBase64(registration);
+        } else if (eventType === 'abstract_confirmation' && resolvedAbstract) {
+          attachment = generateSubmissionReceiptPDFBase64(resolvedAbstract, registration);
+        } else if (eventType === 'abstract_acceptance' && resolvedAbstract) {
+          attachment = generateAcceptanceLetterPDFBase64(resolvedAbstract, registration);
+          attachmentCreated = true;
+          attachmentFilename = attachment.filename;
+          pdfGeneratedAt = new Date().toISOString();
+        }
+      } catch (pdfErr) {
+        const pdfErrorMsg = sanitizeClientError(pdfErr, 'PDF generation failed during retry.');
+        if (eventType === 'abstract_acceptance' && resolvedAbstract) {
+          await syncAbstractAcceptanceCommunicationState({
+            abstract: resolvedAbstract,
+            pdfStatus: 'Failed',
+            pdfFilename: null,
+            emailStatus: 'Failed',
+            emailSentAt: null,
+            emailError: pdfErrorMsg,
+          });
+        }
+        return {
+          success: false,
+          eventId,
+          eventType,
+          status: 'Failed',
+          error: pdfErrorMsg,
+        };
       }
 
       const regKey = registration
         ? (registration.registrationId || registration.id || '').trim().toUpperCase()
         : (existingLog?.registrationId || '').trim().toUpperCase();
       const regDocId = registration?.id || existingLog?.regDocId || regKey || null;
-      const absId = abstract
-        ? abstract.id.trim().toUpperCase()
+      const absId = resolvedAbstract
+        ? resolvedAbstract.id.trim().toUpperCase()
         : (existingLog?.abstractId || '').trim().toUpperCase();
 
       const recipient =
         (eventType === 'registration_received' || eventType === 'registration_confirmation'
           ? registration?.email
-          : abstract?.presentingAuthor?.email) ||
+          : resolvedAbstract?.presentingAuthor?.email) ||
         existingLog?.recipient ||
         '';
 
@@ -942,6 +1275,11 @@ export async function retryEmailNotification(params: {
         eventType === 'registration_received' || eventType === 'registration_confirmation'
           ? regKey
           : absId;
+
+      const subjectOverride =
+        eventType === 'abstract_acceptance' && resolvedAbstract
+          ? getAbstractAcceptedEmailSubject(resolvedAbstract.presentationAllocationId)
+          : undefined;
 
       const reservation = await reserveAdminEmailLogAttempt({
         eventId,
@@ -951,13 +1289,25 @@ export async function retryEmailNotification(params: {
         regDocId,
         abstractId: absId || null,
         recipient: recipient.trim(),
+        subjectOverride,
         hasAttachment: !!attachment,
         attachmentName: attachment?.filename || null,
         triggeredBy: `admin_retry:${auth.currentUser?.email || 'org.secy.cp@srmist.edu.in'}`,
-        recordType: registration?.recordType || abstract?.recordType || existingLog?.recordType || 'live',
+        recordType: registration?.recordType || resolvedAbstract?.recordType || existingLog?.recordType || 'live',
       });
 
       if (!reservation.proceed) {
+        if (reservation.alreadySent && eventType === 'abstract_acceptance' && resolvedAbstract) {
+          await syncAbstractAcceptanceCommunicationState({
+            abstract: resolvedAbstract,
+            pdfStatus: 'Generated',
+            pdfFilename: attachmentFilename,
+            pdfGeneratedAt,
+            emailStatus: 'Sent',
+            emailSentAt: reservation.sentAt,
+            emailError: null,
+          });
+        }
         return {
           success: reservation.alreadySent,
           eventId,
@@ -971,6 +1321,17 @@ export async function retryEmailNotification(params: {
         };
       }
       hasReservedLog = true;
+
+      if (eventType === 'abstract_acceptance' && resolvedAbstract) {
+        await syncAbstractAcceptanceCommunicationState({
+          abstract: resolvedAbstract,
+          pdfStatus: 'Generated',
+          pdfFilename: attachmentFilename,
+          pdfGeneratedAt,
+          emailStatus: 'Pending',
+          emailError: null,
+        });
+      }
 
       const apiResult = await postToEmailSendApi({
         bearerToken,
@@ -994,6 +1355,18 @@ export async function retryEmailNotification(params: {
         service: apiResult.service,
       });
 
+      if (eventType === 'abstract_acceptance' && resolvedAbstract) {
+        await syncAbstractAcceptanceCommunicationState({
+          abstract: resolvedAbstract,
+          pdfStatus: 'Generated',
+          pdfFilename: attachmentFilename,
+          pdfGeneratedAt,
+          emailStatus: apiResult.ok ? 'Sent' : 'Failed',
+          emailSentAt: apiResult.ok ? apiResult.sentAt || new Date().toISOString() : null,
+          emailError: apiResult.ok ? null : apiResult.error || 'Email delivery failed.',
+        });
+      }
+
       return {
         success: apiResult.ok,
         eventId,
@@ -1014,6 +1387,21 @@ export async function retryEmailNotification(params: {
           error: msg,
           duplicatePrevented: false,
           service: 'SRMCOP Conference Email Service',
+        });
+      }
+      if (eventType === 'abstract_acceptance' && resolvedAbstract) {
+        await syncAbstractAcceptanceCommunicationState({
+          abstract: resolvedAbstract,
+          ...(attachmentCreated
+            ? {
+                pdfStatus: 'Generated' as const,
+                pdfFilename: attachmentFilename,
+                pdfGeneratedAt,
+              }
+            : {}),
+          emailStatus: 'Failed',
+          emailSentAt: null,
+          emailError: msg,
         });
       }
       return {
@@ -1065,7 +1453,11 @@ export async function sendAdminTestEmail(params: {
       title: 'SRMCON 2027 Automated Email & PDF Attachment Diagnostic Verification',
       trackId: 'track-03',
       presentationPreference: 'Oral Presentation',
+      officialAllocationCategory: 'Oral Presentation',
+      presentationAllocationId: 'AICONDD-OR-2027-TEST',
+      allocationStatus: 'Active',
       allottedPresentationFormat: 'Oral Presentation',
+      reviewedAt: new Date().toISOString(),
       presentingAuthor: {
         fullName: 'SRMCON Secretariat Diagnostic Test',
         email: recipient,

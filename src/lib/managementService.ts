@@ -202,6 +202,12 @@ export interface AbstractRecord {
   allocationEmailError?: string | null;
   allocationEmailAttempts?: number;
   allocationHistory?: AllocationHistoryEntry[];
+  acceptancePdfStatus?: 'Pending' | 'Generated' | 'Failed' | null;
+  acceptancePdfFilename?: string | null;
+  acceptancePdfGeneratedAt?: string | null;
+  acceptanceEmailStatus?: 'Pending' | 'Sent' | 'Failed' | null;
+  acceptanceEmailSentAt?: string | null;
+  acceptanceEmailError?: string | null;
   reviewNotes?: string;
   reviewedBy?: string;
   reviewedAt?: string;

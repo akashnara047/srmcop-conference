@@ -29,17 +29,40 @@ import {
   type BackupExecutionResult,
   type BackupProgressUpdate,
 } from './backupService';
+import {
+  ALLOCATION_COUNTER_MAP,
+  OFFICIAL_ALLOCATION_CATEGORIES,
+  formatAllocationId,
+} from './presentationAllocationService';
 
 export const TRIAL_RESET_STAGES = [
   'Creating mandatory full database ZIP backup',
   'Scanning registrations, abstracts & email logs',
   'Deleting registration & abstract records',
   'Clearing associated duplicate-prevention email logs',
-  'Resetting registration & abstract ID counters to 0',
+  'Resetting registration, abstract & presentation allocation counters to 0',
   'Verifying clean post-reset state',
 ] as const;
 
 export type TrialResetStageLabel = (typeof TRIAL_RESET_STAGES)[number];
+
+export type TrialResetCounterId =
+  | 'registrationCounter'
+  | 'abstractCounter'
+  | 'allocationCounterOral'
+  | 'allocationCounterPoster'
+  | 'allocationCounterEposter';
+
+export interface CounterPreviewDetail {
+  counterId: TrialResetCounterId;
+  label: string;
+  exists: boolean;
+  storedSequenceNumber: number | null;
+  currentSequenceNumber: number;
+  proposedResetSequenceNumber: 0;
+  currentNextId: string;
+  proposedNextId: string;
+}
 
 export interface TrialResetProgressUpdate {
   stageIndex: number;
@@ -57,8 +80,15 @@ export interface TrialResetPreviewStats {
   unrelatedEmailLogsCount: number;
   registrationCounterSeq: number;
   abstractCounterSeq: number;
+  allocationCounterOralSeq: number;
+  allocationCounterPosterSeq: number;
+  allocationCounterEposterSeq: number;
   currentNextRegistrationId: string;
   currentNextAbstractId: string;
+  currentNextAllocationOralId: string;
+  currentNextAllocationPosterId: string;
+  currentNextAllocationEposterId: string;
+  counters: Record<TrialResetCounterId, CounterPreviewDetail>;
 }
 
 export interface PreservedCollectionsStatus {
@@ -87,10 +117,24 @@ export interface TrialResetVerificationReport {
   storageObjectsSkipped: number;
   registrationCounterBefore: number;
   registrationCounterAfter: number;
+  registrationCounterExistedBefore: boolean;
   abstractCounterBefore: number;
   abstractCounterAfter: number;
+  abstractCounterExistedBefore: boolean;
+  allocationCounterOralBefore: number;
+  allocationCounterOralAfter: number;
+  allocationCounterOralExistedBefore: boolean;
+  allocationCounterPosterBefore: number;
+  allocationCounterPosterAfter: number;
+  allocationCounterPosterExistedBefore: boolean;
+  allocationCounterEposterBefore: number;
+  allocationCounterEposterAfter: number;
+  allocationCounterEposterExistedBefore: boolean;
   nextRegistrationId: string;
   nextAbstractId: string;
+  nextAllocationOralId: string;
+  nextAllocationPosterId: string;
+  nextAllocationEposterId: string;
   remainingRegistrationsAfter: number;
   remainingAbstractsAfter: number;
   remainingAssociatedEmailLogsAfter: number;
@@ -114,6 +158,8 @@ const EMAIL_EVENT_PREFIXES = [
 
 const SEQUENTIAL_REG_ID_PATTERN = /^AICONDD\d+$/i;
 const SEQUENTIAL_ABS_ID_PATTERN = /^AICONDD-ABS-\d+$/i;
+const SEQUENTIAL_ALLOC_EVENT_PATTERN =
+  /^EMAIL_PRES_ALLOC_AICONDD-(?:OR|POST|EPOST)-2027-\d+(?:_(?:1|R\d+))?$/i;
 
 function formatRegIdFromSeq(seq: number): string {
   return `AICONDD${String(seq + 1).padStart(3, '0')}`;
@@ -219,6 +265,10 @@ function isAssociatedEmailLog(
     }
   }
 
+  if (SEQUENTIAL_ALLOC_EVENT_PATTERN.test(upperId)) {
+    return true;
+  }
+
   // Fallback for any registration/abstract email log referencing sequential IDs
   if (REGISTRATION_OR_ABSTRACT_EMAIL_TYPES.has(type)) {
     if (
@@ -259,15 +309,68 @@ async function deleteDocRefsInBatches(
   return deleted;
 }
 
-async function readCounterSeq(counterId: 'registrationCounter' | 'abstractCounter'): Promise<number> {
+interface CounterReadState {
+  exists: boolean;
+  storedSequenceNumber: number | null;
+  effectiveSequenceNumber: number;
+}
+
+async function readCounterState(counterId: TrialResetCounterId): Promise<CounterReadState> {
   try {
     const snap = await getDoc(doc(db, 'systemCounters', counterId));
-    if (!snap.exists()) return 0;
+    if (!snap.exists()) {
+      return {
+        exists: false,
+        storedSequenceNumber: null,
+        effectiveSequenceNumber: 0,
+      };
+    }
     const raw = snap.data()?.lastSequenceNumber;
-    return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0;
+    const validSeq =
+      typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null;
+    return {
+      exists: true,
+      storedSequenceNumber: validSeq,
+      effectiveSequenceNumber: validSeq ?? 0,
+    };
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, `systemCounters/${counterId}`);
   }
+}
+
+function buildCounterPreviewDetail(
+  counterId: TrialResetCounterId,
+  label: string,
+  state: CounterReadState,
+  formatNextIdFn: (seq: number) => string
+): CounterPreviewDetail {
+  return {
+    counterId,
+    label,
+    exists: state.exists,
+    storedSequenceNumber: state.storedSequenceNumber,
+    currentSequenceNumber: state.effectiveSequenceNumber,
+    proposedResetSequenceNumber: 0,
+    currentNextId: formatNextIdFn(state.effectiveSequenceNumber),
+    proposedNextId: formatNextIdFn(0),
+  };
+}
+
+async function readAllFiveCounterStates(): Promise<{
+  registration: CounterReadState;
+  abstract: CounterReadState;
+  oral: CounterReadState;
+  poster: CounterReadState;
+  eposter: CounterReadState;
+}> {
+  const [registration, abstract, oral, poster, eposter] = await Promise.all([
+    readCounterState('registrationCounter'),
+    readCounterState('abstractCounter'),
+    readCounterState('allocationCounterOral'),
+    readCounterState('allocationCounterPoster'),
+    readCounterState('allocationCounterEposter'),
+  ]);
+  return { registration, abstract, oral, poster, eposter };
 }
 
 async function readPreservedCollectionsCounts(): Promise<PreservedCollectionsStatus> {
@@ -307,18 +410,17 @@ async function readPreservedCollectionsCounts(): Promise<PreservedCollectionsSta
 }
 
 /**
- * Fetches a live read-only preview of records and counters that will be affected
- * by a trial-run reset. Requires Organising Secretary authorization.
+ * Fetches a live read-only preview of records and all five sequence counters that will
+ * be affected by a trial-run reset. Requires Organising Secretary authorization.
  */
 export async function fetchTrialResetPreviewStats(): Promise<TrialResetPreviewStats> {
   await verifyBackupAuthorization();
 
-  const [regDocs, absDocs, emailDocs, regSeq, absSeq] = await Promise.all([
+  const [regDocs, absDocs, emailDocs, counterStates] = await Promise.all([
     fetchAllCollectionDocs('registrations'),
     fetchAllCollectionDocs('abstractSubmissions'),
     fetchAllCollectionDocs('emailLogs'),
-    readCounterSeq('registrationCounter'),
-    readCounterSeq('abstractCounter'),
+    readAllFiveCounterStates(),
   ]);
 
   const deletedRegKeys = new Set<string>();
@@ -344,16 +446,56 @@ export async function fetchTrialResetPreviewStats(): Promise<TrialResetPreviewSt
     }
   }
 
+  const counters: Record<TrialResetCounterId, CounterPreviewDetail> = {
+    registrationCounter: buildCounterPreviewDetail(
+      'registrationCounter',
+      'Registration Counter',
+      counterStates.registration,
+      formatRegIdFromSeq
+    ),
+    abstractCounter: buildCounterPreviewDetail(
+      'abstractCounter',
+      'Abstract Counter',
+      counterStates.abstract,
+      formatAbsIdFromSeq
+    ),
+    allocationCounterOral: buildCounterPreviewDetail(
+      'allocationCounterOral',
+      'Oral Presentation Allocation Counter',
+      counterStates.oral,
+      (seq) => formatAllocationId('Oral Presentation', seq + 1)
+    ),
+    allocationCounterPoster: buildCounterPreviewDetail(
+      'allocationCounterPoster',
+      'Poster Presentation Allocation Counter',
+      counterStates.poster,
+      (seq) => formatAllocationId('Poster Presentation', seq + 1)
+    ),
+    allocationCounterEposter: buildCounterPreviewDetail(
+      'allocationCounterEposter',
+      'E-Poster Presentation Allocation Counter',
+      counterStates.eposter,
+      (seq) => formatAllocationId('E-Poster Presentation', seq + 1)
+    ),
+  };
+
   return {
     registrationsCount: regDocs.length,
     abstractsCount: absDocs.length,
     emailLogsTotalCount: emailDocs.length,
     associatedEmailLogsCount,
     unrelatedEmailLogsCount: emailDocs.length - associatedEmailLogsCount,
-    registrationCounterSeq: regSeq,
-    abstractCounterSeq: absSeq,
-    currentNextRegistrationId: formatRegIdFromSeq(regSeq),
-    currentNextAbstractId: formatAbsIdFromSeq(absSeq),
+    registrationCounterSeq: counterStates.registration.effectiveSequenceNumber,
+    abstractCounterSeq: counterStates.abstract.effectiveSequenceNumber,
+    allocationCounterOralSeq: counterStates.oral.effectiveSequenceNumber,
+    allocationCounterPosterSeq: counterStates.poster.effectiveSequenceNumber,
+    allocationCounterEposterSeq: counterStates.eposter.effectiveSequenceNumber,
+    currentNextRegistrationId: counters.registrationCounter.currentNextId,
+    currentNextAbstractId: counters.abstractCounter.currentNextId,
+    currentNextAllocationOralId: counters.allocationCounterOral.currentNextId,
+    currentNextAllocationPosterId: counters.allocationCounterPoster.currentNextId,
+    currentNextAllocationEposterId: counters.allocationCounterEposter.currentNextId,
+    counters,
   };
 }
 
@@ -363,7 +505,9 @@ export async function fetchTrialResetPreviewStats(): Promise<TrialResetPreviewSt
  * 2. Snapshot counts & preserved collections baseline
  * 3. Delete all registrations & abstractSubmissions
  * 4. Clear only associated emailLogs (preserving unrelated logs)
- * 5. Reset registrationCounter & abstractCounter to 0 (next IDs: AICONDD001 & AICONDD-ABS-001)
+ * 5. Atomically reset all 5 systemCounters (registrationCounter, abstractCounter,
+ *    allocationCounterOral, allocationCounterPoster, allocationCounterEposter) to 0
+ *    in a single Firestore writeBatch
  * 6. Write AdminAuditLog entry and verify clean post-reset state
  */
 export async function executeTrialRunReset(
@@ -402,7 +546,7 @@ export async function executeTrialRunReset(
     stageIndex: 1,
     stageLabel: TRIAL_RESET_STAGES[1],
     percent: 42,
-    detail: 'Collecting exact pre-reset document lists and counter states...',
+    detail: 'Collecting exact pre-reset document lists and all five counter states...',
   });
 
   const [
@@ -411,8 +555,7 @@ export async function executeTrialRunReset(
     paymentTxDocs,
     uniquenessResDocs,
     emailDocs,
-    regCounterBefore,
-    absCounterBefore,
+    countersBefore,
     preservedBefore,
   ] = await Promise.all([
     fetchAllCollectionDocs('registrations'),
@@ -420,8 +563,7 @@ export async function executeTrialRunReset(
     fetchAllCollectionDocs('paymentTransactions'),
     fetchAllCollectionDocs('uniquenessReservations'),
     fetchAllCollectionDocs('emailLogs'),
-    readCounterSeq('registrationCounter'),
-    readCounterSeq('abstractCounter'),
+    readAllFiveCounterStates(),
     readPreservedCollectionsCounts(),
   ]);
 
@@ -503,26 +645,53 @@ export async function executeTrialRunReset(
 
   const emailLogsCleared = await deleteDocRefsInBatches(associatedEmailRefs, 'emailLogs');
 
-  // STAGE 5: Reset registrationCounter & abstractCounter to 0
+  // STAGE 5: Atomically reset all 5 sequence counters in one Firestore writeBatch
   onProgress({
     stageIndex: 4,
     stageLabel: TRIAL_RESET_STAGES[4],
     percent: 88,
-    detail: 'Resetting registrationCounter and abstractCounter to 0 (next IDs: AICONDD001 & AICONDD-ABS-001)...',
+    detail:
+      'Atomically resetting registrationCounter, abstractCounter, and all three presentation allocation counters to 0...',
   });
 
   const resetIso = new Date().toISOString();
   try {
-    await Promise.all([
-      setDoc(doc(db, 'systemCounters', 'registrationCounter'), {
+    const counterResetBatch = writeBatch(db);
+
+    counterResetBatch.set(
+      doc(db, 'systemCounters', 'registrationCounter'),
+      {
         lastSequenceNumber: 0,
         updatedAt: resetIso,
-      }),
-      setDoc(doc(db, 'systemCounters', 'abstractCounter'), {
+      },
+      { merge: true }
+    );
+
+    counterResetBatch.set(
+      doc(db, 'systemCounters', 'abstractCounter'),
+      {
         lastSequenceNumber: 0,
         updatedAt: resetIso,
-      }),
-    ]);
+      },
+      { merge: true }
+    );
+
+    for (const category of OFFICIAL_ALLOCATION_CATEGORIES) {
+      const spec = ALLOCATION_COUNTER_MAP[category];
+      counterResetBatch.set(
+        doc(db, 'systemCounters', spec.counterId),
+        {
+          lastSequenceNumber: 0,
+          prefix: spec.prefix,
+          category,
+          updatedAt: resetIso,
+          updatedBy: adminEmail,
+        },
+        { merge: true }
+      );
+    }
+
+    await counterResetBatch.commit();
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'systemCounters');
   }
@@ -535,7 +704,7 @@ export async function executeTrialRunReset(
       adminEmail,
       action: 'TRIAL_RUN_RESET',
       targetId: 'registrations_abstracts_counters',
-      details: `Pre-trial reset completed after backup ${backupResult.filename}. Deleted ${registrationsDeleted} registrations, ${abstractsDeleted} abstracts, ${emailLogsCleared} linked email logs. Reset counters to 0.`,
+      details: `Pre-trial reset completed after backup ${backupResult.filename}. Deleted ${registrationsDeleted} registrations, ${abstractsDeleted} abstracts, ${emailLogsCleared} linked email logs. Atomically reset all 5 counters (registrationCounter, abstractCounter, allocationCounterOral, allocationCounterPoster, allocationCounterEposter) to 0.`,
       timestamp: resetIso,
     });
   } catch (auditErr) {
@@ -547,22 +716,20 @@ export async function executeTrialRunReset(
     stageIndex: 5,
     stageLabel: TRIAL_RESET_STAGES[5],
     percent: 95,
-    detail: 'Verifying empty collections, reset counters, and preserved conference data...',
+    detail: 'Verifying empty collections, all five reset counters, and preserved conference data...',
   });
 
   const [
     remainingRegs,
     remainingAbs,
     remainingEmailDocs,
-    regCounterAfter,
-    absCounterAfter,
+    countersAfter,
     preservedAfter,
   ] = await Promise.all([
     fetchAllCollectionDocs('registrations'),
     fetchAllCollectionDocs('abstractSubmissions'),
     fetchAllCollectionDocs('emailLogs'),
-    readCounterSeq('registrationCounter'),
-    readCounterSeq('abstractCounter'),
+    readAllFiveCounterStates(),
     readPreservedCollectionsCounts(),
   ]);
 
@@ -577,7 +744,8 @@ export async function executeTrialRunReset(
     stageIndex: 5,
     stageLabel: TRIAL_RESET_STAGES[5],
     percent: 100,
-    detail: 'Trial-run reset verified and ready for fresh registrations starting at AICONDD001.',
+    detail:
+      'Trial-run reset verified and ready for fresh registrations (AICONDD001), abstracts (AICONDD-ABS-001), and allocations (-001).',
   });
 
   return {
@@ -595,12 +763,35 @@ export async function executeTrialRunReset(
     emailLogsPreserved: remainingEmailDocs.length,
     storageObjectsDeleted,
     storageObjectsSkipped,
-    registrationCounterBefore: regCounterBefore,
-    registrationCounterAfter: regCounterAfter,
-    abstractCounterBefore: absCounterBefore,
-    abstractCounterAfter: absCounterAfter,
-    nextRegistrationId: formatRegIdFromSeq(regCounterAfter),
-    nextAbstractId: formatAbsIdFromSeq(absCounterAfter),
+    registrationCounterBefore: countersBefore.registration.effectiveSequenceNumber,
+    registrationCounterAfter: countersAfter.registration.effectiveSequenceNumber,
+    registrationCounterExistedBefore: countersBefore.registration.exists,
+    abstractCounterBefore: countersBefore.abstract.effectiveSequenceNumber,
+    abstractCounterAfter: countersAfter.abstract.effectiveSequenceNumber,
+    abstractCounterExistedBefore: countersBefore.abstract.exists,
+    allocationCounterOralBefore: countersBefore.oral.effectiveSequenceNumber,
+    allocationCounterOralAfter: countersAfter.oral.effectiveSequenceNumber,
+    allocationCounterOralExistedBefore: countersBefore.oral.exists,
+    allocationCounterPosterBefore: countersBefore.poster.effectiveSequenceNumber,
+    allocationCounterPosterAfter: countersAfter.poster.effectiveSequenceNumber,
+    allocationCounterPosterExistedBefore: countersBefore.poster.exists,
+    allocationCounterEposterBefore: countersBefore.eposter.effectiveSequenceNumber,
+    allocationCounterEposterAfter: countersAfter.eposter.effectiveSequenceNumber,
+    allocationCounterEposterExistedBefore: countersBefore.eposter.exists,
+    nextRegistrationId: formatRegIdFromSeq(countersAfter.registration.effectiveSequenceNumber),
+    nextAbstractId: formatAbsIdFromSeq(countersAfter.abstract.effectiveSequenceNumber),
+    nextAllocationOralId: formatAllocationId(
+      'Oral Presentation',
+      countersAfter.oral.effectiveSequenceNumber + 1
+    ),
+    nextAllocationPosterId: formatAllocationId(
+      'Poster Presentation',
+      countersAfter.poster.effectiveSequenceNumber + 1
+    ),
+    nextAllocationEposterId: formatAllocationId(
+      'E-Poster Presentation',
+      countersAfter.eposter.effectiveSequenceNumber + 1
+    ),
     remainingRegistrationsAfter: remainingRegs.length,
     remainingAbstractsAfter: remainingAbs.length,
     remainingAssociatedEmailLogsAfter,
@@ -610,6 +801,9 @@ export async function executeTrialRunReset(
 }
 
 export function formatTrialResetTextReport(report: TrialResetVerificationReport): string {
+  const formatBeforeLabel = (before: number, existed: boolean) =>
+    existed ? String(before) : `missing (effective ${before})`;
+
   return [
     '====================================================================',
     'SRMCON 2027 – PRE-TRIAL DATA RESET & VERIFICATION REPORT',
@@ -627,11 +821,17 @@ export function formatTrialResetTextReport(report: TrialResetVerificationReport)
     `   - Unrelated Logs Preserved : ${report.emailLogsPreserved}`,
     `   - Storage Files Removed    : ${report.storageObjectsDeleted}${report.storageObjectsSkipped > 0 ? ` (${report.storageObjectsSkipped} skipped/missing)` : ''}`,
     '',
-    '2. SEQUENCE COUNTER VERIFICATION',
-    `   - registrationCounter      : ${report.registrationCounterBefore} -> ${report.registrationCounterAfter}`,
+    '2. SEQUENCE COUNTER VERIFICATION (ALL 5 COUNTERS)',
+    `   - registrationCounter      : ${formatBeforeLabel(report.registrationCounterBefore, report.registrationCounterExistedBefore)} -> ${report.registrationCounterAfter}`,
     `   - Next Registration ID     : ${report.nextRegistrationId}`,
-    `   - abstractCounter          : ${report.abstractCounterBefore} -> ${report.abstractCounterAfter}`,
+    `   - abstractCounter          : ${formatBeforeLabel(report.abstractCounterBefore, report.abstractCounterExistedBefore)} -> ${report.abstractCounterAfter}`,
     `   - Next Abstract ID         : ${report.nextAbstractId}`,
+    `   - allocationCounterOral    : ${formatBeforeLabel(report.allocationCounterOralBefore, report.allocationCounterOralExistedBefore)} -> ${report.allocationCounterOralAfter}`,
+    `   - Next Oral Alloc ID       : ${report.nextAllocationOralId}`,
+    `   - allocationCounterPoster  : ${formatBeforeLabel(report.allocationCounterPosterBefore, report.allocationCounterPosterExistedBefore)} -> ${report.allocationCounterPosterAfter}`,
+    `   - Next Poster Alloc ID     : ${report.nextAllocationPosterId}`,
+    `   - allocationCounterEposter : ${formatBeforeLabel(report.allocationCounterEposterBefore, report.allocationCounterEposterExistedBefore)} -> ${report.allocationCounterEposterAfter}`,
+    `   - Next E-Poster Alloc ID   : ${report.nextAllocationEposterId}`,
     '',
     '3. POST-RESET STATE & PRESERVED COLLECTIONS',
     `   - Remaining Registrations  : ${report.remainingRegistrationsAfter}`,

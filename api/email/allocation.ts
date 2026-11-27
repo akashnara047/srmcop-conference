@@ -8,6 +8,7 @@ import {
   sendJson,
 } from '../_lib/emailConfig.ts';
 import {
+  AuthVerificationError,
   getFirestoreDocument,
   verifyFirebaseAdminBearerToken,
 } from '../_lib/firebaseServerVerify.ts';
@@ -111,6 +112,10 @@ async function readJsonBody(req: IncomingMessage): Promise<AllocationEmailReques
     });
 
     req.on('error', (err) => reject(err));
+
+    if (typeof req.resume === 'function') {
+      req.resume();
+    }
   });
 }
 
@@ -656,6 +661,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
+  const authHeader =
+    typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined;
+  let adminBearerToken: string;
+  if (typeof req.pause === 'function') {
+    req.pause();
+  }
+  try {
+    await verifyFirebaseAdminBearerToken(authHeader);
+    adminBearerToken = authHeader!.slice('Bearer '.length).trim();
+  } catch (err) {
+    const authStatusCode = err instanceof AuthVerificationError ? err.statusCode : 401;
+    sendJson(res, authStatusCode, {
+      success: false,
+      error: sanitizeErrorMessage(err, 'Unauthorized administrative email request.'),
+    });
+    return;
+  }
+
   let body: AllocationEmailRequestBody;
   try {
     body = await readJsonBody(req);
@@ -678,21 +701,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
   if (!abstractId || !VALID_ID_REGEX.test(abstractId)) {
     sendJson(res, 400, { success: false, eventId, error: 'Valid abstractId is required.' });
-    return;
-  }
-
-  const authHeader =
-    typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined;
-  let adminBearerToken: string;
-  try {
-    await verifyFirebaseAdminBearerToken(authHeader);
-    adminBearerToken = authHeader!.slice('Bearer '.length).trim();
-  } catch (err) {
-    sendJson(res, 401, {
-      success: false,
-      eventId,
-      error: sanitizeErrorMessage(err, 'Unauthorized administrative email request.'),
-    });
     return;
   }
 

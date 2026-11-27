@@ -24,7 +24,7 @@ interface TableBulkActionBarProps {
   eligibleSelectedCount: number;
   onToggleSelectAllPage: () => void;
   onClearSelection: () => void;
-  onBulkApprove: () => void;
+  onBulkApprove?: () => void;
   onBulkReject: () => void;
   pageSize: PageSizeOption;
   onPageSizeChange: (size: PageSizeOption) => void;
@@ -75,15 +75,17 @@ export const TableBulkActionBar: React.FC<TableBulkActionBarProps> = ({
         )}
 
         <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            disabled={disabled || selectedCount === 0 || eligibleSelectedCount === 0}
-            onClick={onBulkApprove}
-            className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 font-semibold text-[11.5px] inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
-          >
-            <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-            <span>Approve Selected</span>
-          </button>
+          {onBulkApprove && (
+            <button
+              type="button"
+              disabled={disabled || selectedCount === 0 || eligibleSelectedCount === 0}
+              onClick={onBulkApprove}
+              className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 font-semibold text-[11.5px] inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+              <span>Approve Selected</span>
+            </button>
+          )}
 
           <button
             type="button"

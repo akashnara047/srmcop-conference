@@ -162,6 +162,7 @@ import {
 } from '../lib/emailService';
 import {
   OFFICIAL_ALLOCATION_CATEGORIES,
+  approveAndAllocateAbstract,
   confirmOfficialPresentationAllocation,
   getAllocationFilterCategoryKey,
   getOfficialAllocationCategory,
@@ -276,10 +277,18 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     flaggedIds?: string[];
   } | null>(null);
 
-  // Presentation Format Allocation state
-  const [allottedFormatSelection, setAllottedFormatSelection] = useState<string>('');
-  const [savingAllocation, setSavingAllocation] = useState(false);
-  const [allocationSavedSuccess, setAllocationSavedSuccess] = useState(false);
+  // Unified Abstract Review, Approval & Presentation Category Allocation state
+  const [reviewCategoryChoice, setReviewCategoryChoice] = useState<string>('');
+  const [approveConfirmStep, setApproveConfirmStep] = useState<boolean>(false);
+  const [reviewModalError, setReviewModalError] = useState<string | null>(null);
+  const [reviewModalSuccess, setReviewModalSuccess] = useState<{
+    allocationId: string;
+    category: OfficialAllocationCategory;
+    pdfStatus?: 'Generated' | 'Failed';
+    emailStatus?: 'Sent' | 'Failed' | 'Pending';
+    emailError?: string | null;
+  } | null>(null);
+  const inFlightAbstractApprovalIdsRef = useRef<Set<string>>(new Set());
 
   // Official Presentation Allocation ID Filter & Dedicated Modal state
   type AbsOfficialAllocationFilterValue =
@@ -832,53 +841,49 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     }
   };
 
-  // Abstract Presentation Format Allocation (persists without modifying author preference or overall status)
-  const handleSavePresentationAllocation = async () => {
-    if (!selectedAbs || !allottedFormatSelection) return;
-    setSavingAllocation(true);
-    try {
-      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
-      const timestamp = new Date().toISOString();
+  // Live view of the currently open Abstract Review Modal record (syncs immediately with Firestore snapshot)
+  const liveSelectedAbs = useMemo(() => {
+    if (!selectedAbs) return null;
+    return abstracts.find((a) => a.id === selectedAbs.id) || selectedAbs;
+  }, [selectedAbs, abstracts]);
 
-      await updateDoc(doc(db, 'abstractSubmissions', selectedAbs.id), {
-        allottedPresentationFormat: allottedFormatSelection,
-        allottedBy: adminIdentity,
-        allottedAt: timestamp,
-        updatedAt: timestamp,
-      });
-
-      setSelectedAbs((prev) =>
-        prev
-          ? {
-              ...prev,
-              allottedPresentationFormat: allottedFormatSelection,
-              allottedBy: adminIdentity,
-              allottedAt: timestamp,
-            }
-          : null
-      );
-
-      setAllocationSavedSuccess(true);
-      setActionSuccessMsg(`Abstract ${selectedAbs.id} presentation format successfully allocated to "${allottedFormatSelection}".`);
-    } catch (err: any) {
-      console.error('Error saving presentation allocation:', err);
-      alert('Failed to save presentation format allocation in Firestore.');
-    } finally {
-      setSavingAllocation(false);
-    }
+  const openAbstractReviewModal = (abs: AbstractRecord) => {
+    setSelectedAbs(abs);
+    setActionRemarks(abs.reviewNotes || '');
+    setReviewCategoryChoice('');
+    setApproveConfirmStep(false);
+    setReviewModalError(null);
+    setReviewModalSuccess(null);
   };
 
-  // Dedicated Official Presentation Allocation ID Handlers (atomic category ID + PDF + Email)
+  const closeAbstractReviewModal = () => {
+    if (processingAction) return;
+    setSelectedAbs(null);
+    setActionRemarks('');
+    setReviewCategoryChoice('');
+    setApproveConfirmStep(false);
+    setReviewModalError(null);
+    setReviewModalSuccess(null);
+  };
+
+  // Dedicated Official Presentation Allocation Modal (Strictly for Authorised Admin Category Correction on already-Approved abstracts)
   const liveAllocationModalAbs = useMemo(() => {
     if (!allocationModalAbs) return null;
     return abstracts.find((a) => a.id === allocationModalAbs.id) || allocationModalAbs;
   }, [allocationModalAbs, abstracts]);
 
-  const openOfficialAllocationModal = (abs: AbstractRecord) => {
+  const openOfficialAllocationModal = (abs: AbstractRecord, startInChangeStep = false) => {
+    if (abs.status !== 'Accepted') {
+      openAbstractReviewModal(abs);
+      setReviewModalError(
+        'Please select a Presentation Category and use "Approve & Allocate" to approve and allocate this abstract in one step.'
+      );
+      return;
+    }
     setAllocationModalAbs(abs);
     setAllocationCategoryChoice('');
     setAllocationChangeReason('');
-    setAllocationConfirmChangeStep(false);
+    setAllocationConfirmChangeStep(startInChangeStep && isAbstractOfficiallyAllocated(abs));
     setAllocationModalFeedback(null);
   };
 
@@ -898,6 +903,13 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       setAllocationModalFeedback({
         type: 'error',
         text: 'Rejected abstracts cannot be allotted an official presentation slot.',
+      });
+      return;
+    }
+    if (targetAbs.status !== 'Accepted') {
+      setAllocationModalFeedback({
+        type: 'error',
+        text: 'Abstract must be approved via "Approve & Allocate" before category correction.',
       });
       return;
     }
@@ -925,7 +937,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       setAllocationModalAbs(result.updatedAbstract);
       if (selectedAbs?.id === result.updatedAbstract.id) {
         setSelectedAbs(result.updatedAbstract);
-        setAllottedFormatSelection(result.category);
       }
       setAllocationConfirmChangeStep(false);
       setAllocationChangeReason('');
@@ -977,17 +988,45 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     setAllocationModalFeedback(null);
     try {
       const linkedReg = getLinkedRegistrationForAbstractRecord(targetAbs, registrations);
+      const isPostApprovalCategoryCorrection =
+        Array.isArray(targetAbs.allocationHistory) && targetAbs.allocationHistory.length > 1;
+
+      if (!isPostApprovalCategoryCorrection && targetAbs.status === 'Accepted') {
+        // Guard against dispatching a separate allocation-only email for initial approvals;
+        // initial acceptance & allocation are consolidated in abstract_acceptance (+ PDF).
+        const accEventId = getAbstractAcceptedEventId(targetAbs.id);
+        const retryRes = await retryEmailNotification({
+          eventId: accEventId,
+          eventType: 'abstract_acceptance',
+          registration: linkedReg,
+          abstract: targetAbs,
+        });
+        if (retryRes.success) {
+          const msg = retryRes.duplicatePrevented
+            ? `Consolidated Acceptance & Allocation email (${targetAbs.presentationAllocationId}) was already delivered previously; duplicate blocked.`
+            : `Consolidated Acceptance & Allocation email (${targetAbs.presentationAllocationId}) sent successfully with attached PDF.`;
+          setAllocationModalFeedback({ type: 'success', text: msg });
+          setActionSuccessMsg(msg);
+        } else {
+          const msg = `Failed to send consolidated acceptance email (${targetAbs.presentationAllocationId}): ${
+            retryRes.error || 'Email service error'
+          }`;
+          setAllocationModalFeedback({ type: 'error', text: msg });
+        }
+        return;
+      }
+
       const emailResult = await sendOfficialPresentationAllocationEmail({
         abstract: targetAbs,
         registration: linkedReg,
         isResend: true,
       });
       if (emailResult.success) {
-        const msg = `Official Presentation Allocation Confirmation email (${targetAbs.presentationAllocationId}) sent successfully with attached PDF.`;
+        const msg = `Official Presentation Allocation Correction email (${targetAbs.presentationAllocationId}) sent successfully with attached PDF.`;
         setAllocationModalFeedback({ type: 'success', text: msg });
         setActionSuccessMsg(msg);
       } else {
-        const msg = `Failed to resend allocation email (${targetAbs.presentationAllocationId}): ${
+        const msg = `Failed to resend allocation correction email (${targetAbs.presentationAllocationId}): ${
           emailResult.error || 'Email service error'
         }`;
         setAllocationModalFeedback({ type: 'error', text: msg });
@@ -997,18 +1036,177 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     }
   };
 
-  // Abstract Review Status Update (triggers Event 4 ONLY when status === 'Accepted')
-  const handleUpdateAbstractStatus = async (
-    targetStatus: 'Submitted' | 'Under Review' | 'Accepted' | 'Rejected'
-  ) => {
-    if (!selectedAbs) return;
+  // Step 1 of Unified Approval + Allocation: validate mandatory Presentation Category & eligibility, then show confirmation step
+  const handleRequestApproveAndAllocate = () => {
+    const targetAbs = liveSelectedAbs;
+    if (!targetAbs || processingAction) return;
+
+    setReviewModalError(null);
+
+    if (targetAbs.status === 'Accepted') {
+      setReviewModalError(
+        `Abstract ${targetAbs.id} is already Approved${
+          targetAbs.presentationAllocationId
+            ? ` (Presentation ID: ${targetAbs.presentationAllocationId})`
+            : ''
+        }. Repeated approval is blocked.`
+      );
+      return;
+    }
+
+    if (targetAbs.status === 'Rejected') {
+      setReviewModalError(
+        `Abstract ${targetAbs.id} has status "Rejected" and cannot be approved or allocated a Presentation ID.`
+      );
+      return;
+    }
+
+    if (isAbstractOfficiallyAllocated(targetAbs)) {
+      setReviewModalError(
+        `Abstract ${targetAbs.id} already has an Active Presentation ID (${targetAbs.presentationAllocationId}).`
+      );
+      return;
+    }
+
+    if (!isValidOfficialAllocationCategory(reviewCategoryChoice)) {
+      setReviewModalError(
+        'Please select a Presentation Category (Oral Presentation, Poster Presentation, or E-Poster Presentation) before clicking Approve & Allocate.'
+      );
+      return;
+    }
+
+    setApproveConfirmStep(true);
+  };
+
+  // Step 2 of Unified Approval + Allocation: atomic approval + Presentation ID generation + allocation save
+  const handleConfirmApproveAndAllocate = async () => {
+    const targetAbs = liveSelectedAbs;
+    if (!targetAbs || processingAction) return;
+    if (inFlightAbstractApprovalIdsRef.current.has(targetAbs.id)) return;
+
+    if (!isValidOfficialAllocationCategory(reviewCategoryChoice)) {
+      setApproveConfirmStep(false);
+      setReviewModalError(
+        'Please select a Presentation Category (Oral Presentation, Poster Presentation, or E-Poster Presentation).'
+      );
+      return;
+    }
+
+    inFlightAbstractApprovalIdsRef.current.add(targetAbs.id);
     setProcessingAction(true);
+    setReviewModalError(null);
+    setActionSuccessMsg(null);
+
+    try {
+      const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
+      const result = await approveAndAllocateAbstract({
+        abstractId: targetAbs.id,
+        category: reviewCategoryChoice as OfficialAllocationCategory,
+        adminEmail: adminIdentity,
+        reviewNotes: actionRemarks,
+      });
+
+      setSelectedAbs(result.updatedAbstract);
+      setApproveConfirmStep(false);
+      setReviewCategoryChoice('');
+      setReviewModalSuccess({
+        allocationId: result.allocationId,
+        category: result.category,
+        pdfStatus: undefined,
+        emailStatus: 'Pending',
+        emailError: null,
+      });
+
+      // Dispatch ONE consolidated acceptance & allocation email with ONE consolidated PDF attachment
+      let emailNote = '';
+      try {
+        const linkedReg = getLinkedRegistrationForAbstractRecord(
+          result.updatedAbstract,
+          registrations
+        );
+        const emailResult = await triggerAbstractAcceptedEmail(result.updatedAbstract, linkedReg);
+        if (emailResult.success) {
+          setReviewModalSuccess({
+            allocationId: result.allocationId,
+            category: result.category,
+            pdfStatus: 'Generated',
+            emailStatus: 'Sent',
+            emailError: null,
+          });
+          emailNote = emailResult.duplicatePrevented
+            ? ' Consolidated acceptance PDF email already delivered previously.'
+            : ' Consolidated acceptance PDF & email sent.';
+        } else {
+          const isPdfErr = (emailResult.error || '').toLowerCase().includes('pdf generation failed');
+          setReviewModalSuccess({
+            allocationId: result.allocationId,
+            category: result.category,
+            pdfStatus: isPdfErr ? 'Failed' : 'Generated',
+            emailStatus: 'Failed',
+            emailError: emailResult.error || 'Email service unavailable.',
+          });
+          emailNote = ` Acceptance communication failed (${emailResult.error || 'upstream error'}) — Retry Available.`;
+        }
+      } catch (emailErr: any) {
+        console.warn('Non-fatal Event 4 email dispatch error:', emailErr);
+        const errMsg = emailErr?.message || 'Unexpected consolidated email error.';
+        setReviewModalSuccess({
+          allocationId: result.allocationId,
+          category: result.category,
+          pdfStatus: 'Generated',
+          emailStatus: 'Failed',
+          emailError: errMsg,
+        });
+        emailNote = ' Consolidated acceptance email failed — Retry Available.';
+      }
+
+      setSelectedAbsIds((prev) => {
+        if (!prev.has(targetAbs.id)) return prev;
+        const next = new Set(prev);
+        next.delete(targetAbs.id);
+        return next;
+      });
+
+      setActionSuccessMsg(
+        `Abstract ${targetAbs.id} approved and allocated ${result.category} (Presentation ID: ${result.allocationId}).${emailNote}`
+      );
+    } catch (err: any) {
+      console.error('Failed to approve and allocate abstract:', err);
+      setApproveConfirmStep(false);
+      setReviewModalError(
+        err?.message || 'Failed to approve abstract and generate Presentation ID. No changes were committed.'
+      );
+    } finally {
+      inFlightAbstractApprovalIdsRef.current.delete(targetAbs.id);
+      setProcessingAction(false);
+    }
+  };
+
+  // Non-approval Abstract Review Status Update (Under Review / Rejected — NEVER approves or touches allocation counters)
+  const handleUpdateAbstractStatus = async (
+    targetStatus: 'Submitted' | 'Under Review' | 'Rejected'
+  ) => {
+    const targetAbs = liveSelectedAbs;
+    if (!targetAbs || processingAction) return;
+    if (targetAbs.status === 'Accepted') {
+      setReviewModalError(
+        'This abstract has already been Approved and allocated a Presentation ID and cannot be reverted here.'
+      );
+      return;
+    }
+
+    setProcessingAction(true);
+    setReviewModalError(null);
     try {
       const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
       const timestamp = new Date().toISOString();
-      const reviewNote = actionRemarks.trim() || `Status updated to ${targetStatus}`;
+      const reviewNote =
+        actionRemarks.trim() ||
+        (targetStatus === 'Rejected'
+          ? 'Abstract not accepted during review.'
+          : `Status updated to ${targetStatus}`);
 
-      await updateDoc(doc(db, 'abstractSubmissions', selectedAbs.id), {
+      await updateDoc(doc(db, 'abstractSubmissions', targetAbs.id), {
         status: targetStatus,
         reviewNotes: reviewNote,
         reviewedBy: adminIdentity,
@@ -1016,60 +1214,46 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         updatedAt: timestamp,
       });
 
-      let emailNote = '';
-      if (targetStatus === 'Accepted') {
-        const acceptedSnapshot: AbstractRecord = {
-          ...selectedAbs,
-          status: 'Accepted',
-          reviewNotes: reviewNote,
-          reviewedBy: adminIdentity,
-          reviewedAt: timestamp,
-          updatedAt: timestamp,
-        };
-        try {
-          const linkedReg = getLinkedRegistrationForAbstractRecord(acceptedSnapshot, registrations);
-          const emailResult = await triggerAbstractAcceptedEmail(acceptedSnapshot, linkedReg);
-          if (emailResult.success) {
-            emailNote = emailResult.duplicatePrevented
-              ? ' Acceptance email already sent previously.'
-              : ' Acceptance confirmation email sent.';
-          } else {
-            emailNote = ` Acceptance email failed (${emailResult.error || 'upstream error'}) — use Retry in dashboard.`;
-          }
-        } catch (emailErr: any) {
-          console.warn('Non-fatal Event 4 email dispatch error:', emailErr);
-          emailNote = ' Acceptance email could not be sent — use Retry in dashboard.';
-        }
-      }
+      setSelectedAbsIds((prev) => {
+        if (!prev.has(targetAbs.id)) return prev;
+        const next = new Set(prev);
+        next.delete(targetAbs.id);
+        return next;
+      });
 
-      setActionSuccessMsg(`Abstract ${selectedAbs.id} status successfully updated to "${targetStatus}".${emailNote}`);
+      setActionSuccessMsg(
+        `Abstract ${targetAbs.id} status successfully updated to "${targetStatus}".`
+      );
       setSelectedAbs(null);
       setActionRemarks('');
+      setReviewCategoryChoice('');
+      setApproveConfirmStep(false);
     } catch (err: any) {
       console.error('Failed to update abstract review status:', err);
-      alert('Error updating abstract review status in Firestore.');
+      setReviewModalError(err?.message || 'Error updating abstract review status in Firestore.');
     } finally {
       setProcessingAction(false);
     }
   };
 
-  // Inline Sticky-Column Individual Abstract Decision (reuses exact existing status update + Event 4 email)
-  // Strictly independent from Registration approval — never mutates registration records.
+  // Inline Sticky-Column Individual Abstract Rejection (unchanged — never generates Presentation ID or increments counters)
   const handleQuickAbstractDecision = async (
     abs: AbstractRecord,
-    targetStatus: 'Accepted' | 'Rejected'
+    targetStatus: 'Rejected'
   ) => {
     if (processingAction || bulkProcessing) return;
+    if (abs.status === 'Accepted') {
+      setActionSuccessMsg(
+        `Abstract ${abs.id} is already Approved (${abs.presentationAllocationId || 'Allocated'}) and cannot be quick-rejected.`
+      );
+      return;
+    }
     setProcessingAction(true);
     setActionSuccessMsg(null);
     try {
       const adminIdentity = user?.email || 'org.secy.cp@srmist.edu.in';
       const timestamp = new Date().toISOString();
-      const reviewNote =
-        abs.reviewNotes?.trim() ||
-        (targetStatus === 'Accepted'
-          ? 'Abstract accepted by Scientific Committee.'
-          : 'Abstract not accepted during review.');
+      const reviewNote = abs.reviewNotes?.trim() || 'Abstract not accepted during review.';
 
       await updateDoc(doc(db, 'abstractSubmissions', abs.id), {
         status: targetStatus,
@@ -1079,32 +1263,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         updatedAt: timestamp,
       });
 
-      let emailNote = '';
-      if (targetStatus === 'Accepted') {
-        const acceptedSnapshot: AbstractRecord = {
-          ...abs,
-          status: 'Accepted',
-          reviewNotes: reviewNote,
-          reviewedBy: adminIdentity,
-          reviewedAt: timestamp,
-          updatedAt: timestamp,
-        };
-        try {
-          const linkedReg = getLinkedRegistrationForAbstractRecord(acceptedSnapshot, registrations);
-          const emailResult = await triggerAbstractAcceptedEmail(acceptedSnapshot, linkedReg);
-          if (emailResult.success) {
-            emailNote = emailResult.duplicatePrevented
-              ? ' Acceptance email already sent previously.'
-              : ' Acceptance confirmation email sent.';
-          } else {
-            emailNote = ` Acceptance email failed (${emailResult.error || 'upstream error'}) — use Retry in dashboard.`;
-          }
-        } catch (emailErr: any) {
-          console.warn('Non-fatal Event 4 email dispatch error:', emailErr);
-          emailNote = ' Acceptance email could not be sent — use Retry in dashboard.';
-        }
-      }
-
       setSelectedAbsIds((prev) => {
         if (!prev.has(abs.id)) return prev;
         const next = new Set(prev);
@@ -1112,11 +1270,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
         return next;
       });
 
-      setActionSuccessMsg(
-        `Abstract ${abs.id} ${targetStatus === 'Accepted' ? 'approved (Accepted)' : 'rejected'}.${emailNote}`
-      );
+      setActionSuccessMsg(`Abstract ${abs.id} rejected.`);
     } catch (err: any) {
-      console.error('Failed to update abstract status:', err);
+      console.error('Failed to reject abstract:', err);
       setActionSuccessMsg(`Error updating abstract ${abs.id}: ${err.message || 'Firestore error'}`);
     } finally {
       setProcessingAction(false);
@@ -1180,7 +1336,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     });
   };
 
-  const openBulkAbstractConfirm = (action: 'approve' | 'reject') => {
+  const openBulkAbstractConfirm = (action: 'reject') => {
     const selectedRecords = abstracts.filter((a) => selectedAbsIds.has(a.id));
     if (selectedRecords.length === 0) return;
     const eligible = selectedRecords.filter((a) => isAbstractBulkEligible(a));
@@ -1342,98 +1498,58 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           }${failedIds.length > 0 ? `, ${failedIds.length} failed` : ''}.${emailSummary}`
         );
       } else {
-        // Bulk Abstracts Approve / Reject (strictly independent from registration status)
+        // Bulk Abstracts Rejection only (Approval requires individual category selection + atomic Presentation ID allocation)
         const selectedRecords = abstracts.filter((a) => selectedAbsIds.has(a.id));
         const eligible = selectedRecords.filter((a) => isAbstractBulkEligible(a));
         const totalSkipped = selectedRecords.length - eligible.length;
 
         if (eligible.length === 0) {
           setActionSuccessMsg(
-            `No eligible pending abstracts to ${action}. ${totalSkipped} already settled abstract(s) were skipped.`
+            `No eligible pending abstracts to reject. ${totalSkipped} already settled abstract(s) were skipped.`
           );
           setBulkConfirmConfig(null);
           return;
         }
 
-        const targetStatus: 'Accepted' | 'Rejected' =
-          action === 'approve' ? 'Accepted' : 'Rejected';
         const succeededIds: string[] = [];
         const failedIds: string[] = [];
-        let emailsSent = 0;
-        let emailsDuplicatePrevented = 0;
-        let emailsFailed = 0;
 
         for (let i = 0; i < eligible.length; i += 1) {
           const abs = eligible[i];
           setBulkProgressText(
-            `${action === 'approve' ? 'Approving' : 'Rejecting'} abstract ${i + 1} of ${eligible.length} (${abs.id})...`
+            `Rejecting abstract ${i + 1} of ${eligible.length} (${abs.id})...`
           );
 
           try {
             const timestamp = new Date().toISOString();
             const reviewNote =
-              customNote ||
-              (targetStatus === 'Accepted'
-                ? 'Abstract accepted by Scientific Committee (Bulk approval).'
-                : 'Abstract not accepted during review (Bulk rejection).');
+              customNote || 'Abstract not accepted during review (Bulk rejection).';
 
             await updateDoc(doc(db, 'abstractSubmissions', abs.id), {
-              status: targetStatus,
+              status: 'Rejected',
               reviewNotes: reviewNote,
               reviewedBy: adminIdentity,
               reviewedAt: timestamp,
               updatedAt: timestamp,
             });
 
-            if (targetStatus === 'Accepted') {
-              const acceptedSnapshot: AbstractRecord = {
-                ...abs,
-                status: 'Accepted',
-                reviewNotes: reviewNote,
-                reviewedBy: adminIdentity,
-                reviewedAt: timestamp,
-                updatedAt: timestamp,
-              };
-              try {
-                const linkedReg = getLinkedRegistrationForAbstractRecord(
-                  acceptedSnapshot,
-                  registrations
-                );
-                const emailRes = await triggerAbstractAcceptedEmail(
-                  acceptedSnapshot,
-                  linkedReg
-                );
-                if (emailRes.success) {
-                  if (emailRes.duplicatePrevented) emailsDuplicatePrevented += 1;
-                  else emailsSent += 1;
-                } else {
-                  emailsFailed += 1;
-                }
-              } catch {
-                emailsFailed += 1;
-              }
-            }
-
             succeededIds.push(abs.id);
           } catch (err) {
-            console.error(`[Bulk Abstract ${action}] Failed for ${abs.id}:`, err);
+            console.error(`[Bulk Abstract reject] Failed for ${abs.id}:`, err);
             failedIds.push(abs.id);
           }
         }
 
-        // Write immutable audit trail entry for bulk abstract action
+        // Write immutable audit trail entry for bulk abstract rejection
         if (succeededIds.length > 0) {
           try {
-            const auditId = `BULK_${action.toUpperCase()}_ABS_${Date.now()}`;
+            const auditId = `BULK_REJECT_ABS_${Date.now()}`;
             await setDoc(doc(db, 'adminAuditLogs', auditId), {
               id: auditId,
               adminEmail: adminIdentity,
-              action:
-                action === 'approve'
-                  ? 'BULK_APPROVE_ABSTRACTS'
-                  : 'BULK_REJECT_ABSTRACTS',
+              action: 'BULK_REJECT_ABSTRACTS',
               targetId: succeededIds.slice(0, 20).join(', '),
-              details: `Bulk ${action}d ${succeededIds.length} abstract(s): ${succeededIds.join(', ')}.${
+              details: `Bulk rejected ${succeededIds.length} abstract(s): ${succeededIds.join(', ')}.${
                 totalSkipped > 0 ? ` Skipped: ${totalSkipped}.` : ''
               }${failedIds.length > 0 ? ` Failed: ${failedIds.join(', ')}.` : ''}${
                 customNote ? ` Notes: ${customNote}` : ''
@@ -1452,21 +1568,12 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           return next;
         });
 
-        const emailSummary =
-          action === 'approve'
-            ? ` Emails: ${emailsSent} sent${
-                emailsDuplicatePrevented > 0
-                  ? `, ${emailsDuplicatePrevented} already sent`
-                  : ''
-              }${emailsFailed > 0 ? `, ${emailsFailed} failed (use Retry)` : ''}.`
-            : '';
-
         setActionSuccessMsg(
-          `Bulk ${action === 'approve' ? 'approval' : 'rejection'} complete: ${
+          `Bulk rejection complete: ${
             succeededIds.length
           } abstract(s) updated${
             totalSkipped > 0 ? `, ${totalSkipped} skipped` : ''
-          }${failedIds.length > 0 ? `, ${failedIds.length} failed` : ''}.${emailSummary}`
+          }${failedIds.length > 0 ? `, ${failedIds.length} failed` : ''}.`
         );
       }
 
@@ -1693,6 +1800,52 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     if (log.status === 'Pending') return 'Pending';
     if (log.status === 'Failed') return 'Failed';
     return 'Not Sent';
+  };
+
+  const getConsolidatedAcceptanceCommStatus = (
+    abs: AbstractRecord,
+    accLog?: EmailLogRecord
+  ): {
+    pdfStatus: 'Pending' | 'PDF Generated' | 'PDF Failed';
+    emailStatus: 'Pending' | 'Email Sent' | 'Email Failed' | 'Not Sent';
+    retryAvailable: boolean;
+    errorText: string | null;
+  } => {
+    const logStatus = normalizeLogStatus(accLog);
+    const effectiveEmailRaw =
+      logStatus !== 'Not Sent'
+        ? logStatus
+        : abs.acceptanceEmailStatus === 'Sent' ||
+          abs.acceptanceEmailStatus === 'Failed' ||
+          abs.acceptanceEmailStatus === 'Pending'
+        ? abs.acceptanceEmailStatus
+        : abs.allocationEmailStatus === 'Sent' || abs.allocationEmailStatus === 'Failed'
+        ? abs.allocationEmailStatus
+        : abs.status === 'Accepted'
+        ? 'Pending'
+        : 'Not Sent';
+
+    const pdfStatus: 'Pending' | 'PDF Generated' | 'PDF Failed' =
+      abs.acceptancePdfStatus === 'Failed'
+        ? 'PDF Failed'
+        : abs.acceptancePdfStatus === 'Generated' || accLog?.hasAttachment || effectiveEmailRaw === 'Sent'
+        ? 'PDF Generated'
+        : 'Pending';
+
+    const emailStatus: 'Pending' | 'Email Sent' | 'Email Failed' | 'Not Sent' =
+      effectiveEmailRaw === 'Sent'
+        ? 'Email Sent'
+        : effectiveEmailRaw === 'Failed'
+        ? 'Email Failed'
+        : effectiveEmailRaw === 'Pending'
+        ? 'Pending'
+        : 'Not Sent';
+
+    const retryAvailable =
+      abs.status === 'Accepted' && (emailStatus === 'Email Failed' || pdfStatus === 'PDF Failed');
+    const errorText = accLog?.error || abs.acceptanceEmailError || abs.allocationEmailError || null;
+
+    return { pdfStatus, emailStatus, retryAvailable, errorText };
   };
 
   const emailDeliverySummary = useMemo(() => {
@@ -5072,16 +5225,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 {linkedAbs ? (
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      setSelectedAbs(linkedAbs);
-                                      setActionRemarks(linkedAbs.reviewNotes || '');
-                                      setAllottedFormatSelection(
-                                        linkedAbs.allottedPresentationFormat ||
-                                          linkedAbs.finalPresentationFormat ||
-                                          ''
-                                      );
-                                      setAllocationSavedSuccess(false);
-                                    }}
+                                    onClick={() => openAbstractReviewModal(linkedAbs)}
                                     className="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-md text-[11px] cursor-pointer"
                                   >
                                     Review Abstract
@@ -5118,7 +5262,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     eligibleSelectedCount={eligibleSelectedAbsCount}
                     onToggleSelectAllPage={toggleSelectAllAbsOnPage}
                     onClearSelection={() => setSelectedAbsIds(new Set())}
-                    onBulkApprove={() => openBulkAbstractConfirm('approve')}
                     onBulkReject={() => openBulkAbstractConfirm('reject')}
                     pageSize={absPageSize}
                     onPageSizeChange={setAbsPageSize}
@@ -5293,16 +5436,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 <td className="px-2.5 py-2 border-b border-slate-100 min-w-[225px] max-w-[300px]">
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      setSelectedAbs(abs);
-                                      setActionRemarks(abs.reviewNotes || '');
-                                      setAllottedFormatSelection(
-                                        abs.allottedPresentationFormat ||
-                                          abs.finalPresentationFormat ||
-                                          ''
-                                      );
-                                      setAllocationSavedSuccess(false);
-                                    }}
+                                    onClick={() => openAbstractReviewModal(abs)}
                                     title={abs.title}
                                     className="text-left font-semibold text-slate-900 hover:text-purple-800 leading-snug line-clamp-2 cursor-pointer transition-colors"
                                   >
@@ -5410,30 +5544,45 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                             <span className="inline-block px-1.5 py-0.5 rounded font-mono text-[9.5px] font-bold bg-indigo-50 text-indigo-900 border border-indigo-200">
                                               {abs.presentationAllocationId}
                                             </span>
-                                            <span
-                                              className={`inline-block px-1 py-0.5 rounded text-[8.5px] font-bold uppercase ${
-                                                abs.allocationEmailStatus === 'Sent'
-                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                  : abs.allocationEmailStatus === 'Failed'
-                                                  ? 'bg-red-50 text-red-700 border border-red-200'
-                                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
-                                              }`}
-                                              title={
-                                                abs.allocationEmailError ||
-                                                `Allocation Email: ${abs.allocationEmailStatus || 'Pending'}`
-                                              }
-                                            >
-                                              {abs.allocationEmailStatus === 'Sent'
-                                                ? 'Mail Sent'
-                                                : abs.allocationEmailStatus === 'Failed'
-                                                ? 'Mail Failed'
-                                                : 'Mail Pend'}
-                                            </span>
+                                            {(() => {
+                                              const accLog = emailLogMap.get(
+                                                getAbstractAcceptedEventId(abs.id)
+                                              );
+                                              const comm = getConsolidatedAcceptanceCommStatus(
+                                                abs,
+                                                accLog
+                                              );
+                                              return (
+                                                <span
+                                                  className={`inline-block px-1 py-0.5 rounded text-[8.5px] font-bold uppercase ${
+                                                    comm.emailStatus === 'Email Sent'
+                                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                      : comm.emailStatus === 'Email Failed'
+                                                      ? 'bg-red-50 text-red-700 border border-red-200'
+                                                      : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                                  }`}
+                                                  title={
+                                                    comm.errorText ||
+                                                    `Consolidated Acceptance + Allocation Email: ${comm.emailStatus} (${comm.pdfStatus})`
+                                                  }
+                                                >
+                                                  {comm.emailStatus === 'Email Sent'
+                                                    ? 'Mail Sent'
+                                                    : comm.emailStatus === 'Email Failed'
+                                                    ? 'Mail Failed'
+                                                    : 'Mail Pend'}
+                                                </span>
+                                              );
+                                            })()}
                                           </div>
                                           <div className="text-[9.5px] font-semibold text-purple-800">
                                             {getOfficialAllocationCategory(abs)}
                                           </div>
                                         </div>
+                                      ) : abs.status === 'Rejected' ? (
+                                        <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-50 text-red-700 border border-red-200/80">
+                                          No Allocation
+                                        </span>
                                       ) : (
                                         <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80">
                                           Not Allocated
@@ -5444,7 +5593,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 </td>
 
                                 {/* Status + Email Delivery Badges */}
-                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap min-w-[150px]">
+                                <td className="px-2.5 py-2 border-b border-slate-100 whitespace-nowrap min-w-[165px]">
                                   <span
                                     className={`px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase ${
                                       abs.status === 'Accepted'
@@ -5464,7 +5613,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                     const subLog = emailLogMap.get(subId);
                                     const accLog = emailLogMap.get(accId);
                                     const subStatus = normalizeLogStatus(subLog);
-                                    const accStatus = normalizeLogStatus(accLog);
+                                    const accComm = getConsolidatedAcceptanceCommStatus(abs, accLog);
 
                                     return (
                                       <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px]">
@@ -5503,19 +5652,45 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                           <>
                                             <span
                                               className={`px-1.5 py-0.5 rounded font-semibold ${
-                                                accStatus === 'Sent'
-                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                  : accStatus === 'Failed'
+                                                accComm.pdfStatus === 'PDF Generated'
+                                                  ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                                  : accComm.pdfStatus === 'PDF Failed'
                                                   ? 'bg-red-50 text-red-700 border border-red-200'
-                                                  : accStatus === 'Pending'
+                                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                              }`}
+                                              title={
+                                                abs.acceptancePdfFilename ||
+                                                `Consolidated Acceptance PDF: ${accComm.pdfStatus}`
+                                              }
+                                            >
+                                              {accComm.pdfStatus}
+                                            </span>
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded font-semibold ${
+                                                accComm.emailStatus === 'Email Sent'
+                                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                  : accComm.emailStatus === 'Email Failed'
+                                                  ? 'bg-red-50 text-red-700 border border-red-200'
+                                                  : accComm.emailStatus === 'Pending'
                                                   ? 'bg-amber-50 text-amber-700 border border-amber-200'
                                                   : 'bg-slate-50 text-slate-400 border border-slate-200'
                                               }`}
-                                              title={accLog?.error || `Abstract Acceptance Email: ${accStatus}`}
+                                              title={
+                                                accComm.errorText ||
+                                                `Consolidated Acceptance Email: ${accComm.emailStatus}`
+                                              }
                                             >
-                                              Acc: {accStatus}
+                                              {accComm.emailStatus}
                                             </span>
-                                            {(accStatus === 'Failed' || (abs.status === 'Accepted' && accStatus === 'Not Sent')) && (
+                                            {accComm.retryAvailable && (
+                                              <span className="px-1 py-0.5 rounded font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                                Retry Available
+                                              </span>
+                                            )}
+                                            {(accComm.emailStatus === 'Email Failed' ||
+                                              accComm.pdfStatus === 'PDF Failed' ||
+                                              (abs.status === 'Accepted' &&
+                                                accComm.emailStatus !== 'Email Sent')) && (
                                               <button
                                                 type="button"
                                                 disabled={retryingEmailEventId === accId}
@@ -5528,10 +5703,15 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                                   })
                                                 }
                                                 className="px-1.5 py-0.5 rounded bg-purple-600 hover:bg-purple-700 text-white font-bold cursor-pointer disabled:opacity-50"
+                                                title={
+                                                  accComm.retryAvailable
+                                                    ? 'Retry consolidated acceptance PDF & email dispatch'
+                                                    : 'Send consolidated acceptance PDF & email'
+                                                }
                                               >
                                                 {retryingEmailEventId === accId
                                                   ? '...'
-                                                  : accStatus === 'Failed'
+                                                  : accComm.retryAvailable
                                                   ? 'Retry'
                                                   : 'Send'}
                                               </button>
@@ -5564,50 +5744,54 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                   className={`sticky right-0 z-10 px-3 py-2 border-b border-slate-100 border-l border-purple-200/70 shadow-[-6px_0_12px_-6px_rgba(15,23,42,0.12)] whitespace-nowrap w-[216px] min-w-[216px] transition-colors ${stickyCellBgClass}`}
                                 >
                                   <div className="space-y-1.5">
-                                    {/* Primary Individual Approve / Reject Controls */}
+                                    {/* Primary Individual Approve & Allocate / Reject / Approved Allocation Display */}
                                     <div className="flex items-center gap-1.5">
                                       {abs.status === 'Accepted' ? (
-                                        <span className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px]">
-                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                          <span>Approved</span>
-                                        </span>
-                                      ) : abs.status === 'Rejected' ? (
-                                        <>
-                                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200 font-bold text-[10.5px]">
-                                            <XCircle className="w-3 h-3 text-red-600" />
-                                            <span>Rejected</span>
+                                        <div className="flex-1 space-y-1">
+                                          <span className="w-full inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px]">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                            <span>Approved</span>
                                           </span>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleQuickAbstractDecision(abs, 'Accepted')}
-                                            disabled={processingAction || bulkProcessing}
-                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
-                                            title="Approve abstract (Accepted)"
-                                          >
-                                            <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
-                                            <span>Approve</span>
-                                          </button>
-                                        </>
+                                          {isAbstractOfficiallyAllocated(abs) ? (
+                                            <div className="px-2 py-1 rounded-md bg-indigo-50/90 border border-indigo-200 text-[9.5px] leading-tight">
+                                              <div className="font-mono font-bold text-indigo-950 truncate">
+                                                {abs.presentationAllocationId}
+                                              </div>
+                                              <div className="font-semibold text-purple-800 truncate">
+                                                {getOfficialAllocationCategory(abs)}
+                                              </div>
+                                            </div>
+                                          ) : abs.allottedPresentationFormat ? (
+                                            <div className="px-2 py-0.5 rounded bg-purple-50 border border-purple-200 text-[9.5px] font-semibold text-purple-800 truncate text-center">
+                                              {abs.allottedPresentationFormat}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      ) : abs.status === 'Rejected' ? (
+                                        <span className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200 font-bold text-[10.5px]">
+                                          <XCircle className="w-3.5 h-3.5 text-red-600" />
+                                          <span>Rejected</span>
+                                        </span>
                                       ) : (
                                         <>
                                           <button
                                             type="button"
-                                            onClick={() => handleQuickAbstractDecision(abs, 'Accepted')}
+                                            onClick={() => openAbstractReviewModal(abs)}
                                             disabled={processingAction || bulkProcessing}
-                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
-                                            title="Approve abstract (Accepted) and send acceptance email"
+                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold text-[10.5px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            title="Review abstract, select Presentation Category, and Approve & Allocate Presentation ID"
                                           >
-                                            <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-                                            <span>Approve</span>
+                                            <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5] shrink-0" />
+                                            <span>Approve &amp; Allocate</span>
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => handleQuickAbstractDecision(abs, 'Rejected')}
                                             disabled={processingAction || bulkProcessing}
-                                            className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 font-semibold text-[11px] cursor-pointer disabled:opacity-50 transition-colors"
+                                            className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 font-semibold text-[10.5px] cursor-pointer disabled:opacity-50 transition-colors"
                                             title="Reject abstract"
                                           >
-                                            <X className="w-3.5 h-3.5 text-red-600 stroke-[2.5]" />
+                                            <X className="w-3.5 h-3.5 text-red-600 stroke-[2.5] shrink-0" />
                                             <span>Reject</span>
                                           </button>
                                         </>
@@ -5640,23 +5824,23 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                               type="button"
                                               onClick={() =>
                                                 openPdfPreview({
-                                                  title: 'Abstract Acceptance Letter PDF',
-                                                  subtitle: `${abs.id} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
+                                                  title: 'Consolidated Abstract Acceptance & Presentation Allocation PDF',
+                                                  subtitle: `${abs.id}${abs.presentationAllocationId ? ` · ${abs.presentationAllocationId}` : ''} · ${abs.presentingAuthor?.fullName || abs.presentingAuthor?.name || ''}`,
                                                   build: () => createAbstractAcceptanceLetterPreviewUrl(abs, linkedReg),
                                                   onDownload: () => generateAcceptanceLetterPDF(abs, linkedReg),
                                                 })
                                               }
                                               className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded text-[10px] cursor-pointer inline-flex items-center gap-0.5"
-                                              title="Preview Acceptance Letter (PDF)"
+                                              title="Preview Acceptance PDF"
                                             >
                                               <Award className="w-3 h-3" />
-                                              <span>Letter</span>
+                                              <span>Acceptance PDF</span>
                                             </button>
                                             <button
                                               type="button"
                                               onClick={() => generateAcceptanceLetterPDF(abs, linkedReg)}
                                               className="p-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded cursor-pointer inline-flex items-center"
-                                              title="Download Acceptance Letter (PDF)"
+                                              title="Download Acceptance PDF"
                                             >
                                               <Download className="w-3 h-3" />
                                             </button>
@@ -5667,18 +5851,9 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                       <div className="flex items-center gap-0.5">
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            setSelectedAbs(abs);
-                                            setActionRemarks(abs.reviewNotes || '');
-                                            setAllottedFormatSelection(
-                                              abs.allottedPresentationFormat ||
-                                                abs.finalPresentationFormat ||
-                                                ''
-                                            );
-                                            setAllocationSavedSuccess(false);
-                                          }}
+                                          onClick={() => openAbstractReviewModal(abs)}
                                           className="px-1.5 py-0.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded text-[10px] cursor-pointer"
-                                          title="Open full abstract review & format allocation modal"
+                                          title="Open abstract review modal"
                                         >
                                           Review
                                         </button>
@@ -5691,44 +5866,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                           <Trash2 className="w-3 h-3" />
                                         </button>
                                       </div>
-                                    </div>
-
-                                    {/* Official Presentation Allocation Action Strip */}
-                                    <div className="flex items-center gap-1 pt-0.5 border-t border-slate-100">
-                                      <button
-                                        type="button"
-                                        onClick={() => openOfficialAllocationModal(abs)}
-                                        className={`flex-1 inline-flex items-center justify-center gap-1 px-1.5 py-0.5 rounded font-semibold text-[10px] border cursor-pointer transition-colors ${
-                                          isAbstractOfficiallyAllocated(abs)
-                                            ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200'
-                                            : 'bg-violet-50 hover:bg-violet-100 text-violet-800 border-violet-200'
-                                        }`}
-                                        title={
-                                          isAbstractOfficiallyAllocated(abs)
-                                            ? `Manage Official Allocation (${abs.presentationAllocationId})`
-                                            : 'Allot Official Presentation ID (Oral / Poster / E-Poster)'
-                                        }
-                                      >
-                                        <Layers className="w-3 h-3 shrink-0" />
-                                        <span>
-                                          {isAbstractOfficiallyAllocated(abs)
-                                            ? 'Allocation'
-                                            : 'Allot ID'}
-                                        </span>
-                                      </button>
-                                      {isAbstractOfficiallyAllocated(abs) && (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            generatePresentationAllocationPDF(abs, linkedReg)
-                                          }
-                                          className="px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-semibold inline-flex items-center gap-0.5 cursor-pointer"
-                                          title={`Download Presentation Allocation PDF (${abs.presentationAllocationId})`}
-                                        >
-                                          <Download className="w-3 h-3" />
-                                          <span>Alloc PDF</span>
-                                        </button>
-                                      )}
                                     </div>
                                   </div>
                                 </td>
@@ -6003,8 +6140,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                         type="button"
                                         onClick={() =>
                                           openPdfPreview({
-                                            title: 'Abstract Acceptance Letter PDF',
-                                            subtitle: `${linkedAbs.id} · ${reg.fullName}`,
+                                            title: 'Consolidated Abstract Acceptance & Presentation Allocation PDF',
+                                            subtitle: `${linkedAbs.id}${linkedAbs.presentationAllocationId ? ` · ${linkedAbs.presentationAllocationId}` : ''} · ${reg.fullName}`,
                                             build: () => createAbstractAcceptanceLetterPreviewUrl(linkedAbs, reg),
                                             onDownload: () => generateAcceptanceLetterPDF(linkedAbs, reg),
                                           })
@@ -6012,7 +6149,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                         className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
                                       >
                                         <Award className="w-3 h-3" />
-                                        <span>Preview Letter</span>
+                                        <span>Preview Acceptance PDF</span>
                                       </button>
                                       <button
                                         type="button"
@@ -6020,7 +6157,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                         className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold rounded-md text-[11px] cursor-pointer inline-flex items-center gap-1"
                                       >
                                         <Download className="w-3 h-3" />
-                                        <span>Letter PDF</span>
+                                        <span>Acceptance PDF</span>
                                       </button>
                                     </>
                                   )}
@@ -6711,62 +6848,161 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL 2: ABSTRACT SCRUTINY & STATUS UPDATE */}
+      {/* MODAL 2: UNIFIED ABSTRACT REVIEW, APPROVAL & PRESENTATION ALLOCATION  */}
       {/* ===================================================================== */}
-      {selectedAbs && (
+      {liveSelectedAbs && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-5 bg-[#0B112C] text-white flex items-center justify-between">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-cyan-300 font-mono tracking-wider">
-                  Abstract Evaluation · {selectedAbs.id}
+            <div className="p-5 bg-[#0B112C] text-white flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-bold text-cyan-300 font-mono tracking-wider block">
+                  Abstract Review &amp; Allocation · {liveSelectedAbs.id}
                 </span>
-                <h3 className="text-base font-bold font-heading line-clamp-1">
-                  {selectedAbs.title}
+                <h3 className="text-base font-bold font-heading line-clamp-2">
+                  {liveSelectedAbs.title}
                 </h3>
               </div>
               <button
-                onClick={() => setSelectedAbs(null)}
-                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                type="button"
+                disabled={processingAction}
+                onClick={closeAbstractReviewModal}
+                aria-label="Close abstract review modal"
+                className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer disabled:opacity-40 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-5 text-xs max-h-[75vh] overflow-y-auto">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Registration ID</span>
-                  <strong className="text-purple-700 font-mono font-bold">{selectedAbs.registrationId}</strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Track</span>
-                  <strong className="text-slate-800">{selectedAbs.trackId}</strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Mode</span>
-                  <strong className="text-slate-800">{selectedAbs.presentationPreference}</strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Presenting Author</span>
-                  <strong className="text-slate-800">{selectedAbs.presentingAuthor?.fullName || selectedAbs.presentingAuthor?.name}</strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Email</span>
-                  <strong className="text-slate-800">{selectedAbs.presentingAuthor?.email}</strong>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Current Status</span>
-                  <span className="font-bold text-purple-700">{selectedAbs.status}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">
-                    Institution Category (via Reg ID)
-                  </span>
-                  {(() => {
-                    const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
-                    const instCat = normalizeInstitutionCategory(linkedReg?.institutionCategory);
-                    return (
+            <div className="p-6 space-y-5 text-xs max-h-[78vh] overflow-y-auto">
+              {/* Complete Abstract Metadata Grid */}
+              {(() => {
+                const linkedReg = getLinkedRegistrationForAbstract(liveSelectedAbs);
+                const instCat = normalizeInstitutionCategory(linkedReg?.institutionCategory);
+                const pStatus = linkedReg?.paymentStatus;
+                const author = liveSelectedAbs.presentingAuthor || {};
+                const institutionName =
+                  author.affiliation || author.institution || linkedReg?.institution || '—';
+                const canonicalTrack = CANONICAL_CONFERENCE_TRACKS.find(
+                  (t) => t.id === resolveCanonicalTrackId(liveSelectedAbs.trackId)
+                );
+                const trackDisplay =
+                  canonicalTrack?.fullTitle ||
+                  SCIENTIFIC_TRACKS.find((t) => t.id === liveSelectedAbs.trackId)?.title ||
+                  liveSelectedAbs.trackId;
+                const coAuthorsList = Array.isArray(liveSelectedAbs.coAuthors)
+                  ? liveSelectedAbs.coAuthors
+                  : [];
+
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Abstract ID
+                      </span>
+                      <strong className="text-purple-700 font-mono font-bold">
+                        {liveSelectedAbs.id}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Registration ID
+                      </span>
+                      <strong className="text-purple-700 font-mono font-bold">
+                        {liveSelectedAbs.registrationId}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Current Status
+                      </span>
+                      <span
+                        className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          liveSelectedAbs.status === 'Accepted'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : liveSelectedAbs.status === 'Rejected'
+                            ? 'bg-red-100 text-red-800'
+                            : liveSelectedAbs.status === 'Under Review'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {liveSelectedAbs.status === 'Accepted'
+                          ? 'Approved (Accepted)'
+                          : liveSelectedAbs.status}
+                      </span>
+                    </div>
+                    <div className="col-span-2 sm:col-span-2">
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Scientific Track
+                      </span>
+                      <strong className="text-slate-800">{trackDisplay}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Payment Status
+                      </span>
+                      {!pStatus ? (
+                        <span className="text-slate-500 font-semibold">Unknown</span>
+                      ) : (
+                        <span
+                          className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            pStatus === 'Verified'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : pStatus === 'Rejected'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {pStatus}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Presenting Author
+                      </span>
+                      <strong className="text-slate-800 block">
+                        {author.fullName || author.name || '—'}
+                      </strong>
+                      {author.designation && (
+                        <span className="text-[10px] text-slate-500 block">
+                          {author.designation}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Author Contact
+                      </span>
+                      <strong className="text-slate-800 break-all block">
+                        {author.email || '—'}
+                      </strong>
+                      {(author.mobile || author.phone) && (
+                        <span className="text-[10px] text-slate-500 block">
+                          {author.mobile || author.phone}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Author Preference (Ref)
+                      </span>
+                      <strong className="text-slate-800">
+                        {liveSelectedAbs.presentationPreference ||
+                          liveSelectedAbs.presentationType ||
+                          'Not Specified'}
+                      </strong>
+                    </div>
+                    <div className="col-span-2 sm:col-span-2">
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Institution
+                      </span>
+                      <strong className="text-slate-800">{institutionName}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Institution Category
+                      </span>
                       <strong
                         className={
                           instCat === 'internal'
@@ -6778,151 +7014,424 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       >
                         {formatInstitutionCategoryLabel(linkedReg?.institutionCategory)}
                       </strong>
-                    );
-                  })()}
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase text-slate-400 font-semibold block">Associated Payment Status</span>
-                  {(() => {
-                    const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
-                    const pStatus = linkedReg?.paymentStatus;
-                    if (!pStatus) {
-                      return <span className="text-slate-500 font-semibold">Unknown</span>;
-                    }
-                    return (
-                      <span
-                        className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                          pStatus === 'Verified'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : pStatus === 'Rejected'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {pStatus}
+                    </div>
+                    <div className="col-span-2 sm:col-span-3 pt-2 border-t border-slate-200/80">
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block mb-1">
+                        Co-Authors ({coAuthorsList.length})
                       </span>
-                    );
-                  })()}
-                </div>
-              </div>
+                      {coAuthorsList.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {coAuthorsList.map((co, idx) => (
+                            <span
+                              key={`${co.name}-${idx}`}
+                              className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 text-[11px]"
+                            >
+                              <strong>{co.name}</strong>
+                              {co.affiliation ? ` (${co.affiliation})` : ''}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-500">None listed</span>
+                      )}
+                    </div>
+                    {(liveSelectedAbs.reviewedBy || liveSelectedAbs.reviewedAt) && (
+                      <div className="col-span-2 sm:col-span-3 pt-2 border-t border-slate-200/80 text-[11px] text-slate-600">
+                        <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                          Existing Review Record
+                        </span>
+                        <span>
+                          Reviewed by <strong>{liveSelectedAbs.reviewedBy || 'Org. Secretary'}</strong>
+                          {liveSelectedAbs.reviewedAt
+                            ? ` on ${new Date(liveSelectedAbs.reviewedAt).toLocaleString('en-IN')}`
+                            : ''}
+                          {liveSelectedAbs.reviewNotes
+                            ? ` · Notes: "${liveSelectedAbs.reviewNotes}"`
+                            : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
-              {/* Abstract Body */}
-              <div className="space-y-1">
+              {/* Abstract Content */}
+              <div className="space-y-1.5">
                 <span className="font-bold text-slate-700 text-[11px] uppercase block">
-                  Abstract Text
+                  Abstract Content
                 </span>
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg max-h-48 overflow-y-auto text-slate-700 leading-relaxed whitespace-pre-wrap">
-                  {typeof selectedAbs.abstractContent === 'string'
-                    ? selectedAbs.abstractContent
-                    : selectedAbs.abstractContent?.text || 'No text content available'}
+                  {typeof liveSelectedAbs.abstractContent === 'string'
+                    ? liveSelectedAbs.abstractContent
+                    : liveSelectedAbs.abstractContent?.text || 'No text content available'}
                 </div>
+                {Array.isArray(liveSelectedAbs.keywords) && liveSelectedAbs.keywords.length > 0 && (
+                  <div className="text-[11px] text-slate-600">
+                    <strong>Keywords:</strong> {liveSelectedAbs.keywords.join(', ')}
+                  </div>
+                )}
               </div>
 
-              {/* Presentation Format Allocation Section */}
-              <div className="p-4 bg-purple-50/70 rounded-xl border border-purple-200 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <Award className="w-4 h-4 text-purple-700" />
-                    <span className="text-xs font-bold text-purple-900 uppercase tracking-wide">
-                      Presentation Format Allocation
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isAbstractOfficiallyAllocated(selectedAbs) ? (
-                      <span className="px-2.5 py-0.5 rounded-full font-mono text-[10px] font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">
-                        Official ID: {selectedAbs.presentationAllocationId}
+              {/* Feedback / Validation Banners */}
+              {reviewModalSuccess && (
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start gap-2.5 ${
+                    reviewModalSuccess.emailStatus === 'Failed'
+                      ? 'bg-amber-50 border-amber-300 text-amber-950'
+                      : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                  }`}
+                >
+                  <CheckCircle2
+                    className={`w-4 h-4 shrink-0 mt-0.5 ${
+                      reviewModalSuccess.emailStatus === 'Failed'
+                        ? 'text-amber-600'
+                        : 'text-emerald-600'
+                    }`}
+                  />
+                  <div className="space-y-1">
+                    <div className="font-bold">
+                      Abstract Approved &amp; Presentation Allocated Successfully
+                    </div>
+                    <div>
+                      Presentation ID:{' '}
+                      <strong className="font-mono text-indigo-900">
+                        {reviewModalSuccess.allocationId}
+                      </strong>{' '}
+                      · Category: <strong>{reviewModalSuccess.category}</strong>
+                    </div>
+                    <div className="text-[11px] flex flex-wrap items-center gap-1.5 pt-0.5">
+                      <span
+                        className={`px-1.5 py-0.5 rounded font-semibold ${
+                          reviewModalSuccess.pdfStatus === 'Generated'
+                            ? 'bg-indigo-100 text-indigo-800'
+                            : reviewModalSuccess.pdfStatus === 'Failed'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-white/80 text-slate-700'
+                        }`}
+                      >
+                        {reviewModalSuccess.pdfStatus === 'Generated'
+                          ? 'PDF Generated'
+                          : reviewModalSuccess.pdfStatus === 'Failed'
+                          ? 'PDF Failed'
+                          : 'Generating PDF...'}
                       </span>
-                    ) : selectedAbs.allottedPresentationFormat ? (
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200">
-                        Allotted: {selectedAbs.allottedPresentationFormat}
+                      <span
+                        className={`px-1.5 py-0.5 rounded font-semibold ${
+                          reviewModalSuccess.emailStatus === 'Sent'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : reviewModalSuccess.emailStatus === 'Failed'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-white/80 text-slate-700'
+                        }`}
+                      >
+                        {reviewModalSuccess.emailStatus === 'Sent'
+                          ? 'Email Sent'
+                          : reviewModalSuccess.emailStatus === 'Failed'
+                          ? 'Email Failed · Retry Available'
+                          : 'Sending Consolidated Email...'}
                       </span>
-                    ) : (
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                        Not Allocated
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => openOfficialAllocationModal(selectedAbs)}
-                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Layers className="w-3 h-3" />
-                      <span>
-                        {isAbstractOfficiallyAllocated(selectedAbs)
-                          ? 'Manage Official Allocation'
-                          : 'Confirm Official ID'}
-                      </span>
-                    </button>
+                      {reviewModalSuccess.emailError && (
+                        <span className="text-red-800">
+                          ({reviewModalSuccess.emailError})
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
+              )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Field A: Participant's Preferred Presentation Format (Read-only) */}
-                  <div className="p-3 bg-white rounded-lg border border-slate-200">
-                    <span className="text-[10px] uppercase text-slate-400 font-bold block mb-1">
-                      A. Author's Preferred Format (Read-Only)
+              {reviewModalError && (
+                <div className="p-3.5 rounded-xl bg-red-50 border border-red-300 text-red-900 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span>{reviewModalError}</span>
+                </div>
+              )}
+
+              {/* Unified Presentation Category Selection & Approval / Approved Allocation Panel */}
+              {liveSelectedAbs.status === 'Accepted' ? (
+                <div className="p-4 bg-indigo-50/70 rounded-xl border border-indigo-200 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-indigo-700" />
+                      <span className="text-xs font-bold text-indigo-950 uppercase tracking-wide">
+                        Approved &amp; Presentation Allocated
+                      </span>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      Approved · Active Allocation
                     </span>
-                    <div className="font-semibold text-slate-800 text-xs flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                      <span>{selectedAbs.presentationPreference || selectedAbs.presentationType || 'Not Specified'}</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 bg-white rounded-lg border border-indigo-100">
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Original Abstract ID
+                      </span>
+                      <strong className="font-mono text-purple-800">{liveSelectedAbs.id}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Presentation ID
+                      </span>
+                      <strong className="font-mono text-indigo-950 text-sm">
+                        {liveSelectedAbs.presentationAllocationId || 'Not Allocated'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                        Presentation Category
+                      </span>
+                      <strong className="text-purple-900">
+                        {getOfficialAllocationCategory(liveSelectedAbs) ||
+                          liveSelectedAbs.allottedPresentationFormat ||
+                          '—'}
+                      </strong>
                     </div>
                   </div>
 
-                  {/* Field B: Final Allotted Presentation Format (Dropdown) */}
-                  <div className="p-3 bg-white rounded-lg border border-purple-200">
-                    <label className="text-[10px] uppercase text-purple-700 font-bold block mb-1">
-                      B. Final Allotted Presentation Format
-                    </label>
-                    <select
-                      value={allottedFormatSelection}
-                      onChange={(e) => {
-                        setAllottedFormatSelection(e.target.value);
-                        setAllocationSavedSuccess(false);
-                      }}
-                      className="w-full p-1.5 bg-slate-50 border border-slate-200 rounded text-xs text-slate-900 font-medium focus:outline-none focus:border-purple-600"
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+                    <span>
+                      Approved/Allocated by{' '}
+                      <strong>
+                        {liveSelectedAbs.allocationCreatedBy ||
+                          liveSelectedAbs.reviewedBy ||
+                          'Org. Secretary'}
+                      </strong>
+                      {(liveSelectedAbs.allocationCreatedAt || liveSelectedAbs.reviewedAt) &&
+                        ` on ${new Date(
+                          liveSelectedAbs.allocationCreatedAt || liveSelectedAbs.reviewedAt || ''
+                        ).toLocaleString('en-IN')}`}
+                    </span>
+
+                    <button
+                      type="button"
+                      disabled={processingAction}
+                      onClick={() => openOfficialAllocationModal(liveSelectedAbs, true)}
+                      className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
-                      <option value="">-- Select Final Allotted Format --</option>
-                      <option value="Oral Presentation">Oral Presentation</option>
-                      <option value="Poster Presentation">Poster Presentation</option>
-                      <option value="E-Poster Presentation">E-Poster Presentation</option>
-                    </select>
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>
+                        {isAbstractOfficiallyAllocated(liveSelectedAbs)
+                          ? 'Change Category (Admin Correction)'
+                          : 'Allocate Presentation ID'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {Array.isArray(liveSelectedAbs.allocationHistory) &&
+                    liveSelectedAbs.allocationHistory.length > 0 && (
+                      <div className="pt-2 border-t border-indigo-200/70 space-y-1.5">
+                        <span className="text-[10px] uppercase font-bold text-slate-600 block">
+                          Allocation History ({liveSelectedAbs.allocationHistory.length})
+                        </span>
+                        <div className="space-y-1">
+                          {[...liveSelectedAbs.allocationHistory].reverse().map((entry, idx) => (
+                            <div
+                              key={`${entry.allocationId}-${idx}`}
+                              className="px-2.5 py-1.5 bg-white rounded border border-indigo-100 flex flex-wrap items-center justify-between gap-2 text-[10.5px]"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-indigo-900">
+                                  {entry.allocationId}
+                                </span>
+                                <span className="text-slate-700 font-semibold">
+                                  {entry.category}
+                                </span>
+                              </div>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase ${
+                                  entry.status === 'Active'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-slate-200 text-slate-700'
+                                }`}
+                              >
+                                {entry.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                </div>
+              ) : liveSelectedAbs.status === 'Rejected' ? (
+                <div className="p-4 bg-red-50/80 rounded-xl border border-red-200 flex items-start gap-2.5 text-red-900">
+                  <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="font-bold">Abstract Rejected</div>
+                    <p className="text-[11px] leading-relaxed">
+                      Rejected abstracts do not generate a Presentation ID and cannot be approved or
+                      allocated. You may re-open it to Under Review only if an evaluation reset is
+                      required.
+                    </p>
                   </div>
                 </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="text-[11px]">
-                    {allocationSavedSuccess && (
-                      <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Allotted format saved successfully!
+              ) : (
+                <div className="p-4 bg-purple-50/70 rounded-xl border border-purple-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-purple-700" />
+                      <span className="text-xs font-bold text-purple-900 uppercase tracking-wide">
+                        Presentation Category (Mandatory for Approval)
                       </span>
-                    )}
-                    {selectedAbs.allottedAt && !allocationSavedSuccess && (
-                      <span className="text-slate-500 text-[10px]">
-                        Last allocated: {new Date(selectedAbs.allottedAt).toLocaleDateString('en-GB')} by {selectedAbs.allottedBy || 'Org. Secretary'}
-                      </span>
-                    )}
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                      Not Allocated Until Approved
+                    </span>
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={savingAllocation || !allottedFormatSelection}
-                    onClick={handleSavePresentationAllocation}
-                    className="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
-                  >
-                    {savingAllocation ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Author's Preferred Format (Read-Only Reference) */}
+                    <div className="p-3 bg-white rounded-lg border border-slate-200">
+                      <span className="text-[10px] uppercase text-slate-400 font-bold block mb-1">
+                        Author&apos;s Preferred Format (Reference)
+                      </span>
+                      <div className="font-semibold text-slate-800 text-xs flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                        <span>
+                          {liveSelectedAbs.presentationPreference ||
+                            liveSelectedAbs.presentationType ||
+                            'Not Specified'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Mandatory Presentation Category Selector */}
+                    <div className="p-3 bg-white rounded-lg border border-purple-300">
+                      <label
+                        htmlFor="review-presentation-category"
+                        className="text-[10px] uppercase text-purple-800 font-bold block mb-1"
+                      >
+                        Presentation Category <span className="text-red-600">*</span>
+                      </label>
+                      <select
+                        id="review-presentation-category"
+                        aria-label="Presentation Category"
+                        disabled={processingAction}
+                        value={reviewCategoryChoice}
+                        onChange={(e) => {
+                          setReviewCategoryChoice(e.target.value);
+                          setApproveConfirmStep(false);
+                          setReviewModalError(null);
+                        }}
+                        className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded text-xs text-slate-900 font-semibold focus:outline-none focus:border-purple-600 disabled:opacity-50"
+                      >
+                        <option value="">-- Select Presentation Category --</option>
+                        {OFFICIAL_ALLOCATION_CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Selected Category Visible Preview (No ID generated until confirmed) */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white border border-purple-200/80 text-[11px]">
+                    {isValidOfficialAllocationCategory(reviewCategoryChoice) ? (
                       <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Saving...</span>
+                        <span className="text-purple-950 font-semibold">
+                          Selected Category:{' '}
+                          <strong className="text-purple-800">{reviewCategoryChoice}</strong>
+                        </span>
+                        <span className="font-mono text-[10.5px] font-bold text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                          {reviewCategoryChoice === 'Oral Presentation'
+                            ? 'ID Prefix: AICONDD-OR-2027-xxx'
+                            : reviewCategoryChoice === 'Poster Presentation'
+                            ? 'ID Prefix: AICONDD-POST-2027-xxx'
+                            : 'ID Prefix: AICONDD-EPOST-2027-xxx'}
+                        </span>
                       </>
                     ) : (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Save Allocation</span>
-                      </>
+                      <span className="text-slate-500">
+                        Select Oral Presentation, Poster Presentation, or E-Poster Presentation to
+                        enable <strong>Approve &amp; Allocate</strong>. Presentation ID is generated
+                        only upon final confirmation.
+                      </span>
                     )}
-                  </button>
+                  </div>
+
+                  {/* Confirmation Step Before Atomic Commit */}
+                  {approveConfirmStep && isValidOfficialAllocationCategory(reviewCategoryChoice) && (
+                    <div className="p-4 bg-white rounded-xl border-2 border-emerald-400 shadow-sm space-y-3">
+                      <div className="flex items-start gap-2 text-emerald-950">
+                        <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-xs uppercase tracking-wide">
+                            Confirm Abstract Approval &amp; Presentation Allocation
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-0.5">
+                            Confirming will atomically mark this abstract as Approved, generate a
+                            unique sequential Presentation ID, and save both approval and
+                            allocation together.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 bg-slate-50 rounded-lg border border-slate-200 text-[11px]">
+                        <div>
+                          <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                            Abstract ID
+                          </span>
+                          <strong className="font-mono text-purple-800">
+                            {liveSelectedAbs.id}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                            Selected Presentation Category
+                          </span>
+                          <strong className="text-emerald-800">{reviewCategoryChoice}</strong>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                            Abstract Title
+                          </span>
+                          <strong className="text-slate-900">{liveSelectedAbs.title}</strong>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <span className="text-[10px] uppercase text-slate-400 font-semibold block">
+                            Presenting Author
+                          </span>
+                          <strong className="text-slate-900">
+                            {liveSelectedAbs.presentingAuthor?.fullName ||
+                              liveSelectedAbs.presentingAuthor?.name ||
+                              '—'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={processingAction}
+                          onClick={() => setApproveConfirmStep(false)}
+                          className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs cursor-pointer disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={processingAction}
+                          onClick={handleConfirmApproveAndAllocate}
+                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                        >
+                          {processingAction ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Approving &amp; Allocating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Confirm Approve &amp; Allocate</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
               {/* Email Notification Status Panel */}
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
@@ -6931,14 +7440,14 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <span>Abstract Email Notification Status</span>
                 </div>
                 {(() => {
-                  const subId = getAbstractSubmittedEventId(selectedAbs.id);
-                  const accId = getAbstractAcceptedEventId(selectedAbs.id);
+                  const subId = getAbstractSubmittedEventId(liveSelectedAbs.id);
+                  const accId = getAbstractAcceptedEventId(liveSelectedAbs.id);
                   const subLog = emailLogMap.get(subId);
                   const accLog = emailLogMap.get(accId);
                   const subStatus = normalizeLogStatus(subLog);
-                  const accStatus = normalizeLogStatus(accLog);
-                  const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
-                  const isAccepted = selectedAbs.status === 'Accepted';
+                  const accComm = getConsolidatedAcceptanceCommStatus(liveSelectedAbs, accLog);
+                  const linkedReg = getLinkedRegistrationForAbstract(liveSelectedAbs);
+                  const isAccepted = liveSelectedAbs.status === 'Accepted';
 
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -6975,7 +7484,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 eventId: subId,
                                 eventType: 'abstract_confirmation',
                                 registration: linkedReg,
-                                abstract: selectedAbs,
+                                abstract: liveSelectedAbs,
                               })
                             }
                             className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
@@ -6987,32 +7496,65 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                       </div>
 
                       <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-slate-800">Abstract Acceptance Email</span>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                              accStatus === 'Sent'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : accStatus === 'Failed'
-                                ? 'bg-red-100 text-red-800'
-                                : accStatus === 'Pending'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-slate-100 text-slate-500'
-                            }`}
-                          >
-                            {accStatus}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-semibold text-slate-800">
+                            Consolidated Acceptance &amp; Allocation Email (+ PDF)
                           </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {isAccepted && (
+                              <span
+                                className={`px-1.5 py-0.5 rounded-full text-[9.5px] font-bold uppercase ${
+                                  accComm.pdfStatus === 'PDF Generated'
+                                    ? 'bg-indigo-100 text-indigo-800'
+                                    : accComm.pdfStatus === 'PDF Failed'
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {accComm.pdfStatus}
+                              </span>
+                            )}
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase ${
+                                accComm.emailStatus === 'Email Sent'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : accComm.emailStatus === 'Email Failed'
+                                  ? 'bg-red-100 text-red-800'
+                                  : accComm.emailStatus === 'Pending'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {accComm.emailStatus}
+                            </span>
+                            {accComm.retryAvailable && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9.5px] font-bold uppercase bg-amber-100 text-amber-900">
+                                Retry Available
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-[10px] text-slate-500">
-                          {accLog?.sentAt
-                            ? `Sent: ${new Date(accLog.sentAt).toLocaleString('en-IN')}`
-                            : accLog?.error
-                            ? `Error: ${accLog.error}`
-                            : isAccepted
-                            ? 'Eligible for acceptance notification'
-                            : 'Sent only when abstract status is Accepted'}
+                        <div className="text-[10px] text-slate-500 space-y-0.5">
+                          <div>
+                            {accLog?.sentAt
+                              ? `Sent: ${new Date(accLog.sentAt).toLocaleString('en-IN')}`
+                              : accComm.errorText
+                              ? `Error: ${accComm.errorText}`
+                              : isAccepted
+                              ? 'Consolidated acceptance PDF & email queued for delivery'
+                              : 'Dispatched automatically when abstract is approved & allocated'}
+                          </div>
+                          {isAccepted && liveSelectedAbs.presentationAllocationId && (
+                            <div className="text-slate-600">
+                              Includes Presentation ID{' '}
+                              <strong className="font-mono text-indigo-900">
+                                {liveSelectedAbs.presentationAllocationId}
+                              </strong>{' '}
+                              ({getOfficialAllocationCategory(liveSelectedAbs) || 'Allocated'})
+                            </div>
+                          )}
                         </div>
-                        {isAccepted && accStatus !== 'Sent' && (
+                        {isAccepted && accComm.emailStatus !== 'Email Sent' && (
                           <button
                             type="button"
                             disabled={retryingEmailEventId === accId}
@@ -7021,13 +7563,17 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                                 eventId: accId,
                                 eventType: 'abstract_acceptance',
                                 registration: linkedReg,
-                                abstract: selectedAbs,
+                                abstract: liveSelectedAbs,
                               })
                             }
                             className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                           >
                             <RefreshCw className={`w-3 h-3 ${retryingEmailEventId === accId ? 'animate-spin' : ''}`} />
-                            <span>{accStatus === 'Failed' ? 'Retry Email' : 'Send Acceptance Email'}</span>
+                            <span>
+                              {accComm.retryAvailable
+                                ? 'Retry Acceptance Email'
+                                : 'Send Acceptance Email'}
+                            </span>
                           </button>
                         )}
                       </div>
@@ -7036,61 +7582,85 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                 })()}
               </div>
 
-              {/* Review notes input */}
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 text-[11px] uppercase">
-                  Reviewer Notes / Feedback
-                </label>
-                <textarea
-                  rows={2}
-                  value={actionRemarks}
-                  onChange={(e) => setActionRemarks(e.target.value)}
-                  placeholder="Enter evaluation remarks for acceptance letter or feedback..."
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-purple-500"
-                />
-              </div>
+              {/* Review notes input (editable prior to final approval) */}
+              {liveSelectedAbs.status !== 'Accepted' && (
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 text-[11px] uppercase">
+                    Reviewer Notes / Feedback
+                  </label>
+                  <textarea
+                    rows={2}
+                    disabled={processingAction}
+                    value={actionRemarks}
+                    onChange={(e) => setActionRemarks(e.target.value)}
+                    placeholder="Enter evaluation remarks for acceptance letter or feedback..."
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:border-purple-500 disabled:opacity-50"
+                  />
+                </div>
+              )}
 
-              {/* Status Update Buttons */}
+              {/* Status Update & Document Action Buttons */}
               <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    disabled={processingAction}
-                    onClick={() => handleUpdateAbstractStatus('Accepted')}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Accept</span>
-                  </button>
+                  {liveSelectedAbs.status !== 'Accepted' && liveSelectedAbs.status !== 'Rejected' && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={processingAction}
+                        onClick={handleRequestApproveAndAllocate}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Approve &amp; Allocate</span>
+                      </button>
 
-                  <button
-                    disabled={processingAction}
-                    onClick={() => handleUpdateAbstractStatus('Under Review')}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                  >
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>Mark Under Review</span>
-                  </button>
+                      {liveSelectedAbs.status !== 'Under Review' && (
+                        <button
+                          type="button"
+                          disabled={processingAction}
+                          onClick={() => handleUpdateAbstractStatus('Under Review')}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Mark Under Review</span>
+                        </button>
+                      )}
 
-                  <button
-                    disabled={processingAction}
-                    onClick={() => handleUpdateAbstractStatus('Rejected')}
-                    className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    <span>Reject</span>
-                  </button>
+                      <button
+                        type="button"
+                        disabled={processingAction}
+                        onClick={() => handleUpdateAbstractStatus('Rejected')}
+                        className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>Reject</span>
+                      </button>
+                    </>
+                  )}
+
+                  {liveSelectedAbs.status === 'Rejected' && (
+                    <button
+                      type="button"
+                      disabled={processingAction}
+                      onClick={() => handleUpdateAbstractStatus('Under Review')}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Re-open Under Review</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
-                      const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                      const linkedReg = getLinkedRegistrationForAbstract(liveSelectedAbs);
                       openPdfPreview({
                         title: 'Abstract Submission Acknowledgement PDF',
-                        subtitle: `${selectedAbs.id} · ${selectedAbs.presentingAuthor?.fullName || selectedAbs.presentingAuthor?.name || ''}`,
-                        build: () => createAbstractSubmissionAckPreviewUrl(selectedAbs, linkedReg),
-                        onDownload: () => generateSubmissionReceiptPDF(selectedAbs, linkedReg),
+                        subtitle: `${liveSelectedAbs.id} · ${liveSelectedAbs.presentingAuthor?.fullName || liveSelectedAbs.presentingAuthor?.name || ''}`,
+                        build: () => createAbstractSubmissionAckPreviewUrl(liveSelectedAbs, linkedReg),
+                        onDownload: () => generateSubmissionReceiptPDF(liveSelectedAbs, linkedReg),
                       });
                     }}
                     className="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-800 text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
@@ -7101,8 +7671,8 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                   <button
                     type="button"
                     onClick={() => {
-                      const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
-                      generateSubmissionReceiptPDF(selectedAbs, linkedReg);
+                      const linkedReg = getLinkedRegistrationForAbstract(liveSelectedAbs);
+                      generateSubmissionReceiptPDF(liveSelectedAbs, linkedReg);
                     }}
                     className="px-2.5 py-1.5 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
                   >
@@ -7110,34 +7680,34 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     <span>Ack PDF</span>
                   </button>
 
-                  {selectedAbs.status === 'Accepted' && (
+                  {liveSelectedAbs.status === 'Accepted' && (
                     <>
                       <button
                         type="button"
                         onClick={() => {
-                          const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
+                          const linkedReg = getLinkedRegistrationForAbstract(liveSelectedAbs);
                           openPdfPreview({
-                            title: 'Abstract Acceptance Letter PDF',
-                            subtitle: `${selectedAbs.id} · ${selectedAbs.presentingAuthor?.fullName || selectedAbs.presentingAuthor?.name || ''}`,
-                            build: () => createAbstractAcceptanceLetterPreviewUrl(selectedAbs, linkedReg),
-                            onDownload: () => generateAcceptanceLetterPDF(selectedAbs, linkedReg),
+                            title: 'Consolidated Abstract Acceptance & Presentation Allocation PDF',
+                            subtitle: `${liveSelectedAbs.id}${liveSelectedAbs.presentationAllocationId ? ` · ${liveSelectedAbs.presentationAllocationId}` : ''} · ${liveSelectedAbs.presentingAuthor?.fullName || liveSelectedAbs.presentingAuthor?.name || ''}`,
+                            build: () => createAbstractAcceptanceLetterPreviewUrl(liveSelectedAbs, linkedReg),
+                            onDownload: () => generateAcceptanceLetterPDF(liveSelectedAbs, linkedReg),
                           });
                         }}
                         className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
                       >
                         <Award className="w-3.5 h-3.5" />
-                        <span>Preview Letter</span>
+                        <span>Preview Acceptance PDF</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => {
-                          const linkedReg = getLinkedRegistrationForAbstract(selectedAbs);
-                          generateAcceptanceLetterPDF(selectedAbs, linkedReg);
+                          const linkedReg = getLinkedRegistrationForAbstract(liveSelectedAbs);
+                          generateAcceptanceLetterPDF(liveSelectedAbs, linkedReg);
                         }}
                         className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>Letter PDF</span>
+                        <span>Acceptance PDF</span>
                       </button>
                     </>
                   )}
@@ -7687,14 +8257,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           setSelectedReg(reg);
           setActionRemarks(reg.adminRemarks || '');
         }}
-        onInspectAbstract={(abs) => {
-          setSelectedAbs(abs);
-          setActionRemarks(abs.reviewNotes || '');
-          setAllottedFormatSelection(
-            abs.allottedPresentationFormat || abs.finalPresentationFormat || ''
-          );
-          setAllocationSavedSuccess(false);
-        }}
+        onInspectAbstract={(abs) => openAbstractReviewModal(abs)}
       />
 
       {/* ===================================================================== */}
@@ -7950,7 +8513,12 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
                     >
                       <Mail className="w-3.5 h-3.5" />
                       <span>
-                        {allocationEmailSending ? 'Sending Email...' : 'Resend Allocation Email'}
+                        {allocationEmailSending
+                          ? 'Sending Email...'
+                          : Array.isArray(liveAllocationModalAbs.allocationHistory) &&
+                            liveAllocationModalAbs.allocationHistory.length > 1
+                          ? 'Resend Allocation Email'
+                          : 'Retry / Send Acceptance Email'}
                       </span>
                     </button>
 

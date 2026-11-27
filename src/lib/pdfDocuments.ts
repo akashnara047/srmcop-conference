@@ -262,10 +262,16 @@ function drawGradientPillBanner(doc: jsPDF, x: number, y: number, w: number, h: 
     doc.rect(bodyX + i * sliceW, y, sliceW + 0.15, h, 'F');
   }
 
+  let bannerFontSize = 13.5;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13.5);
+  doc.setFontSize(bannerFontSize);
+  const maxBannerTextWidth = Math.max(40, w - 16);
+  while (bannerFontSize > 8.8 && doc.getTextWidth(title) > maxBannerTextWidth) {
+    bannerFontSize = Number((bannerFontSize - 0.3).toFixed(2));
+    doc.setFontSize(bannerFontSize);
+  }
   doc.setTextColor(255, 255, 255);
-  doc.text(title, PAGE_WIDTH / 2, y + h / 2 + 1.65, { align: 'center' });
+  doc.text(title, PAGE_WIDTH / 2, y + h / 2 + bannerFontSize * 0.125, { align: 'center' });
 }
 
 function drawRupeeSymbol(doc: jsPDF, x: number, baselineY: number, sizeMm: number) {
@@ -1676,10 +1682,29 @@ export function buildAbstractSubmissionAckPDFDoc(
 // ============================================================================
 // PDF 3: ABSTRACT ACCEPTANCE LETTER (Accepted Status ONLY)
 // ============================================================================
+function resolveAcceptancePresentationDetails(abstract: AbstractRecord): {
+  presentationId: string;
+  presentationCategory: string;
+} {
+  const presentationId = sanitizePdfText((abstract.presentationAllocationId || '').trim());
+  const rawCategory =
+    (abstract.officialAllocationCategory || '').trim() ||
+    resolveOfficialAllottedFormat(abstract) ||
+    '';
+  const presentationCategory = sanitizePdfText(rawCategory);
+  return { presentationId, presentationCategory };
+}
+
 export function assertAbstractAcceptanceEligible(abstract: AbstractRecord): void {
   if (abstract.status !== 'Accepted') {
     throw new Error(
-      `Abstract Acceptance Letter PDF cannot be generated because abstract ${abstract.id} has status "${abstract.status || 'Unknown'}" instead of "Accepted".`
+      `Consolidated Acceptance PDF cannot be generated because abstract ${abstract.id} has status "${abstract.status || 'Unknown'}" instead of "Accepted".`
+    );
+  }
+  const { presentationId, presentationCategory } = resolveAcceptancePresentationDetails(abstract);
+  if (!presentationId || !presentationCategory) {
+    throw new Error(
+      `Consolidated Acceptance PDF requires a committed Presentation ID and Presentation Category for abstract ${abstract.id}.`
     );
   }
 }
@@ -1787,22 +1812,35 @@ export function buildAbstractAcceptanceLetterPDFDoc(
   const doc = createConferenceA4Doc();
 
   const absIdDisplay = sanitizePdfText((abstract.id || '').trim());
+  const { presentationId: presentationIdDisplay, presentationCategory } =
+    resolveAcceptancePresentationDetails(abstract);
+  const formatCategory = classifyAllottedPresentationFormat({
+    ...abstract,
+    allottedPresentationFormat: presentationCategory,
+  });
+  const docFooterLabel = 'Abstract Acceptance & Presentation Allocation Confirmation';
   const generatedOn = formatDateTime();
-  let currentY = drawCommonPageOneHeader(doc, 'ABSTRACT ACCEPTANCE LETTER');
+  let currentY = drawCommonPageOneHeader(
+    doc,
+    'ABSTRACT ACCEPTANCE AND PRESENTATION ALLOCATION CONFIRMATION'
+  );
 
   // --------------------------------------------------------------------------
-  // ISSUE DATE ROW (Strictly NO Document Reference Number on Left!)
+  // ACCEPTANCE DATE ROW (Strictly NO fabricated document ref number)
   // --------------------------------------------------------------------------
-  const issueDate =
+  const acceptanceDate =
     formatDateOnly(abstract.reviewedAt) ||
+    formatDateOnly(abstract.allocationCreatedAt) ||
     formatDateOnly(abstract.updatedAt) ||
     formatDateOnly(new Date().toISOString()) ||
     '';
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
+  doc.setFontSize(9.0);
   doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
-  doc.text(`Date: ${issueDate}`, PAGE_WIDTH - MARGIN_X, currentY + 2, { align: 'right' });
+  doc.text(`Acceptance Date: ${acceptanceDate}`, PAGE_WIDTH - MARGIN_X, currentY + 1.2, {
+    align: 'right',
+  });
 
   // --------------------------------------------------------------------------
   // RECIPIENT BLOCK ("To")
@@ -1820,33 +1858,33 @@ export function buildAbstractAcceptanceLetterPDFDoc(
     .map((s) => sanitizePdfText(s.trim()));
   const locationStr = locationParts.join(', ');
 
-  currentY += 6.5;
+  currentY += 3.8;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.6);
+  doc.setFontSize(9.0);
   doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
   doc.text('To', MARGIN_X, currentY);
-  currentY += 4.6;
+  currentY += 4.2;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.0);
+  doc.setFontSize(9.8);
   doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
   doc.text(authorName, MARGIN_X, currentY);
-  currentY += 4.6;
+  currentY += 4.1;
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.3);
+  doc.setFontSize(8.8);
   doc.setTextColor(COLORS.slateDark[0], COLORS.slateDark[1], COLORS.slateDark[2]);
 
   if (paDept && !authorInst.toLowerCase().includes(paDept.toLowerCase())) {
-    const deptLines = doc.splitTextToSize(paDept, 125);
+    const deptLines = doc.splitTextToSize(paDept, 130);
     doc.text(deptLines, MARGIN_X, currentY);
-    currentY += deptLines.length * 4.3;
+    currentY += deptLines.length * 3.9;
   }
 
   if (authorInst) {
-    const instLines = doc.splitTextToSize(authorInst, 125);
+    const instLines = doc.splitTextToSize(authorInst, 130);
     doc.text(instLines, MARGIN_X, currentY);
-    currentY += instLines.length * 4.3;
+    currentY += instLines.length * 3.9;
   }
 
   if (locationStr) {
@@ -1854,120 +1892,162 @@ export function buildAbstractAcceptanceLetterPDFDoc(
     const missingParts = locationParts.filter((p) => !instLower.includes(p.toLowerCase()));
     if (missingParts.length > 0 && !instLower.includes('india')) {
       doc.text(locationStr, MARGIN_X, currentY);
-      currentY += 4.3;
+      currentY += 3.9;
     }
   }
 
-  currentY += 2.5;
+  currentY += 2.0;
 
   // --------------------------------------------------------------------------
   // SUBJECT BANNER BAR
   // --------------------------------------------------------------------------
   doc.setFillColor(COLORS.lavenderTag[0], COLORS.lavenderTag[1], COLORS.lavenderTag[2]);
-  doc.roundedRect(MARGIN_X, currentY, CONTENT_WIDTH, 8.2, 2.0, 2.0, 'F');
+  doc.roundedRect(MARGIN_X, currentY, CONTENT_WIDTH, 7.6, 2.0, 2.0, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.8);
+  doc.setFontSize(9.2);
   doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
-  doc.text('Subject: Acceptance of Abstract – SRMCON 2027', MARGIN_X + 4.5, currentY + 5.5);
+  doc.text(
+    `Subject: Abstract Accepted & Presentation Allocation Confirmed – ${presentationIdDisplay}`,
+    MARGIN_X + 4.0,
+    currentY + 5.1
+  );
 
-  currentY += 13.0;
+  currentY += 11.5;
 
   // --------------------------------------------------------------------------
   // FORMAL SALUTATION & ACCEPTANCE BODY PARAGRAPH
   // --------------------------------------------------------------------------
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.6);
+  doc.setFontSize(9.3);
   doc.setTextColor(COLORS.slateDark[0], COLORS.slateDark[1], COLORS.slateDark[2]);
   doc.text(`Dear ${authorName},`, MARGIN_X, currentY);
-  currentY += 5.8;
+  currentY += 5.0;
 
   const cleanTitle = sanitizePdfText(abstract.title || 'Untitled Abstract');
   const paragraphHeight = renderWrappedRichParagraph(
     doc,
     [
-      { text: 'We are pleased to inform you that your abstract titled “', bold: false },
-      { text: cleanTitle, bold: true },
-      { text: '”, submitted for SRMCON 2027, has been ', bold: false },
-      { text: 'accepted', bold: true },
-      { text: ' for presentation at the International Conference on ', bold: false },
-      { text: 'AI-Powered Innovations in Drug Discovery and Development', bold: true },
       {
-        text: ', scheduled for 15–16 February 2027 at SRM Institute of Science and Technology, Kattankulathur.',
+        text: 'We are pleased to inform you that your abstract has been accepted for presentation at SRMCON 2027. Your abstract titled “',
+        bold: false,
+      },
+      { text: cleanTitle, bold: true },
+      {
+        text: '” is scheduled for presentation at the International Conference on “',
+        bold: false,
+      },
+      {
+        text: 'AI-Powered Innovations in Drug Discovery and Development',
+        bold: true,
+      },
+      {
+        text: '”, to be held on 15–16 February 2027 at SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India.',
         bold: false,
       },
     ],
     MARGIN_X,
     currentY,
     CONTENT_WIDTH,
-    4.7,
-    9.5
+    4.3,
+    9.1
   );
 
-  currentY += paragraphHeight + 3.0;
+  currentY += paragraphHeight + 2.5;
 
   // --------------------------------------------------------------------------
   // ABSTRACT INFORMATION CARD
   // --------------------------------------------------------------------------
   const resolvedTrack = resolveScientificTrackDisplay(abstract.trackId);
   const trackText = resolvedTrack.primary;
-  const allottedFormat = resolveOfficialAllottedFormat(abstract);
-  const formatCategory = classifyAllottedPresentationFormat(abstract);
+  const coAuthorData = buildOrderedCoAuthorData(abstract.coAuthors);
+  const coAuthorNamesText =
+    coAuthorData.tokens.length > 0
+      ? coAuthorData.tokens.map((t) => t.authorName).join(', ')
+      : '';
+  const institutionDisplay = authorInst || 'Not Specified';
 
-  const infoIconColW = 24;
-  const infoValueX = MARGIN_X + infoIconColW + 52;
-  const infoColonX = infoValueX - 4;
-  const infoLabelX = MARGIN_X + infoIconColW + 5;
-  const infoMaxW = MARGIN_X + CONTENT_WIDTH - infoValueX - 5;
+  const infoIconColW = 20;
+  const infoValueX = MARGIN_X + infoIconColW + 46;
+  const infoColonX = infoValueX - 3.5;
+  const infoLabelX = MARGIN_X + infoIconColW + 4.5;
+  const infoMaxW = MARGIN_X + CONTENT_WIDTH - infoValueX - 4.5;
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.2);
+  doc.setFontSize(8.8);
   const absTitleLines = doc.splitTextToSize(cleanTitle, infoMaxW);
+  const authorLines = doc.splitTextToSize(authorName, infoMaxW);
+  const coAuthorLines = coAuthorNamesText ? doc.splitTextToSize(coAuthorNamesText, infoMaxW) : [];
+  const institutionLines = doc.splitTextToSize(institutionDisplay, infoMaxW);
   const trackLines = doc.splitTextToSize(trackText, infoMaxW);
 
   const infoRows: Array<{
     label: string;
     lines: string[];
-    isFormatPill?: boolean;
     isAcceptedBadge?: boolean;
+    isBoldValue?: boolean;
     height: number;
   }> = [
-    { label: 'Abstract ID', lines: [absIdDisplay], height: 6.2 },
+    {
+      label: 'Abstract ID',
+      lines: [absIdDisplay],
+      isBoldValue: true,
+      height: 5.5,
+    },
     {
       label: 'Abstract Title',
       lines: absTitleLines,
-      height: Math.max(absTitleLines.length * 4.3 + 1.8, 6.2),
+      height: Math.max(absTitleLines.length * 4.0 + 1.4, 5.5),
+    },
+    {
+      label: 'Presenting Author',
+      lines: authorLines,
+      isBoldValue: true,
+      height: Math.max(authorLines.length * 4.0 + 1.4, 5.5),
+    },
+  ];
+
+  if (coAuthorLines.length > 0) {
+    infoRows.push({
+      label: 'Co-Authors',
+      lines: coAuthorLines,
+      height: Math.max(coAuthorLines.length * 4.0 + 1.4, 5.5),
+    });
+  }
+
+  infoRows.push(
+    {
+      label: 'Institution',
+      lines: institutionLines,
+      height: Math.max(institutionLines.length * 4.0 + 1.4, 5.5),
     },
     {
       label: 'Scientific Track',
       lines: trackLines,
-      height: Math.max(trackLines.length * 4.3 + 1.8, 6.2),
+      height: Math.max(trackLines.length * 4.0 + 1.4, 5.5),
+    },
+    {
+      label: 'Acceptance Date',
+      lines: [acceptanceDate || 'Confirmed'],
+      height: 5.5,
     },
     {
       label: 'Acceptance Status',
       lines: ['Accepted'],
       isAcceptedBadge: true,
-      height: 6.8,
-    },
-  ];
-
-  if (allottedFormat) {
-    infoRows.push({
-      label: 'Presentation Format',
-      lines: [sanitizePdfText(allottedFormat)],
-      isFormatPill: true,
-      height: 8.2,
-    });
-  }
+      height: 6.2,
+    }
+  );
 
   const infoBodyH = infoRows.reduce((s, r) => s + r.height, 0);
-  const infoCardH = Math.max(26, infoBodyH + 7.5);
+  const infoCardH = Math.max(28, infoBodyH + 5.5);
 
   if (currentY + infoCardH > FOOTER_TOP_Y - 6) {
-    currentY = addConferenceContinuationPage(doc, 'Abstract Acceptance Letter', absIdDisplay);
+    currentY = addConferenceContinuationPage(doc, docFooterLabel, `${absIdDisplay} | ${presentationIdDisplay}`);
   }
 
   doc.setFillColor(COLORS.cardFillAlt[0], COLORS.cardFillAlt[1], COLORS.cardFillAlt[2]);
   doc.setDrawColor(COLORS.cardBorder[0], COLORS.cardBorder[1], COLORS.cardBorder[2]);
+  doc.setLineWidth(0.35);
   doc.roundedRect(MARGIN_X, currentY, CONTENT_WIDTH, infoCardH, 2.8, 2.8, 'FD');
 
   doc.setFillColor(COLORS.iconColumn[0], COLORS.iconColumn[1], COLORS.iconColumn[2]);
@@ -1978,10 +2058,10 @@ export function buildAbstractAcceptanceLetterPDFDoc(
 
   drawIconDocLines(doc, MARGIN_X + infoIconColW / 2, currentY + infoCardH / 2);
 
-  let iry = currentY + 6.5;
+  let iry = currentY + 5.6;
   for (const r of infoRows) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.2);
+    doc.setFontSize(8.7);
     doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
     doc.text(r.label, infoLabelX, iry);
     doc.text(':', infoColonX, iry);
@@ -1989,34 +2069,15 @@ export function buildAbstractAcceptanceLetterPDFDoc(
     if (r.isAcceptedBadge) {
       doc.setFillColor(COLORS.mintFill[0], COLORS.mintFill[1], COLORS.mintFill[2]);
       doc.setDrawColor(COLORS.mintBorder[0], COLORS.mintBorder[1], COLORS.mintBorder[2]);
-      doc.roundedRect(infoValueX, iry - 4.0, 26, 5.6, 1.4, 1.4, 'FD');
-      drawIconCheckCircle(doc, infoValueX + 3.6, iry - 1.2, 1.8, true);
+      doc.roundedRect(infoValueX, iry - 3.6, 25, 5.0, 1.3, 1.3, 'FD');
+      drawIconCheckCircle(doc, infoValueX + 3.4, iry - 1.1, 1.65, true);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.7);
+      doc.setFontSize(8.3);
       doc.setTextColor(COLORS.mintText[0], COLORS.mintText[1], COLORS.mintText[2]);
-      doc.text('Accepted', infoValueX + 7.2, iry - 0.1);
-    } else if (r.isFormatPill) {
-      const fmtText = r.lines[0];
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.2);
-      const pillW = Math.min(infoMaxW, doc.getTextWidth(fmtText) + 14);
-      doc.setFillColor(COLORS.lavenderTag[0], COLORS.lavenderTag[1], COLORS.lavenderTag[2]);
-      doc.setDrawColor(196, 181, 253);
-      doc.roundedRect(infoValueX, iry - 4.4, pillW, 6.8, 1.8, 1.8, 'FD');
-
-      if (formatCategory === 'oral') {
-        drawIconMic(doc, infoValueX + 5.2, iry - 1.0);
-      } else if (formatCategory === 'eposter') {
-        drawIconMonitor(doc, infoValueX + 5.2, iry - 1.0);
-      } else {
-        drawIconPosterBoard(doc, infoValueX + 5.2, iry - 1.0);
-      }
-
-      doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
-      doc.text(fmtText, infoValueX + 9.5, iry + 0.1);
+      doc.text('Accepted', infoValueX + 6.8, iry - 0.1);
     } else {
-      doc.setFont('helvetica', r.label === 'Abstract ID' ? 'bold' : 'normal');
-      doc.setFontSize(9.2);
+      doc.setFont('helvetica', r.isBoldValue ? 'bold' : 'normal');
+      doc.setFontSize(8.8);
       doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
       doc.text(r.lines, infoValueX, iry);
     }
@@ -2024,79 +2085,146 @@ export function buildAbstractAcceptanceLetterPDFDoc(
     iry += r.height;
   }
 
-  currentY += infoCardH + 4.5;
+  currentY += infoCardH + 3.5;
 
   // --------------------------------------------------------------------------
-  // NEXT STEPS / INSTRUCTIONS CARD
+  // DEDICATED SECTION: PRESENTATION ALLOCATION DETAILS (Distinct from Abstract ID)
   // --------------------------------------------------------------------------
-  const formatGuidancePhrase = allottedFormat
-    ? `Detailed ${sanitizePdfText(allottedFormat).toLowerCase()} guidelines and the conference session schedule will be shared in due course.`
-    : 'Detailed presentation guidelines and the conference session schedule will be shared in due course.';
-
-  const bullets = [
-    'Please ensure that at least one of the authors is duly registered for the conference.',
-    formatGuidancePhrase,
-    `For any queries, contact the SRMCON 2027 Secretariat at ${SECRETARIAT_EMAIL}.`,
-  ];
-
-  const instrTextX = MARGIN_X + infoIconColW + 9;
-  const instrMaxW = MARGIN_X + CONTENT_WIDTH - instrTextX - 5;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.0);
-  const bulletWrapped = bullets.map((b) => doc.splitTextToSize(b, instrMaxW));
-  const bulletsH = bulletWrapped.reduce((s, lines) => s + lines.length * 4.3 + 1.5, 0);
-  const instrCardH = Math.max(24, 10.5 + bulletsH + 3.0);
-
-  if (currentY + instrCardH + SIGNATURE_HEIGHT > FOOTER_TOP_Y) {
-    currentY = addConferenceContinuationPage(doc, 'Abstract Acceptance Letter', absIdDisplay);
+  const allocBoxH = 26.5;
+  if (currentY + allocBoxH > FOOTER_TOP_Y - 6) {
+    currentY = addConferenceContinuationPage(doc, docFooterLabel, `${absIdDisplay} | ${presentationIdDisplay}`);
   }
 
-  doc.setFillColor(COLORS.cardFillAlt[0], COLORS.cardFillAlt[1], COLORS.cardFillAlt[2]);
-  doc.setDrawColor(COLORS.cardBorder[0], COLORS.cardBorder[1], COLORS.cardBorder[2]);
-  doc.roundedRect(MARGIN_X, currentY, CONTENT_WIDTH, instrCardH, 2.8, 2.8, 'FD');
+  // Distinct highlighted container with deep indigo border
+  doc.setFillColor(238, 242, 255);
+  doc.setDrawColor(99, 102, 241);
+  doc.setLineWidth(0.55);
+  doc.roundedRect(MARGIN_X, currentY, CONTENT_WIDTH, allocBoxH, 2.8, 2.8, 'FD');
 
-  doc.setFillColor(COLORS.iconColumn[0], COLORS.iconColumn[1], COLORS.iconColumn[2]);
-  doc.roundedRect(MARGIN_X, currentY, infoIconColW, instrCardH, 2.8, 2.8, 'F');
-  doc.rect(MARGIN_X + infoIconColW - 2.8, currentY, 2.8, instrCardH, 'F');
-  doc.setDrawColor(COLORS.cardBorder[0], COLORS.cardBorder[1], COLORS.cardBorder[2]);
-  doc.line(MARGIN_X + infoIconColW, currentY, MARGIN_X + infoIconColW, currentY + instrCardH);
+  // Top section header strip
+  doc.setFillColor(67, 56, 202);
+  doc.roundedRect(MARGIN_X, currentY, CONTENT_WIDTH, 6.8, 2.6, 2.6, 'F');
+  doc.rect(MARGIN_X, currentY + 3.5, CONTENT_WIDTH, 3.3, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.8);
+  doc.setTextColor(255, 255, 255);
+  doc.text('PRESENTATION ALLOCATION DETAILS', MARGIN_X + 5.0, currentY + 4.7);
 
-  drawIconClipboardCheck(doc, MARGIN_X + infoIconColW / 2, currentY + instrCardH / 2);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.6);
+  doc.setTextColor(224, 231, 255);
+  doc.text(
+    `Original Abstract ID (Reference Only): ${absIdDisplay}`,
+    PAGE_WIDTH - MARGIN_X - 4.5,
+    currentY + 4.6,
+    { align: 'right' }
+  );
+
+  // Two side-by-side white cards inside PRESENTATION ALLOCATION DETAILS
+  const innerY = currentY + 8.8;
+  const innerH = 15.2;
+  const leftCardW = 100;
+  const rightCardW = CONTENT_WIDTH - leftCardW - 10;
+  const leftCardX = MARGIN_X + 3.5;
+  const rightCardX = leftCardX + leftCardW + 3.0;
+
+  // Left card: Prominent Presentation ID
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(165, 180, 252);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(leftCardX, innerY, leftCardW, innerH, 2.0, 2.0, 'FD');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.0);
+  doc.setFontSize(7.8);
+  doc.setTextColor(79, 70, 229);
+  doc.text('Presentation ID:', leftCardX + 4.0, innerY + 4.8);
+
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(13.2);
   doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
-  doc.text('Next Steps / Instructions', MARGIN_X + infoIconColW + 5, currentY + 7.0);
+  doc.text(presentationIdDisplay, leftCardX + 4.0, innerY + 11.4);
 
-  let by = currentY + 12.2;
-  bulletWrapped.forEach((lines) => {
-    doc.setFillColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
-    doc.circle(MARGIN_X + infoIconColW + 6.2, by - 1.1, 0.72, 'F');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.0);
-    doc.setTextColor(COLORS.slateDark[0], COLORS.slateDark[1], COLORS.slateDark[2]);
-    doc.text(lines, instrTextX, by);
-    by += lines.length * 4.3 + 1.5;
-  });
+  // Right card: Allocated Presentation Category
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(196, 181, 253);
+  doc.roundedRect(rightCardX, innerY, rightCardW, innerH, 2.0, 2.0, 'FD');
 
-  currentY += instrCardH + 5;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.8);
+  doc.setTextColor(109, 60, 226);
+  doc.text('Presentation Category:', rightCardX + 4.0, innerY + 4.8);
+
+  const catIconCx = rightCardX + 6.5;
+  const catIconCy = innerY + 10.6;
+  if (formatCategory === 'oral') {
+    drawIconMic(doc, catIconCx, catIconCy);
+  } else if (formatCategory === 'eposter') {
+    drawIconMonitor(doc, catIconCx, catIconCy);
+  } else {
+    drawIconPosterBoard(doc, catIconCx, catIconCy);
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.6);
+  doc.setTextColor(COLORS.navy[0], COLORS.navy[1], COLORS.navy[2]);
+  doc.text(presentationCategory, rightCardX + 11.0, innerY + 11.6);
+
+  currentY += allocBoxH + 3.2;
+
+  // --------------------------------------------------------------------------
+  // MANDATORY PROMINENT INSTRUCTION BOX (Presentation ID vs Abstract ID)
+  // --------------------------------------------------------------------------
+  const mandatoryInstruction =
+    'IMPORTANT: Please use your Presentation ID, not your Abstract ID, when preparing and submitting your presentation materials and for all presentation-related correspondence.';
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.7);
+  const instrLines = doc.splitTextToSize(mandatoryInstruction, CONTENT_WIDTH - 21);
+  const instrBoxH = Math.max(13.5, instrLines.length * 4.1 + 5.0);
+
+  if (currentY + instrBoxH > FOOTER_TOP_Y - 6) {
+    currentY = addConferenceContinuationPage(doc, docFooterLabel, `${absIdDisplay} | ${presentationIdDisplay}`);
+  }
+
+  doc.setFillColor(COLORS.amberFill[0], COLORS.amberFill[1], COLORS.amberFill[2]);
+  doc.setDrawColor(COLORS.amberBorder[0], COLORS.amberBorder[1], COLORS.amberBorder[2]);
+  doc.setLineWidth(0.45);
+  doc.roundedRect(MARGIN_X, currentY, CONTENT_WIDTH, instrBoxH, 2.2, 2.2, 'FD');
+  drawIconInfoCircle(doc, MARGIN_X + 9.0, currentY + instrBoxH / 2, 3.0);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.7);
+  doc.setTextColor(COLORS.amberText[0], COLORS.amberText[1], COLORS.amberText[2]);
+  doc.text(instrLines, MARGIN_X + 16.0, currentY + 5.2);
+
+  currentY += instrBoxH + 2.8;
+
+  // Compact Next Steps / Contact line
+  const contactNote = `Please ensure at least one author completes conference registration and prepares the presentation in accordance with ${presentationCategory} guidelines. Queries: ${SECRETARIAT_EMAIL}`;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.0);
+  const contactLines = doc.splitTextToSize(contactNote, CONTENT_WIDTH - 4);
+  if (currentY + contactLines.length * 3.8 + SIGNATURE_HEIGHT <= FOOTER_TOP_Y) {
+    doc.setTextColor(COLORS.slateMuted[0], COLORS.slateMuted[1], COLORS.slateMuted[2]);
+    doc.text(contactLines, MARGIN_X + 1.5, currentY + 2.5);
+    currentY += contactLines.length * 3.8 + 3.5;
+  }
 
   // --------------------------------------------------------------------------
   // SIGNATURES & FOOTER
   // --------------------------------------------------------------------------
-  const sigY = Math.max(currentY, 232);
+  const sigY = Math.max(currentY, 236);
   if (sigY + SIGNATURE_HEIGHT > FOOTER_TOP_Y) {
-    const contY = addConferenceContinuationPage(doc, 'Abstract Acceptance Letter', absIdDisplay);
+    const contY = addConferenceContinuationPage(doc, docFooterLabel, `${absIdDisplay} | ${presentationIdDisplay}`);
     drawSignatureBlock(doc, contY + 6);
   } else {
     drawSignatureBlock(doc, sigY);
   }
 
-  drawFooterOnAllPages(doc, 'Abstract Acceptance Letter', generatedOn);
+  drawFooterOnAllPages(doc, docFooterLabel, generatedOn);
 
   return {
     doc,
-    filename: `Acceptance_Letter_${absIdDisplay || 'SRMCON2027'}.pdf`,
+    filename: `SRMCON2027_Acceptance_${absIdDisplay || 'ABSTRACT'}_${presentationIdDisplay || 'ALLOCATION'}.pdf`,
   };
 }
 

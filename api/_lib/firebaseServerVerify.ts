@@ -18,6 +18,20 @@ interface CertCache {
 
 let certCache: CertCache | null = null;
 
+export class AuthVerificationError extends Error {
+  readonly statusCode: 401 | 403;
+
+  constructor(statusCode: 401 | 403, message: string) {
+    super(message);
+    this.name = 'AuthVerificationError';
+    this.statusCode = statusCode;
+  }
+}
+
+export function clearGoogleCertCacheForTests(): void {
+  certCache = null;
+}
+
 function decodeBase64Url(input: string): Buffer {
   const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
   const pad = normalized.length % 4;
@@ -61,21 +75,22 @@ export async function verifyFirebaseAdminBearerToken(
   authHeader: string | undefined
 ): Promise<VerifiedAdminToken> {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Missing admin authorization token.');
+    throw new AuthVerificationError(401, 'Missing admin authorization token.');
   }
 
   const token = authHeader.slice('Bearer '.length).trim();
+  if (!token) {
+    throw new AuthVerificationError(401, 'Missing admin authorization token.');
+  }
+
   const segments = token.split('.');
-  if (segments.length !== 3) {
-    throw new Error('Malformed Firebase ID token.');
+  if (segments.length !== 3 || segments.some((seg) => !seg)) {
+    throw new AuthVerificationError(401, 'Malformed Firebase ID token.');
   }
 
   const [headerB64, payloadB64, sigB64] = segments;
-  const header = JSON.parse(decodeBase64Url(headerB64).toString('utf8')) as {
-    alg?: string;
-    kid?: string;
-  };
-  const payload = JSON.parse(decodeBase64Url(payloadB64).toString('utf8')) as {
+  let header: { alg?: string; kid?: string };
+  let payload: {
     aud?: string;
     iss?: string;
     sub?: string;
@@ -84,55 +99,92 @@ export async function verifyFirebaseAdminBearerToken(
     exp?: number;
   };
 
-  if (header.alg !== 'RS256' || !header.kid) {
-    throw new Error('Unsupported Firebase ID token signature algorithm.');
+  try {
+    const parsedHeader = JSON.parse(decodeBase64Url(headerB64).toString('utf8'));
+    const parsedPayload = JSON.parse(decodeBase64Url(payloadB64).toString('utf8'));
+    if (
+      !parsedHeader ||
+      typeof parsedHeader !== 'object' ||
+      Array.isArray(parsedHeader) ||
+      !parsedPayload ||
+      typeof parsedPayload !== 'object' ||
+      Array.isArray(parsedPayload)
+    ) {
+      throw new Error('Invalid JWT JSON objects');
+    }
+    header = parsedHeader;
+    payload = parsedPayload;
+  } catch {
+    throw new AuthVerificationError(401, 'Malformed Firebase ID token.');
+  }
+
+  if (header.alg !== 'RS256' || !header.kid || typeof header.kid !== 'string') {
+    throw new AuthVerificationError(401, 'Unsupported Firebase ID token signature algorithm.');
   }
 
   const { projectId } = getFirebaseAppletConfig();
   const nowSec = Math.floor(Date.now() / 1000);
 
   if (payload.aud !== projectId) {
-    throw new Error('Firebase ID token audience mismatch.');
+    throw new AuthVerificationError(401, 'Firebase ID token audience mismatch.');
   }
   if (payload.iss !== `https://securetoken.google.com/${projectId}`) {
-    throw new Error('Firebase ID token issuer mismatch.');
+    throw new AuthVerificationError(401, 'Firebase ID token issuer mismatch.');
   }
   if (!payload.sub || typeof payload.sub !== 'string') {
-    throw new Error('Firebase ID token subject missing.');
+    throw new AuthVerificationError(401, 'Firebase ID token subject missing.');
   }
   if (typeof payload.exp !== 'number' || payload.exp <= nowSec) {
-    throw new Error('Firebase ID token has expired.');
+    throw new AuthVerificationError(401, 'Firebase ID token has expired.');
   }
   if (typeof payload.iat === 'number' && payload.iat > nowSec + 300) {
-    throw new Error('Firebase ID token issued-at timestamp is invalid.');
+    throw new AuthVerificationError(401, 'Firebase ID token issued-at timestamp is invalid.');
   }
 
   const certs = await getGoogleSecureTokenCerts();
   const certPem = certs[header.kid];
   if (!certPem) {
-    throw new Error('Unable to match Firebase ID token signing key.');
+    throw new AuthVerificationError(401, 'Unable to match Firebase ID token signing key.');
   }
 
-  const verifier = crypto.createVerify('RSA-SHA256');
-  verifier.update(`${headerB64}.${payloadB64}`);
-  verifier.end();
+  let signatureValid = false;
+  try {
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(`${headerB64}.${payloadB64}`);
+    verifier.end();
+    const signature = decodeBase64Url(sigB64);
+    signatureValid = verifier.verify(certPem, signature);
+  } catch {
+    signatureValid = false;
+  }
 
-  const signature = decodeBase64Url(sigB64);
-  if (!verifier.verify(certPem, signature)) {
-    throw new Error('Invalid Firebase ID token signature.');
+  if (!signatureValid) {
+    throw new AuthVerificationError(401, 'Invalid Firebase ID token signature.');
   }
 
   const normalizedEmail = (payload.email || '').trim().toLowerCase();
   if (!normalizedEmail) {
-    throw new Error('Authenticated account does not contain an email address.');
+    throw new AuthVerificationError(401, 'Authenticated account does not contain an email address.');
   }
 
   const isAllowlisted = (AUTHORIZED_ADMIN_EMAILS as readonly string[]).includes(normalizedEmail);
   if (!isAllowlisted) {
     // Also check /admins/{uid} document using the caller's own Bearer token
-    const adminDoc = await getFirestoreDocument('admins', payload.sub, token);
+    let adminDoc: Record<string, unknown> | null = null;
+    try {
+      adminDoc = await getFirestoreDocument('admins', payload.sub, token);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('(HTTP 403)')) {
+        adminDoc = null;
+      } else {
+        throw err;
+      }
+    }
     if (!adminDoc) {
-      throw new Error('Account is not authorized to perform administrative email actions.');
+      throw new AuthVerificationError(
+        403,
+        'Account is not authorized to perform administrative email actions.'
+      );
     }
   }
 

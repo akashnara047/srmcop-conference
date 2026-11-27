@@ -37,6 +37,7 @@ import {
 } from '../lib/backupService';
 import {
   TRIAL_RESET_STAGES,
+  TrialResetCounterId,
   TrialResetPreviewStats,
   TrialResetProgressUpdate,
   TrialResetVerificationReport,
@@ -44,6 +45,14 @@ import {
   fetchTrialResetPreviewStats,
   formatTrialResetTextReport,
 } from '../lib/trialResetService';
+
+const TRIAL_COUNTER_ORDER: TrialResetCounterId[] = [
+  'registrationCounter',
+  'abstractCounter',
+  'allocationCounterOral',
+  'allocationCounterPoster',
+  'allocationCounterEposter',
+];
 
 interface AdminBackupManagerProps {
   user: User | null;
@@ -191,7 +200,7 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
       );
       setResetReport(report);
       onStatusMessage?.(
-        `Trial-run reset complete: deleted ${report.registrationsDeleted} registrations, ${report.abstractsDeleted} abstracts, ${report.emailLogsCleared} linked email logs. Next IDs: ${report.nextRegistrationId} & ${report.nextAbstractId}.`
+        `Trial-run reset complete: deleted ${report.registrationsDeleted} registrations, ${report.abstractsDeleted} abstracts, ${report.emailLogsCleared} linked email logs. All 5 counters reset to 0 (${report.nextRegistrationId}, ${report.nextAbstractId}, ${report.nextAllocationOralId}, ${report.nextAllocationPosterId}, ${report.nextAllocationEposterId}).`
       );
       await loadOverview();
     } catch (err: any) {
@@ -705,7 +714,7 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-slate-600 mt-0.5">
-                Automatically exports a full ZIP backup, deletes all registration and abstract records, clears linked duplicate-prevention email logs, and resets ID counters to start cleanly at <strong className="font-mono">AICONDD001</strong> and <strong className="font-mono">AICONDD-ABS-001</strong>.
+                Automatically exports a full ZIP backup, deletes all registration and abstract records, clears linked duplicate-prevention email logs, and atomically resets all 5 ID counters to start cleanly at <strong className="font-mono">AICONDD001</strong>, <strong className="font-mono">AICONDD-ABS-001</strong>, <strong className="font-mono">AICONDD-OR-2027-001</strong>, <strong className="font-mono">AICONDD-POST-2027-001</strong>, and <strong className="font-mono">AICONDD-EPOST-2027-001</strong>.
               </p>
             </div>
           </div>
@@ -731,39 +740,47 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Live Counter & Target Scope Grid */}
+          {/* Live Record Scope Summary */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                Registration Sequence
+                Registrations to Delete
               </span>
               <div className="mt-1 flex items-baseline justify-between gap-2">
                 <span className="font-mono font-bold text-slate-900 text-sm">
-                  #{loadingStats ? '—' : resetPreview?.registrationCounterSeq ?? 0}
+                  {loadingStats ? '—' : resetPreview?.registrationsCount ?? registrationsCount} record(s)
                 </span>
                 <span className="text-[11px] font-mono text-purple-700 font-semibold">
-                  Next: {loadingStats ? '—' : resetPreview?.currentNextRegistrationId ?? 'AICONDD001'}
+                  Reset &rarr; {loadingStats ? '—' : resetPreview?.counters.registrationCounter.proposedNextId ?? 'AICONDD001'}
                 </span>
               </div>
               <div className="text-[10px] text-slate-500 mt-1">
-                {loadingStats ? '—' : resetPreview?.registrationsCount ?? registrationsCount} record(s) in Firestore
+                {loadingStats
+                  ? 'Loading counter...'
+                  : resetPreview?.counters.registrationCounter.exists
+                  ? `Doc exists (seq #${resetPreview.counters.registrationCounter.currentSequenceNumber})`
+                  : 'Counter doc missing (effective #0)'}
               </div>
             </div>
 
             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
               <span className="text-[10px] uppercase font-semibold text-slate-500 block">
-                Abstract Sequence
+                Abstracts to Delete
               </span>
               <div className="mt-1 flex items-baseline justify-between gap-2">
                 <span className="font-mono font-bold text-slate-900 text-sm">
-                  #{loadingStats ? '—' : resetPreview?.abstractCounterSeq ?? 0}
+                  {loadingStats ? '—' : resetPreview?.abstractsCount ?? abstractsCount} record(s)
                 </span>
                 <span className="text-[11px] font-mono text-indigo-700 font-semibold">
-                  Next: {loadingStats ? '—' : resetPreview?.currentNextAbstractId ?? 'AICONDD-ABS-001'}
+                  Reset &rarr; {loadingStats ? '—' : resetPreview?.counters.abstractCounter.proposedNextId ?? 'AICONDD-ABS-001'}
                 </span>
               </div>
               <div className="text-[10px] text-slate-500 mt-1">
-                {loadingStats ? '—' : resetPreview?.abstractsCount ?? abstractsCount} record(s) in Firestore
+                {loadingStats
+                  ? 'Loading counter...'
+                  : resetPreview?.counters.abstractCounter.exists
+                  ? `Doc exists (seq #${resetPreview.counters.abstractCounter.currentSequenceNumber})`
+                  : 'Counter doc missing (effective #0)'}
               </div>
             </div>
 
@@ -794,6 +811,74 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
               <div className="text-[10px] text-emerald-700 mt-1">
                 Admins, enquiries, backups &amp; audit logs stay intact
               </div>
+            </div>
+          </div>
+
+          {/* All 5 System Counters Preview (Current vs Proposed Reset) */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                System Sequence Counters (Current &rarr; Proposed Reset)
+              </span>
+              <span className="text-[10px] text-slate-500">
+                All 5 counters are reset atomically in one batch to <span className="font-mono font-semibold">lastSequenceNumber: 0</span>
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+              {TRIAL_COUNTER_ORDER.map((counterId) => {
+                const detail = resetPreview?.counters?.[counterId];
+                const isMissing = detail ? !detail.exists : false;
+                return (
+                  <div
+                    key={counterId}
+                    className="rounded-lg border border-slate-200 bg-white p-2.5 space-y-1.5"
+                  >
+                    <div className="flex items-start justify-between gap-1.5">
+                      <span className="text-[10px] font-semibold text-slate-700 leading-tight">
+                        {detail?.label ?? counterId}
+                      </span>
+                      {!loadingStats && detail && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase shrink-0 ${
+                            isMissing
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}
+                        >
+                          {isMissing ? 'Doc Missing' : `Doc #${detail.storedSequenceNumber ?? 0}`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-[10px] text-slate-400 truncate">
+                      {counterId}
+                    </div>
+                    <div className="flex items-center justify-between gap-1 pt-0.5 text-[11px] font-mono">
+                      <span className="text-slate-600">
+                        {loadingStats
+                          ? '—'
+                          : isMissing
+                          ? 'missing (0)'
+                          : `seq #${detail?.currentSequenceNumber ?? 0}`}
+                      </span>
+                      <span className="font-bold text-rose-700">&rarr; #0</span>
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-500 leading-snug">
+                      <div>
+                        Now:{' '}
+                        <span className="text-slate-700 font-semibold">
+                          {loadingStats ? '—' : detail?.currentNextId ?? '—'}
+                        </span>
+                      </div>
+                      <div>
+                        After:{' '}
+                        <span className="text-purple-700 font-semibold">
+                          {loadingStats ? '—' : detail?.proposedNextId ?? '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -905,7 +990,7 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 text-xs">
                 <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
                   <span className="text-[10px] uppercase font-semibold text-slate-400 block">
                     Registrations
@@ -932,7 +1017,15 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
                 </div>
                 <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
                   <span className="text-[10px] uppercase font-semibold text-slate-400 block">
-                    Next Reg ID
+                    Remaining Old Docs
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700">
+                    {resetReport.remainingRegistrationsAfter} Reg &middot; {resetReport.remainingAbstractsAfter} Abs
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Next Reg ID ({resetReport.registrationCounterExistedBefore ? `#${resetReport.registrationCounterBefore}` : 'missing'} &rarr; #{resetReport.registrationCounterAfter})
                   </span>
                   <span className="font-mono font-bold text-purple-700">
                     {resetReport.nextRegistrationId}
@@ -940,7 +1033,7 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
                 </div>
                 <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
                   <span className="text-[10px] uppercase font-semibold text-slate-400 block">
-                    Next Abstract ID
+                    Next Abstract ID ({resetReport.abstractCounterExistedBefore ? `#${resetReport.abstractCounterBefore}` : 'missing'} &rarr; #{resetReport.abstractCounterAfter})
                   </span>
                   <span className="font-mono font-bold text-indigo-700">
                     {resetReport.nextAbstractId}
@@ -948,10 +1041,20 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
                 </div>
                 <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
                   <span className="text-[10px] uppercase font-semibold text-slate-400 block">
-                    Remaining Old Docs
+                    Oral Alloc ({resetReport.allocationCounterOralExistedBefore ? `#${resetReport.allocationCounterOralBefore}` : 'missing'} &rarr; #{resetReport.allocationCounterOralAfter})
                   </span>
-                  <span className="font-mono font-bold text-emerald-700">
-                    {resetReport.remainingRegistrationsAfter} Reg · {resetReport.remainingAbstractsAfter} Abs
+                  <span className="font-mono font-bold text-emerald-800">
+                    {resetReport.nextAllocationOralId}
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg border border-emerald-200/80 p-2.5">
+                  <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                    Poster / E-Poster ({resetReport.allocationCounterPosterExistedBefore ? `#${resetReport.allocationCounterPosterBefore}` : 'missing'} &rarr; #{resetReport.allocationCounterPosterAfter} · {resetReport.allocationCounterEposterExistedBefore ? `#${resetReport.allocationCounterEposterBefore}` : 'missing'} &rarr; #{resetReport.allocationCounterEposterAfter})
+                  </span>
+                  <span className="font-mono font-bold text-emerald-800 block leading-tight">
+                    {resetReport.nextAllocationPosterId}
+                    <br />
+                    {resetReport.nextAllocationEposterId}
                   </span>
                 </div>
               </div>
@@ -1143,7 +1246,25 @@ export const AdminBackupManager: React.FC<AdminBackupManagerProps> = ({
                     Clears <strong>{resetPreview?.associatedEmailLogsCount ?? 0}</strong> linked email log(s) so fresh trial IDs are not blocked by duplicate-email checks (preserves {resetPreview?.unrelatedEmailLogsCount ?? 0} unrelated log(s)).
                   </li>
                   <li>
-                    Resets counters from <span className="font-mono">#{resetPreview?.registrationCounterSeq ?? 0}</span> / <span className="font-mono">#{resetPreview?.abstractCounterSeq ?? 0}</span> back to <span className="font-mono">0</span> (next IDs: <strong className="font-mono">AICONDD001</strong> and <strong className="font-mono">AICONDD-ABS-001</strong>).
+                    Atomically resets all 5 counters to <span className="font-mono">0</span>:
+                    <div className="mt-1 grid grid-cols-1 gap-0.5 font-mono text-[10px] bg-white/80 rounded p-2 border border-rose-200/80">
+                      {TRIAL_COUNTER_ORDER.map((cid) => {
+                        const detail = resetPreview?.counters?.[cid];
+                        const cur = detail
+                          ? detail.exists
+                            ? `#${detail.currentSequenceNumber}`
+                            : 'missing (0)'
+                          : '#0';
+                        return (
+                          <div key={cid} className="flex items-center justify-between gap-2">
+                            <span>{cid}: {cur} &rarr; #0</span>
+                            <span className="font-semibold text-rose-900">
+                              Next: {detail?.proposedNextId ?? '—'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </li>
                   <li>
                     Preserves speakers, programme, accommodation, tourist attractions, contact enquiries, audit logs, and backup history.

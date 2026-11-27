@@ -97,30 +97,76 @@ export interface ConfirmAllocationResult {
   updatedAbstract: AbstractRecord;
 }
 
-/**
- * Atomically confirms Official Presentation Allocation for an abstract using category-specific
- * Firestore sequence counters (`allocationCounterOral`, `allocationCounterPoster`, `allocationCounterEposter`).
- *
- * Guarantees:
- * - Strictly triggered ONLY on explicit admin confirmation (never on submission, approval, or dropdown change).
- * - Independent sequential numbering per category (never decremented or reused).
- * - Single Active allocation per abstract; category changes mark the previous Active entry as Superseded.
- * - Preserves participant's submitted `presentationPreference` and `presentationType` completely untouched.
- */
-export async function confirmOfficialPresentationAllocation(
-  params: ConfirmAllocationParams
-): Promise<ConfirmAllocationResult> {
+export interface ApproveAndAllocateParams {
+  abstractId: string;
+  category: OfficialAllocationCategory;
+  adminEmail: string;
+  reviewNotes?: string;
+}
+
+export interface ApproveAndAllocateResult {
+  allocationId: string;
+  category: OfficialAllocationCategory;
+  approvedAt: string;
+  approvedBy: string;
+  allocatedAt: string;
+  allocatedBy: string;
+  updatedAbstract: AbstractRecord;
+}
+
+// Client-tab synchronous in-flight guard preventing double-click / rapid duplicate submissions
+const inFlightAllocationAbstractIds = new Set<string>();
+
+function hasAnyActiveAllocationHistory(abs: Partial<AbstractRecord>): boolean {
+  return (
+    Array.isArray(abs.allocationHistory) &&
+    abs.allocationHistory.some((entry) => entry && entry.status === 'Active')
+  );
+}
+
+interface InternalAllocationTransactionParams {
+  abstractId: string;
+  category: OfficialAllocationCategory;
+  adminEmail: string;
+  mode: 'approve_and_allocate' | 'change_allocation';
+  reviewNotes?: string;
+  changeReason?: string;
+}
+
+async function executeUnifiedAllocationTransaction(
+  params: InternalAllocationTransactionParams
+): Promise<{
+  allocationId: string;
+  category: OfficialAllocationCategory;
+  isCategoryChange: boolean;
+  previousAllocationId: string | null;
+  previousCategory: OfficialAllocationCategory | null;
+  timestamp: string;
+  adminEmail: string;
+  updatedAbstract: AbstractRecord;
+}> {
   const abstractId = (params.abstractId || '').trim();
   const adminEmail = (params.adminEmail || '').trim().toLowerCase() || 'org.secy.cp@srmist.edu.in';
   const category = params.category;
   const trimmedReason = (params.changeReason || '').trim();
+  const trimmedReviewNotes = (params.reviewNotes || '').trim();
 
   if (!abstractId) {
-    throw new Error('Abstract ID is required for official presentation allocation.');
+    throw new Error('Abstract ID is required for presentation allocation.');
   }
   if (!isValidOfficialAllocationCategory(category)) {
-    throw new Error('Select a valid Official Presentation Allocation Category.');
+    throw new Error(
+      'Select a valid Presentation Category (Oral Presentation, Poster Presentation, or E-Poster Presentation).'
+    );
   }
+
+  if (inFlightAllocationAbstractIds.has(abstractId)) {
+    throw new Error(
+      `An approval and allocation request for abstract ${abstractId} is already in progress.`
+    );
+  }
+
+  inFlightAllocationAbstractIds.add(abstractId);
 
   const spec = ALLOCATION_COUNTER_MAP[category];
   const abstractRef = doc(db, 'abstractSubmissions', abstractId);
@@ -141,22 +187,49 @@ export async function confirmOfficialPresentationAllocation(
 
       if (absData.status === 'Rejected') {
         throw new Error(
-          `Abstract ${abstractId} has status "Rejected" and cannot be allotted an official presentation slot.`
+          `Abstract ${abstractId} has status "Rejected" and cannot be approved or allotted a Presentation ID.`
         );
       }
 
-      const hasExistingActive = isAbstractOfficiallyAllocated(absData);
+      const hasExistingActive =
+        isAbstractOfficiallyAllocated(absData) || hasAnyActiveAllocationHistory(absData);
       const previousAllocationId = hasExistingActive
-        ? (absData.presentationAllocationId || '').trim() || null
+        ? (absData.presentationAllocationId || '').trim() ||
+          absData.allocationHistory?.find((h) => h.status === 'Active')?.allocationId ||
+          null
         : null;
       const previousCategory = hasExistingActive
-        ? (absData.officialAllocationCategory as OfficialAllocationCategory)
+        ? ((absData.officialAllocationCategory as OfficialAllocationCategory) ||
+            absData.allocationHistory?.find((h) => h.status === 'Active')?.category ||
+            null)
         : null;
 
-      if (hasExistingActive && previousCategory === category) {
-        throw new Error(
-          `Abstract ${abstractId} already has an Active allocation for ${category} (${previousAllocationId}). Select a different category to change allocation.`
-        );
+      if (params.mode === 'approve_and_allocate') {
+        if (absData.status === 'Accepted') {
+          throw new Error(
+            `Abstract ${abstractId} is already Approved${
+              previousAllocationId ? ` (Presentation ID: ${previousAllocationId})` : ''
+            }. Duplicate approval is blocked.`
+          );
+        }
+        if (hasExistingActive) {
+          throw new Error(
+            `Abstract ${abstractId} already has an Active allocation (${
+              previousAllocationId || 'recorded'
+            }). Multiple active allocations for the same abstract are not allowed.`
+          );
+        }
+      } else {
+        if (absData.status !== 'Accepted') {
+          throw new Error(
+            `Abstract ${abstractId} must be approved via "Approve & Allocate" before performing an administrative category correction.`
+          );
+        }
+        if (hasExistingActive && previousCategory === category) {
+          throw new Error(
+            `Abstract ${abstractId} already has an Active allocation for ${category} (${previousAllocationId}). Select a different category to change allocation.`
+          );
+        }
       }
 
       const currentSeq = counterSnap.exists()
@@ -212,7 +285,21 @@ export async function confirmOfficialPresentationAllocation(
         { merge: true }
       );
 
+      const approvalFields =
+        params.mode === 'approve_and_allocate'
+          ? {
+              status: 'Accepted' as const,
+              reviewNotes:
+                trimmedReviewNotes ||
+                absData.reviewNotes?.trim() ||
+                'Abstract accepted by Scientific Committee.',
+              reviewedBy: adminEmail,
+              reviewedAt: timestamp,
+            }
+          : {};
+
       const updateFields = {
+        ...approvalFields,
         officialAllocationCategory: category,
         presentationAllocationId: newAllocationId,
         allocationStatus: 'Active' as const,
@@ -231,22 +318,32 @@ export async function confirmOfficialPresentationAllocation(
 
       transaction.update(abstractRef, updateFields);
 
-      const auditId = `ALLOC_${Date.now()}_${abstractId.replace(/[^a-zA-Z0-9_-]/g, '_').toUpperCase()}`;
+      const auditPrefix = params.mode === 'approve_and_allocate' ? 'APPROVE_ALLOC' : 'ALLOC';
+      const auditNonce = Math.random().toString(36).slice(2, 7).toUpperCase();
+      const auditId = `${auditPrefix}_${Date.now()}_${auditNonce}_${abstractId
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .toUpperCase()}`;
       const auditRef = doc(db, 'adminAuditLogs', auditId);
       transaction.set(auditRef, {
         id: auditId,
         adminEmail,
-        action: hasExistingActive
-          ? 'CHANGE_PRESENTATION_ALLOCATION'
-          : 'CONFIRM_PRESENTATION_ALLOCATION',
+        action:
+          params.mode === 'approve_and_allocate'
+            ? 'APPROVE_AND_ALLOCATE_ABSTRACT'
+            : hasExistingActive
+            ? 'CHANGE_PRESENTATION_ALLOCATION'
+            : 'CONFIRM_PRESENTATION_ALLOCATION',
         targetId: abstractId,
-        details: hasExistingActive
-          ? `Changed official presentation allocation for ${abstractId} from ${previousCategory} (${previousAllocationId}, marked Superseded) to ${category} (${newAllocationId}).${
-              trimmedReason ? ` Reason: ${trimmedReason}` : ''
-            }`
-          : `Confirmed official presentation allocation for ${abstractId}: ${category} (${newAllocationId}). Submitted preference preserved as "${
-              absData.presentationPreference || absData.presentationType || 'Not Specified'
-            }".`,
+        details:
+          params.mode === 'approve_and_allocate'
+            ? `Approved abstract ${abstractId} and allocated ${category} (${newAllocationId}) in a single atomic transaction.`
+            : hasExistingActive
+            ? `Changed official presentation allocation for ${abstractId} from ${previousCategory} (${previousAllocationId}, marked Superseded) to ${category} (${newAllocationId}).${
+                trimmedReason ? ` Reason: ${trimmedReason}` : ''
+              }`
+            : `Confirmed official presentation allocation for ${abstractId}: ${category} (${newAllocationId}). Submitted preference preserved as "${
+                absData.presentationPreference || absData.presentationType || 'Not Specified'
+              }".`,
         timestamp,
       });
 
@@ -258,11 +355,11 @@ export async function confirmOfficialPresentationAllocation(
       return {
         allocationId: newAllocationId,
         category,
-        isCategoryChange: hasExistingActive,
+        isCategoryChange: params.mode === 'change_allocation' && hasExistingActive,
         previousAllocationId,
         previousCategory,
-        allocatedAt: timestamp,
-        allocatedBy: adminEmail,
+        timestamp,
+        adminEmail,
         updatedAbstract,
       };
     });
@@ -270,14 +367,77 @@ export async function confirmOfficialPresentationAllocation(
     if (
       error instanceof Error &&
       (error.message.includes('already has an Active allocation') ||
-        error.message.includes('cannot be allotted') ||
-        error.message.includes('could not be found'))
+        error.message.includes('already Approved') ||
+        error.message.includes('Duplicate approval is blocked') ||
+        error.message.includes('cannot be approved or allotted') ||
+        error.message.includes('must be approved via') ||
+        error.message.includes('could not be found') ||
+        error.message.includes('already in progress'))
     ) {
       throw error;
     }
     handleFirestoreError(error, OperationType.WRITE, `abstractSubmissions/${abstractId}`);
     throw error;
+  } finally {
+    inFlightAllocationAbstractIds.delete(abstractId);
   }
+}
+
+/**
+ * Unified atomic operation for Run 1:
+ * Approves an abstract (`status: 'Accepted'`), increments the selected category's sequential
+ * counter (`allocationCounterOral` / `allocationCounterPoster` / `allocationCounterEposter`),
+ * generates the Presentation ID (`AICONDD-OR-2027-xxx` / `AICONDD-POST-2027-xxx` / `AICONDD-EPOST-2027-xxx`),
+ * and persists both approval and active allocation together in one Firestore transaction.
+ */
+export async function approveAndAllocateAbstract(
+  params: ApproveAndAllocateParams
+): Promise<ApproveAndAllocateResult> {
+  const res = await executeUnifiedAllocationTransaction({
+    abstractId: params.abstractId,
+    category: params.category,
+    adminEmail: params.adminEmail,
+    mode: 'approve_and_allocate',
+    reviewNotes: params.reviewNotes,
+  });
+
+  return {
+    allocationId: res.allocationId,
+    category: res.category,
+    approvedAt: res.timestamp,
+    approvedBy: res.adminEmail,
+    allocatedAt: res.timestamp,
+    allocatedBy: res.adminEmail,
+    updatedAbstract: res.updatedAbstract,
+  };
+}
+
+/**
+ * Authorised administrative category correction for an already-approved abstract.
+ * Reuses the exact same Presentation ID generator & category counters, marks the previous
+ * Active allocation entry in `allocationHistory` as `Superseded`, and preserves the Original Abstract ID.
+ */
+export async function confirmOfficialPresentationAllocation(
+  params: ConfirmAllocationParams
+): Promise<ConfirmAllocationResult> {
+  const res = await executeUnifiedAllocationTransaction({
+    abstractId: params.abstractId,
+    category: params.category,
+    adminEmail: params.adminEmail,
+    mode: 'change_allocation',
+    changeReason: params.changeReason,
+  });
+
+  return {
+    allocationId: res.allocationId,
+    category: res.category,
+    isCategoryChange: res.isCategoryChange,
+    previousAllocationId: res.previousAllocationId,
+    previousCategory: res.previousCategory,
+    allocatedAt: res.timestamp,
+    allocatedBy: res.adminEmail,
+    updatedAbstract: res.updatedAbstract,
+  };
 }
 
 /**

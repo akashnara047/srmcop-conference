@@ -646,109 +646,132 @@ export function buildAbstractAcceptedEmail(abs: Record<string, unknown>): Confer
     presentingAuthor.fullName || presentingAuthor.name || 'Presenting Author'
   ).trim();
   const authorEmail = String(presentingAuthor.email || '').trim();
+  const institution = String(
+    presentingAuthor.affiliation || presentingAuthor.institution || ''
+  ).trim();
   const abstractId = String(abs.id || '').trim();
   const registrationId = String(abs.registrationId || '').trim();
   const title = String(abs.title || 'Untitled Abstract').trim();
   const trackTitle = resolveTrackTitle(abs.trackId);
 
-  // CRITICAL: Only include presentation category if explicitly allotted; never invent or fall back to author's preference
-  const allottedCategoryRaw =
-    typeof abs.allottedPresentationFormat === 'string' && abs.allottedPresentationFormat.trim()
+  const presentationId = String(abs.presentationAllocationId || '').trim();
+  const presentationCategory =
+    typeof abs.officialAllocationCategory === 'string' && abs.officialAllocationCategory.trim()
+      ? abs.officialAllocationCategory.trim()
+      : typeof abs.allottedPresentationFormat === 'string' && abs.allottedPresentationFormat.trim()
       ? abs.allottedPresentationFormat.trim()
       : typeof abs.finalPresentationFormat === 'string' && abs.finalPresentationFormat.trim()
       ? abs.finalPresentationFormat.trim()
       : '';
 
+  if (!presentationId || !presentationCategory) {
+    throw new Error(
+      `Consolidated acceptance email requires committed Presentation ID and Presentation Category for abstract ${abstractId || 'unknown'}.`
+    );
+  }
+
+  const acceptanceDate = formatDateReadable(
+    abs.reviewedAt || abs.allocationCreatedAt || abs.updatedAt
+  );
   const reviewNotes =
     typeof abs.reviewNotes === 'string' && abs.reviewNotes.trim() ? abs.reviewNotes.trim() : '';
 
-  const subject = 'SRMCON 2027 – Abstract Accepted';
+  const subject = `SRMCON 2027 – Abstract Accepted | Presentation Allocation Confirmed | ${presentationId}`;
 
   const detailsRows: Array<{ label: string; value: string; monospace?: boolean }> = [
     { label: 'Presenting Author', value: authorName },
-    { label: 'Abstract ID', value: abstractId, monospace: true },
-    { label: 'Linked Registration ID', value: registrationId, monospace: true },
+    ...(institution ? [{ label: 'Institution', value: institution }] : []),
+    { label: 'ABSTRACT ID', value: abstractId, monospace: true },
+    { label: 'PRESENTATION ID', value: presentationId, monospace: true },
+    { label: 'PRESENTATION CATEGORY', value: presentationCategory },
     { label: 'Abstract Title', value: title },
     { label: 'Scientific Track', value: trackTitle },
-    { label: 'Acceptance Status', value: 'Accepted' },
-  ];
-
-  if (allottedCategoryRaw) {
-    detailsRows.push({ label: 'Assigned Presentation Category', value: allottedCategoryRaw });
-  } else {
-    detailsRows.push({
-      label: 'Presentation Category',
-      value: 'Not yet assigned (will be communicated separately once allocated)',
-    });
-  }
-
-  detailsRows.push(
+    { label: 'Acceptance Date', value: acceptanceDate },
+    { label: 'Linked Registration ID', value: registrationId, monospace: true },
     { label: 'Conference Dates', value: CONFERENCE_DATES },
-    { label: 'Venue', value: CONFERENCE_VENUE }
-  );
+    {
+      label: 'Venue',
+      value: 'SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India',
+    },
+  ];
 
   if (reviewNotes) {
     detailsRows.push({ label: 'Committee Remarks', value: reviewNotes });
   }
 
   const htmlBody = wrapInstitutionalEmailLayout({
-    badgeText: 'Abstract Accepted',
+    badgeText: 'Abstract Accepted · Presentation Allocation Confirmed',
     badgeBg: '#d1fae5',
     badgeColor: '#065f46',
-    heading: 'Abstract Acceptance Notification',
+    heading: 'Abstract Acceptance & Presentation Allocation Confirmation',
     recipientName: authorName,
-    introParagraphHtml: `On behalf of the Scientific Review Committee of the <strong>${escapeHtml(
+    introParagraphHtml: `Greetings from SRMCON 2027.<br /><br />We are pleased to inform you that your abstract titled &ldquo;<strong>${escapeHtml(
+      title
+    )}</strong>&rdquo; has been <strong>accepted</strong> for presentation at the International Conference on &ldquo;<strong>${escapeHtml(
       CONFERENCE_TITLE
-    )} (${CONFERENCE_SHORT})</strong>, we are pleased to inform you that your submitted abstract has been officially <strong>ACCEPTED</strong> for presentation at the conference.<br /><br />Your official <strong>Abstract Acceptance Letter PDF</strong> is attached to this email for your records.`,
+    )}</strong>&rdquo;, scheduled for <strong>${escapeHtml(
+      CONFERENCE_DATES
+    )}</strong> at <strong>SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India</strong>.<br /><br />Your consolidated <strong>Abstract Acceptance and Presentation Allocation Confirmation PDF</strong> is attached to this email for your records.`,
     detailsRows,
-    nextStepsTitle: 'Important Next Steps',
+    nextStepsTitle: 'Important Instructions – Presentation ID vs. Abstract ID',
     nextStepsItemsHtml: [
-      `Please retain the attached <strong>Abstract Acceptance Letter PDF</strong> and quote your Abstract ID (<strong>${escapeHtml(
+      `<strong>Use Your Presentation ID (Not Abstract ID):</strong> Your allocated Presentation ID (<strong>${escapeHtml(
+        presentationId
+      )}</strong>) is strictly separate from your original Abstract ID (<strong>${escapeHtml(
         abstractId
-      )}</strong>) in all conference communications.`,
-      allottedCategoryRaw
-        ? `Your abstract has been allocated to <strong>${escapeHtml(
-            allottedCategoryRaw
-          )}</strong>. Please prepare your presentation in accordance with the official format guidelines and templates available on the conference website.`
-        : `Your final presentation category (Oral / Poster / E-Poster) is awaiting formal slot allocation and will be updated on the Abstract Portal once assigned.`,
-      `Session timings, hall allocations, and presentation schedules will be announced on the conference portal prior to <strong>${escapeHtml(
+      )}</strong>). Please use your <strong>Presentation ID</strong> (<strong>${escapeHtml(
+        presentationId
+      )}</strong>) when preparing and submitting your presentation materials and for all presentation-related correspondence.`,
+      `<strong>Do Not Enter Abstract ID in Presentation Fields:</strong> Always quote <strong>${escapeHtml(
+        presentationId
+      )}</strong> &mdash; do not enter your Abstract ID (<strong>${escapeHtml(
+        abstractId
+      )}</strong>) in any Presentation ID field.`,
+      `<strong>Allocated Category &amp; Guidelines:</strong> Your abstract is allocated to <strong>${escapeHtml(
+        presentationCategory
+      )}</strong>. Please prepare your slides/poster strictly in accordance with the official ${escapeHtml(
+        presentationCategory
+      )} guidelines and templates on the SRMCON 2027 website.`,
+      `<strong>Registration &amp; Schedule:</strong> Please retain the attached confirmation PDF and ensure your conference registration under Registration ID <strong>${escapeHtml(
+        registrationId
+      )}</strong> is verified. Session timings and hall allocations will be shared prior to <strong>${escapeHtml(
         CONFERENCE_DATES
       )}</strong>.`,
-      `Please ensure your conference registration fee payment under Registration ID <strong>${escapeHtml(
-        registrationId
-      )}</strong> is verified (if not already completed), and retain both your Registration ID and Abstract ID (<strong>${escapeHtml(
-        abstractId
-      )}</strong>) for certificate and check-in purposes.`,
     ],
+    closingNoteHtml:
+      '<strong>Organising Committee &middot; SRMCON 2027</strong><br />SRM College of Pharmacy, SRM Institute of Science and Technology (SRMIST)',
   });
 
   const textBody = [
     `Dear ${authorName},`,
     '',
-    `Congratulations! Your abstract submitted to ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}) has been ACCEPTED for presentation.`,
-    'Your official Abstract Acceptance Letter PDF is attached to this email.',
+    'Greetings from SRMCON 2027.',
     '',
-    `Abstract ID: ${abstractId}`,
-    `Linked Registration ID: ${registrationId}`,
-    `Abstract Title: ${title}`,
-    `Scientific Track: ${trackTitle}`,
-    'Acceptance Status: Accepted',
-    allottedCategoryRaw
-      ? `Assigned Presentation Category: ${allottedCategoryRaw}`
-      : 'Presentation Category: Not yet assigned (will be communicated separately once allocated)',
-    `Conference Dates: ${CONFERENCE_DATES}`,
-    `Venue: ${CONFERENCE_VENUE}`,
-    `Collaborating Institution: ${CONFERENCE_COLLABORATOR}`,
-    ...(reviewNotes ? [`Committee Remarks: ${reviewNotes}`] : []),
+    `We are pleased to inform you that your abstract titled "${title}" has been accepted for presentation at the International Conference on "${CONFERENCE_TITLE}", scheduled for ${CONFERENCE_DATES} at SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India.`,
     '',
-    'Next Steps:',
-    '- Retain the attached Abstract Acceptance Letter PDF for institutional and check-in reference.',
-    '- Check the Abstract Portal for presentation schedule updates and official template guidelines.',
-    `- Ensure your registration payment under ${registrationId} is verified if not already confirmed.`,
+    `ABSTRACT ID: ${abstractId}`,
+    `PRESENTATION ID: ${presentationId}`,
+    `PRESENTATION CATEGORY: ${presentationCategory}`,
+    ...(institution ? [`INSTITUTION: ${institution}`] : []),
+    `SCIENTIFIC TRACK: ${trackTitle}`,
+    `ACCEPTANCE DATE: ${acceptanceDate}`,
+    `LINKED REGISTRATION ID: ${registrationId}`,
+    ...(reviewNotes ? [`COMMITTEE REMARKS: ${reviewNotes}`] : []),
+    '',
+    'IMPORTANT INSTRUCTIONS:',
+    `- Your Presentation ID (${presentationId}) is separate from your original Abstract ID (${abstractId}).`,
+    `- Please use your Presentation ID (${presentationId}), NOT your Abstract ID (${abstractId}), when preparing and submitting your presentation materials and for all presentation-related correspondence.`,
+    '- Do not enter your Abstract ID in any Presentation ID field.',
+    `- Prepare your presentation in accordance with the official ${presentationCategory} guidelines and templates available on the SRMCON 2027 website.`,
+    '- Your Abstract Acceptance and Presentation Allocation Confirmation PDF is attached to this email.',
+    `- Ensure your conference registration under Registration ID ${registrationId} is verified if not already completed.`,
     '',
     'Warm regards,',
-    'Organising Secretariat – SRMCON 2027',
-    `SRM College of Pharmacy, SRMIST (${SECRETARIAT_EMAIL})`,
+    'Organising Committee',
+    'SRMCON 2027',
+    'SRM College of Pharmacy',
+    'SRM Institute of Science and Technology (SRMIST)',
+    `Secretariat Desk: ${SECRETARIAT_EMAIL}`,
   ].join('\n');
 
   return {
@@ -758,12 +781,15 @@ export function buildAbstractAcceptedEmail(abs: Record<string, unknown>): Confer
     structuredData: {
       authorName,
       email: authorEmail,
+      institution,
       abstractId,
+      presentationId,
+      presentationCategory,
       registrationId,
       abstractTitle: title,
       trackTitle,
+      acceptanceDate,
       status: 'Accepted',
-      presentationCategory: allottedCategoryRaw || null,
       conferenceTitle: CONFERENCE_TITLE,
       conferenceDates: CONFERENCE_DATES,
       venue: CONFERENCE_VENUE,

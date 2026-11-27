@@ -1,8 +1,18 @@
-import crypto from 'node:crypto';
-import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import path from 'node:path';
-import process from 'node:process';
+import {
+  REQUEST_TIMEOUT_MS,
+  applyRestrictedCors,
+  getAppsScriptConfig,
+  resolveEmailCcRecipient,
+  sanitizeErrorMessage,
+  sendJson,
+} from '../_lib/emailConfig.ts';
+import {
+  AUTHORIZED_ADMIN_EMAILS,
+  AuthVerificationError,
+  getFirestoreDocument,
+  verifyFirebaseAdminBearerToken,
+} from '../_lib/firebaseServerVerify.ts';
 
 export type EmailEventType =
   | 'registration_received'
@@ -36,18 +46,11 @@ interface SendEmailRequestBody {
   attachment?: unknown;
 }
 
-interface FirebaseAppletConfig {
-  projectId: string;
-  apiKey: string;
-  firestoreDatabaseId: string;
-}
-
 interface DispatchOutcome {
   statusCode: number;
   body: Record<string, unknown>;
 }
 
-const REQUEST_TIMEOUT_MS = 20000;
 const VALID_ID_REGEX = /^[a-zA-Z0-9_\-]{3,128}$/;
 const MAX_REQUEST_BYTES = 6 * 1024 * 1024; // 6 MB
 const MAX_ATTACHMENT_BASE64_LENGTH = 4 * 1024 * 1024; // ~3 MB decoded
@@ -60,22 +63,6 @@ const VALID_EVENT_TYPES = new Set<EmailEventType>([
   'abstract_acceptance',
 ]);
 
-const AUTHORIZED_ADMIN_EMAILS = [
-  'org.secy.cp@srmist.edu.in',
-  'dean.pharmacy.ktr@srmist.edu.in',
-  'akashnara047@gmail.com',
-  'narayanj@srmist.edu.in',
-] as const;
-
-const FALLBACK_PUBLIC_FIREBASE_CONFIG: FirebaseAppletConfig = {
-  projectId: 'gen-lang-client-0139223282',
-  apiKey: 'AIzaSyCSDgYedovE6H_AwRMnZtOzUB6b0lS8d7U',
-  firestoreDatabaseId: 'ai-studio-aipoweredinnovat-c4cbd29e-f0bf-43c3-b660-e5c2b8bf5afc',
-};
-
-const GOOGLE_CERTS_URL =
-  'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
-
 const CONFERENCE_TITLE =
   'International Conference on AI-Powered Innovations in Drug Discovery and Development';
 const CONFERENCE_SHORT = 'SRMCON 2027';
@@ -85,24 +72,7 @@ const CONFERENCE_VENUE =
   'SRM College of Pharmacy, SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India';
 const CONFERENCE_COLLABORATOR = 'INTI International University, Malaysia';
 const SECRETARIAT_EMAIL = 'org.secy.cp@srmist.edu.in';
-const DEFAULT_ORGANISING_SECRETARY_CC = SECRETARIAT_EMAIL;
 const CONVENOR_EMAIL = 'dean.pharmacy.ktr@srmist.edu.in';
-
-function getConfiguredEmailCcAddress(): string {
-  const configured = (process.env.EMAIL_CC_ADDRESS || DEFAULT_ORGANISING_SECRETARY_CC).trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configured)
-    ? configured
-    : DEFAULT_ORGANISING_SECRETARY_CC;
-}
-
-function resolveEmailCcRecipient(primaryRecipient: string): string | null {
-  const ccAddress = getConfiguredEmailCcAddress();
-  if (!ccAddress) return null;
-  if (primaryRecipient.trim().toLowerCase() === ccAddress.toLowerCase()) {
-    return null;
-  }
-  return ccAddress;
-}
 
 const TRACK_TITLES: Record<string, string> = {
   'track-01': 'Track 01: Pharmaceutical Technology & Pharmaceutics',
@@ -114,370 +84,12 @@ const TRACK_TITLES: Record<string, string> = {
   'track-07': 'Track 07: Regulatory Affairs & Pharmaceutical Quality Assurance',
 };
 
-let cachedFirebaseConfig: FirebaseAppletConfig | null = null;
-let certCache: { certs: Record<string, string>; expiresAtMs: number } | null = null;
 const inFlightDispatches = new Map<string, Promise<DispatchOutcome>>();
 const completedDispatches = new Map<
   string,
   { sentAt: string; recipient: string; cachedAt: number }
 >();
 
-// ---------------------------------------------------------------------------
-// Configuration & CORS / Response Helpers
-// ---------------------------------------------------------------------------
-function getFirebaseAppletConfig(): FirebaseAppletConfig {
-  if (cachedFirebaseConfig) {
-    return cachedFirebaseConfig;
-  }
-
-  const envProjectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
-  const envApiKey = (process.env.FIREBASE_API_KEY || '').trim();
-  const envDbId = (process.env.FIRESTORE_DATABASE_ID || '').trim();
-
-  if (envProjectId && envApiKey && envDbId) {
-    cachedFirebaseConfig = {
-      projectId: envProjectId,
-      apiKey: envApiKey,
-      firestoreDatabaseId: envDbId,
-    };
-    return cachedFirebaseConfig;
-  }
-
-  try {
-    const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-    const raw = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<FirebaseAppletConfig>;
-
-    if (parsed.projectId && parsed.apiKey && parsed.firestoreDatabaseId) {
-      cachedFirebaseConfig = {
-        projectId: parsed.projectId,
-        apiKey: parsed.apiKey,
-        firestoreDatabaseId: parsed.firestoreDatabaseId,
-      };
-      return cachedFirebaseConfig;
-    }
-  } catch {
-    // Use public project fallback when running inside bundled serverless functions
-  }
-
-  cachedFirebaseConfig = FALLBACK_PUBLIC_FIREBASE_CONFIG;
-  return cachedFirebaseConfig;
-}
-
-function getAllowedOrigins(req: IncomingMessage): Set<string> {
-  const allowed = new Set<string>();
-
-  const host = typeof req.headers.host === 'string' ? req.headers.host.trim() : '';
-  if (host) {
-    const isLocalHost =
-      host.startsWith('localhost:') ||
-      host.startsWith('127.0.0.1:') ||
-      host === 'localhost' ||
-      host === '127.0.0.1';
-    allowed.add(`${isLocalHost ? 'http' : 'https'}://${host}`);
-  }
-
-  const envCandidates = [
-    process.env.APP_URL,
-    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
-    process.env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : '',
-    ...(process.env.ALLOWED_ORIGINS || '').split(','),
-  ];
-
-  for (const candidate of envCandidates) {
-    const trimmed = (candidate || '').trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = new URL(trimmed);
-      allowed.add(parsed.origin);
-    } catch {
-      // Ignore malformed optional origin entries
-    }
-  }
-
-  return allowed;
-}
-
-function applyRestrictedCors(req: IncomingMessage, res: ServerResponse): boolean {
-  const requestOriginHeader =
-    typeof req.headers.origin === 'string' ? req.headers.origin.trim() : '';
-
-  if (!requestOriginHeader) {
-    return true;
-  }
-
-  const allowedOrigins = getAllowedOrigins(req);
-  if (!allowedOrigins.has(requestOriginHeader)) {
-    return false;
-  }
-
-  res.setHeader('Access-Control-Allow-Origin', requestOriginHeader);
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  return true;
-}
-
-function sendJson(res: ServerResponse, statusCode: number, body: Record<string, unknown>): void {
-  res.statusCode = statusCode;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.end(JSON.stringify(body));
-}
-
-function getAppsScriptConfig():
-  | { ok: true; url: string; secret: string }
-  | { ok: false; error: string } {
-  const appsScriptUrl = (process.env.GOOGLE_APPS_SCRIPT_URL || '').trim();
-  const appsScriptSecret = (process.env.GOOGLE_APPS_SCRIPT_SECRET || '').trim();
-
-  if (!appsScriptUrl || !appsScriptSecret) {
-    return {
-      ok: false,
-      error: 'Email service configuration is missing on the server.',
-    };
-  }
-
-  try {
-    const validatedUrl = new URL(appsScriptUrl);
-    if (validatedUrl.protocol !== 'https:') {
-      return {
-        ok: false,
-        error: 'Email service endpoint configuration is invalid.',
-      };
-    }
-    return {
-      ok: true,
-      url: validatedUrl.toString(),
-      secret: appsScriptSecret,
-    };
-  } catch {
-    return {
-      ok: false,
-      error: 'Email service endpoint configuration is invalid.',
-    };
-  }
-}
-
-function sanitizeErrorMessage(err: unknown, fallback: string): string {
-  const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : fallback;
-  const trimmed = (raw || fallback).trim();
-  if (!trimmed) return fallback;
-  const secret = (process.env.GOOGLE_APPS_SCRIPT_SECRET || '').trim();
-  const url = (process.env.GOOGLE_APPS_SCRIPT_URL || '').trim();
-  let safe = trimmed;
-  if (secret && safe.includes(secret)) {
-    safe = safe.split(secret).join('[REDACTED]');
-  }
-  if (url && safe.includes(url)) {
-    safe = safe.split(url).join('[REDACTED_URL]');
-  }
-  return safe.slice(0, 400);
-}
-
-// ---------------------------------------------------------------------------
-// Firebase Auth & Firestore REST Verification
-// ---------------------------------------------------------------------------
-function decodeBase64Url(input: string): Buffer {
-  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = normalized.length % 4;
-  const padded = pad ? normalized + '='.repeat(4 - pad) : normalized;
-  return Buffer.from(padded, 'base64');
-}
-
-async function getGoogleSecureTokenCerts(): Promise<Record<string, string>> {
-  const now = Date.now();
-  if (certCache && certCache.expiresAtMs > now) {
-    return certCache.certs;
-  }
-
-  const res = await fetch(GOOGLE_CERTS_URL, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch Google verification certificates (HTTP ${res.status}).`);
-  }
-
-  const certs = (await res.json()) as Record<string, string>;
-  const cacheControl = res.headers.get('cache-control') || '';
-  const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
-  const maxAgeSec = maxAgeMatch ? Number(maxAgeMatch[1]) : 3600;
-
-  certCache = {
-    certs,
-    expiresAtMs: now + Math.max(60, maxAgeSec) * 1000,
-  };
-  return certs;
-}
-
-interface FirestoreValue {
-  nullValue?: null;
-  booleanValue?: boolean;
-  integerValue?: string;
-  doubleValue?: number;
-  timestampValue?: string;
-  stringValue?: string;
-  bytesValue?: string;
-  referenceValue?: string;
-  mapValue?: { fields?: Record<string, FirestoreValue> };
-  arrayValue?: { values?: FirestoreValue[] };
-}
-
-function decodeFirestoreValue(val: FirestoreValue): unknown {
-  if ('nullValue' in val) return null;
-  if ('booleanValue' in val) return val.booleanValue;
-  if ('integerValue' in val) return Number(val.integerValue);
-  if ('doubleValue' in val) return val.doubleValue;
-  if ('timestampValue' in val) return val.timestampValue;
-  if ('stringValue' in val) return val.stringValue;
-  if ('bytesValue' in val) return val.bytesValue;
-  if ('referenceValue' in val) return val.referenceValue;
-  if ('arrayValue' in val) {
-    return (val.arrayValue?.values || []).map((item) => decodeFirestoreValue(item));
-  }
-  if ('mapValue' in val) {
-    const out: Record<string, unknown> = {};
-    const fields = val.mapValue?.fields || {};
-    for (const [k, v] of Object.entries(fields)) {
-      out[k] = decodeFirestoreValue(v);
-    }
-    return out;
-  }
-  return null;
-}
-
-async function getFirestoreDocument(
-  collectionName: string,
-  documentId: string,
-  bearerToken?: string
-): Promise<Record<string, unknown> | null> {
-  const { projectId, apiKey, firestoreDatabaseId } = getFirebaseAppletConfig();
-  const encodedCollection = encodeURIComponent(collectionName);
-  const encodedDocId = encodeURIComponent(documentId);
-
-  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
-    projectId
-  )}/databases/${encodeURIComponent(
-    firestoreDatabaseId
-  )}/documents/${encodedCollection}/${encodedDocId}?key=${encodeURIComponent(apiKey)}`;
-
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-  };
-  if (bearerToken) {
-    headers.Authorization = `Bearer ${bearerToken}`;
-  }
-
-  const res = await fetch(url, { method: 'GET', headers });
-
-  if (res.status === 404) {
-    return null;
-  }
-
-  if (!res.ok) {
-    throw new Error(
-      `Firestore read failed for ${collectionName}/${documentId} (HTTP ${res.status}).`
-    );
-  }
-
-  const raw = (await res.json()) as { fields?: Record<string, FirestoreValue> };
-  const result: Record<string, unknown> = { id: documentId };
-  if (raw.fields) {
-    for (const [key, value] of Object.entries(raw.fields)) {
-      result[key] = decodeFirestoreValue(value);
-    }
-  }
-  return result;
-}
-
-async function verifyFirebaseAdminBearerToken(
-  authHeader: string | undefined
-): Promise<{ uid: string; email: string }> {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Missing admin authorization token.');
-  }
-
-  const token = authHeader.slice('Bearer '.length).trim();
-  const segments = token.split('.');
-  if (segments.length !== 3) {
-    throw new Error('Malformed Firebase ID token.');
-  }
-
-  const [headerB64, payloadB64, sigB64] = segments;
-  const header = JSON.parse(decodeBase64Url(headerB64).toString('utf8')) as {
-    alg?: string;
-    kid?: string;
-  };
-  const payload = JSON.parse(decodeBase64Url(payloadB64).toString('utf8')) as {
-    aud?: string;
-    iss?: string;
-    sub?: string;
-    email?: string;
-    iat?: number;
-    exp?: number;
-  };
-
-  if (header.alg !== 'RS256' || !header.kid) {
-    throw new Error('Unsupported Firebase ID token signature algorithm.');
-  }
-
-  const { projectId } = getFirebaseAppletConfig();
-  const nowSec = Math.floor(Date.now() / 1000);
-
-  if (payload.aud !== projectId) {
-    throw new Error('Firebase ID token audience mismatch.');
-  }
-  if (payload.iss !== `https://securetoken.google.com/${projectId}`) {
-    throw new Error('Firebase ID token issuer mismatch.');
-  }
-  if (!payload.sub || typeof payload.sub !== 'string') {
-    throw new Error('Firebase ID token subject missing.');
-  }
-  if (typeof payload.exp !== 'number' || payload.exp <= nowSec) {
-    throw new Error('Firebase ID token has expired.');
-  }
-  if (typeof payload.iat === 'number' && payload.iat > nowSec + 300) {
-    throw new Error('Firebase ID token issued-at timestamp is invalid.');
-  }
-
-  const certs = await getGoogleSecureTokenCerts();
-  const certPem = certs[header.kid];
-  if (!certPem) {
-    throw new Error('Unable to match Firebase ID token signing key.');
-  }
-
-  const verifier = crypto.createVerify('RSA-SHA256');
-  verifier.update(`${headerB64}.${payloadB64}`);
-  verifier.end();
-
-  const signature = decodeBase64Url(sigB64);
-  if (!verifier.verify(certPem, signature)) {
-    throw new Error('Invalid Firebase ID token signature.');
-  }
-
-  const normalizedEmail = (payload.email || '').trim().toLowerCase();
-  if (!normalizedEmail) {
-    throw new Error('Authenticated account does not contain an email address.');
-  }
-
-  const isAllowlisted = (AUTHORIZED_ADMIN_EMAILS as readonly string[]).includes(normalizedEmail);
-  if (!isAllowlisted) {
-    const adminDoc = await getFirestoreDocument('admins', payload.sub, token);
-    if (!adminDoc) {
-      throw new Error('Account is not authorized to perform administrative email actions.');
-    }
-  }
-
-  return {
-    uid: payload.sub,
-    email: normalizedEmail,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Authoritative Institutional Email Templates
@@ -1086,108 +698,132 @@ function buildAbstractAcceptedEmail(abs: Record<string, unknown>): ConferenceEma
     presentingAuthor.fullName || presentingAuthor.name || 'Presenting Author'
   ).trim();
   const authorEmail = String(presentingAuthor.email || '').trim();
+  const institution = String(
+    presentingAuthor.affiliation || presentingAuthor.institution || ''
+  ).trim();
   const abstractId = String(abs.id || '').trim();
   const registrationId = String(abs.registrationId || '').trim();
   const title = String(abs.title || 'Untitled Abstract').trim();
   const trackTitle = resolveTrackTitle(abs.trackId);
 
-  const allottedCategoryRaw =
-    typeof abs.allottedPresentationFormat === 'string' && abs.allottedPresentationFormat.trim()
+  const presentationId = String(abs.presentationAllocationId || '').trim();
+  const presentationCategory =
+    typeof abs.officialAllocationCategory === 'string' && abs.officialAllocationCategory.trim()
+      ? abs.officialAllocationCategory.trim()
+      : typeof abs.allottedPresentationFormat === 'string' && abs.allottedPresentationFormat.trim()
       ? abs.allottedPresentationFormat.trim()
       : typeof abs.finalPresentationFormat === 'string' && abs.finalPresentationFormat.trim()
       ? abs.finalPresentationFormat.trim()
       : '';
 
+  if (!presentationId || !presentationCategory) {
+    throw new Error(
+      `Consolidated acceptance email requires committed Presentation ID and Presentation Category for abstract ${abstractId || 'unknown'}.`
+    );
+  }
+
+  const acceptanceDate = formatDateReadable(
+    abs.reviewedAt || abs.allocationCreatedAt || abs.updatedAt
+  );
   const reviewNotes =
     typeof abs.reviewNotes === 'string' && abs.reviewNotes.trim() ? abs.reviewNotes.trim() : '';
 
-  const subject = 'SRMCON 2027 – Abstract Accepted';
+  const subject = `SRMCON 2027 – Abstract Accepted | Presentation Allocation Confirmed | ${presentationId}`;
 
   const detailsRows: Array<{ label: string; value: string; monospace?: boolean }> = [
     { label: 'Presenting Author', value: authorName },
-    { label: 'Abstract ID', value: abstractId, monospace: true },
-    { label: 'Linked Registration ID', value: registrationId, monospace: true },
+    ...(institution ? [{ label: 'Institution', value: institution }] : []),
+    { label: 'ABSTRACT ID', value: abstractId, monospace: true },
+    { label: 'PRESENTATION ID', value: presentationId, monospace: true },
+    { label: 'PRESENTATION CATEGORY', value: presentationCategory },
     { label: 'Abstract Title', value: title },
     { label: 'Scientific Track', value: trackTitle },
-    { label: 'Acceptance Status', value: 'Accepted' },
-  ];
-
-  if (allottedCategoryRaw) {
-    detailsRows.push({ label: 'Assigned Presentation Category', value: allottedCategoryRaw });
-  } else {
-    detailsRows.push({
-      label: 'Presentation Category',
-      value: 'Not yet assigned (will be communicated separately once allocated)',
-    });
-  }
-
-  detailsRows.push(
+    { label: 'Acceptance Date', value: acceptanceDate },
+    { label: 'Linked Registration ID', value: registrationId, monospace: true },
     { label: 'Conference Dates', value: CONFERENCE_DATES },
-    { label: 'Venue', value: CONFERENCE_VENUE }
-  );
+    {
+      label: 'Venue',
+      value: 'SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India',
+    },
+  ];
 
   if (reviewNotes) {
     detailsRows.push({ label: 'Committee Remarks', value: reviewNotes });
   }
 
   const htmlBody = wrapInstitutionalEmailLayout({
-    badgeText: 'Abstract Accepted',
+    badgeText: 'Abstract Accepted · Presentation Allocation Confirmed',
     badgeBg: '#d1fae5',
     badgeColor: '#065f46',
-    heading: 'Abstract Acceptance Notification',
+    heading: 'Abstract Acceptance & Presentation Allocation Confirmation',
     recipientName: authorName,
-    introParagraphHtml: `On behalf of the Scientific Review Committee of the <strong>${escapeHtml(
+    introParagraphHtml: `Greetings from SRMCON 2027.<br /><br />We are pleased to inform you that your abstract titled &ldquo;<strong>${escapeHtml(
+      title
+    )}</strong>&rdquo; has been <strong>accepted</strong> for presentation at the International Conference on &ldquo;<strong>${escapeHtml(
       CONFERENCE_TITLE
-    )} (${CONFERENCE_SHORT})</strong>, we are pleased to inform you that your submitted abstract has been officially <strong>ACCEPTED</strong> for presentation at the conference.<br /><br />Your official <strong>Abstract Acceptance Letter PDF</strong> is attached to this email for your records.`,
+    )}</strong>&rdquo;, scheduled for <strong>${escapeHtml(
+      CONFERENCE_DATES
+    )}</strong> at <strong>SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India</strong>.<br /><br />Your consolidated <strong>Abstract Acceptance and Presentation Allocation Confirmation PDF</strong> is attached to this email for your records.`,
     detailsRows,
-    nextStepsTitle: 'Important Next Steps',
+    nextStepsTitle: 'Important Instructions – Presentation ID vs. Abstract ID',
     nextStepsItemsHtml: [
-      `Please retain the attached <strong>Abstract Acceptance Letter PDF</strong> and quote your Abstract ID (<strong>${escapeHtml(
+      `<strong>Use Your Presentation ID (Not Abstract ID):</strong> Your allocated Presentation ID (<strong>${escapeHtml(
+        presentationId
+      )}</strong>) is strictly separate from your original Abstract ID (<strong>${escapeHtml(
         abstractId
-      )}</strong>) in all conference communications.`,
-      allottedCategoryRaw
-        ? `Your abstract has been allocated to <strong>${escapeHtml(
-            allottedCategoryRaw
-          )}</strong>. Please prepare your presentation in accordance with the official format guidelines and templates available on the conference website.`
-        : `Your final presentation category (Oral / Poster / E-Poster) is awaiting formal slot allocation and will be updated on the Abstract Portal once assigned.`,
-      `Session timings, hall allocations, and presentation schedules will be announced on the conference portal prior to <strong>${escapeHtml(
+      )}</strong>). Please use your <strong>Presentation ID</strong> (<strong>${escapeHtml(
+        presentationId
+      )}</strong>) when preparing and submitting your presentation materials and for all presentation-related correspondence.`,
+      `<strong>Do Not Enter Abstract ID in Presentation Fields:</strong> Always quote <strong>${escapeHtml(
+        presentationId
+      )}</strong> &mdash; do not enter your Abstract ID (<strong>${escapeHtml(
+        abstractId
+      )}</strong>) in any Presentation ID field.`,
+      `<strong>Allocated Category &amp; Guidelines:</strong> Your abstract is allocated to <strong>${escapeHtml(
+        presentationCategory
+      )}</strong>. Please prepare your slides/poster strictly in accordance with the official ${escapeHtml(
+        presentationCategory
+      )} guidelines and templates on the SRMCON 2027 website.`,
+      `<strong>Registration &amp; Schedule:</strong> Please retain the attached confirmation PDF and ensure your conference registration under Registration ID <strong>${escapeHtml(
+        registrationId
+      )}</strong> is verified. Session timings and hall allocations will be shared prior to <strong>${escapeHtml(
         CONFERENCE_DATES
       )}</strong>.`,
-      `Please ensure your conference registration fee payment under Registration ID <strong>${escapeHtml(
-        registrationId
-      )}</strong> is verified (if not already completed), and retain both your Registration ID and Abstract ID (<strong>${escapeHtml(
-        abstractId
-      )}</strong>) for certificate and check-in purposes.`,
     ],
+    closingNoteHtml:
+      '<strong>Organising Committee &middot; SRMCON 2027</strong><br />SRM College of Pharmacy, SRM Institute of Science and Technology (SRMIST)',
   });
 
   const textBody = [
     `Dear ${authorName},`,
     '',
-    `Congratulations! Your abstract submitted to ${CONFERENCE_TITLE} (${CONFERENCE_SHORT}) has been ACCEPTED for presentation.`,
-    'Your official Abstract Acceptance Letter PDF is attached to this email.',
+    'Greetings from SRMCON 2027.',
     '',
-    `Abstract ID: ${abstractId}`,
-    `Linked Registration ID: ${registrationId}`,
-    `Abstract Title: ${title}`,
-    `Scientific Track: ${trackTitle}`,
-    'Acceptance Status: Accepted',
-    allottedCategoryRaw
-      ? `Assigned Presentation Category: ${allottedCategoryRaw}`
-      : 'Presentation Category: Not yet assigned (will be communicated separately once allocated)',
-    `Conference Dates: ${CONFERENCE_DATES}`,
-    `Venue: ${CONFERENCE_VENUE}`,
-    `Collaborating Institution: ${CONFERENCE_COLLABORATOR}`,
-    ...(reviewNotes ? [`Committee Remarks: ${reviewNotes}`] : []),
+    `We are pleased to inform you that your abstract titled "${title}" has been accepted for presentation at the International Conference on "${CONFERENCE_TITLE}", scheduled for ${CONFERENCE_DATES} at SRM Institute of Science and Technology (SRMIST), Kattankulathur, Tamil Nadu, India.`,
     '',
-    'Next Steps:',
-    '- Retain the attached Abstract Acceptance Letter PDF for institutional and check-in reference.',
-    '- Check the Abstract Portal for presentation schedule updates and official template guidelines.',
-    `- Ensure your registration payment under ${registrationId} is verified if not already confirmed.`,
+    `ABSTRACT ID: ${abstractId}`,
+    `PRESENTATION ID: ${presentationId}`,
+    `PRESENTATION CATEGORY: ${presentationCategory}`,
+    ...(institution ? [`INSTITUTION: ${institution}`] : []),
+    `SCIENTIFIC TRACK: ${trackTitle}`,
+    `ACCEPTANCE DATE: ${acceptanceDate}`,
+    `LINKED REGISTRATION ID: ${registrationId}`,
+    ...(reviewNotes ? [`COMMITTEE REMARKS: ${reviewNotes}`] : []),
+    '',
+    'IMPORTANT INSTRUCTIONS:',
+    `- Your Presentation ID (${presentationId}) is separate from your original Abstract ID (${abstractId}).`,
+    `- Please use your Presentation ID (${presentationId}), NOT your Abstract ID (${abstractId}), when preparing and submitting your presentation materials and for all presentation-related correspondence.`,
+    '- Do not enter your Abstract ID in any Presentation ID field.',
+    `- Prepare your presentation in accordance with the official ${presentationCategory} guidelines and templates available on the SRMCON 2027 website.`,
+    '- Your Abstract Acceptance and Presentation Allocation Confirmation PDF is attached to this email.',
+    `- Ensure your conference registration under Registration ID ${registrationId} is verified if not already completed.`,
     '',
     'Warm regards,',
-    'Organising Secretariat – SRMCON 2027',
-    `SRM College of Pharmacy, SRMIST (${SECRETARIAT_EMAIL})`,
+    'Organising Committee',
+    'SRMCON 2027',
+    'SRM College of Pharmacy',
+    'SRM Institute of Science and Technology (SRMIST)',
+    `Secretariat Desk: ${SECRETARIAT_EMAIL}`,
   ].join('\n');
 
   return {
@@ -1197,12 +833,15 @@ function buildAbstractAcceptedEmail(abs: Record<string, unknown>): ConferenceEma
     structuredData: {
       authorName,
       email: authorEmail,
+      institution,
       abstractId,
+      presentationId,
+      presentationCategory,
       registrationId,
       abstractTitle: title,
       trackTitle,
+      acceptanceDate,
       status: 'Accepted',
-      presentationCategory: allottedCategoryRaw || null,
       conferenceTitle: CONFERENCE_TITLE,
       conferenceDates: CONFERENCE_DATES,
       venue: CONFERENCE_VENUE,
@@ -1267,6 +906,10 @@ async function readJsonBody(req: IncomingMessage): Promise<SendEmailRequestBody>
     req.on('error', (err) => {
       reject(err);
     });
+
+    if (typeof req.resume === 'function') {
+      req.resume();
+    }
   });
 }
 
@@ -1329,13 +972,13 @@ async function generateServerTestPdfAttachment(
   const titleByEvent: Record<Exclude<EmailEventType, 'registration_received'>, string> = {
     registration_confirmation: 'REGISTRATION CONFIRMATION (DIAGNOSTIC TEST)',
     abstract_confirmation: 'ABSTRACT SUBMISSION ACKNOWLEDGEMENT (DIAGNOSTIC TEST)',
-    abstract_acceptance: 'ABSTRACT ACCEPTANCE LETTER (DIAGNOSTIC TEST)',
+    abstract_acceptance: 'ABSTRACT ACCEPTANCE & PRESENTATION ALLOCATION (DIAGNOSTIC TEST)',
   };
 
   const filenameByEvent: Record<Exclude<EmailEventType, 'registration_received'>, string> = {
     registration_confirmation: 'AICONDD-TEST_Registration_Confirmation.pdf',
     abstract_confirmation: 'AICONDD-ABS-TEST_Abstract_Submission_Acknowledgement.pdf',
-    abstract_acceptance: 'Acceptance_Letter_AICONDD-ABS-TEST.pdf',
+    abstract_acceptance: 'SRMCON2027_Acceptance_AICONDD-ABS-TEST_AICONDD-OR-2027-TEST.pdf',
   };
 
   doc.setFillColor(11, 22, 72);
@@ -1680,10 +1323,42 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
+  const authHeader =
+    typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined;
+  let adminBearerToken: string | undefined;
+  let verifiedAdminEmail: string | undefined;
+
+  // Enforce Bearer authentication BEFORE body/schema validation whenever an Authorization
+  // header is supplied, returning 401 for missing/invalid tokens and 403 for non-admin tokens.
+  if (authHeader !== undefined) {
+    if (typeof req.pause === 'function') {
+      req.pause();
+    }
+    try {
+      const verified = await verifyFirebaseAdminBearerToken(authHeader);
+      adminBearerToken = authHeader.slice('Bearer '.length).trim();
+      verifiedAdminEmail = verified.email;
+    } catch (err) {
+      const authStatusCode = err instanceof AuthVerificationError ? err.statusCode : 401;
+      sendJson(res, authStatusCode, {
+        success: false,
+        error: sanitizeErrorMessage(err, 'Unauthorized administrative email request.'),
+      });
+      return;
+    }
+  }
+
   let body: SendEmailRequestBody;
   try {
     body = await readJsonBody(req);
   } catch (err) {
+    if (authHeader === undefined) {
+      sendJson(res, 401, {
+        success: false,
+        error: 'Missing admin authorization token.',
+      });
+      return;
+    }
     sendJson(res, 400, {
       success: false,
       error: sanitizeErrorMessage(err, 'Invalid JSON request payload.'),
@@ -1691,8 +1366,25 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const eventType =
-    typeof body.eventType === 'string' ? (body.eventType.trim() as EmailEventType) : null;
+  const rawEventType =
+    typeof body.eventType === 'string' ? body.eventType.trim() : '';
+  const isUnauthenticatedPublicAllowed =
+    (rawEventType === 'registration_received' || rawEventType === 'abstract_confirmation') &&
+    body.testMode !== true &&
+    body.isAdminRetry !== true;
+
+  // Unauthenticated callers may ONLY invoke public participant events (Events 1 & 3);
+  // all other requests (admin events, testMode, retries, missing/unknown eventType) must
+  // fail with 401 BEFORE field/schema validation runs.
+  if (authHeader === undefined && !isUnauthenticatedPublicAllowed) {
+    sendJson(res, 401, {
+      success: false,
+      error: 'Missing admin authorization token.',
+    });
+    return;
+  }
+
+  const eventType = rawEventType as EmailEventType;
   if (!eventType || !VALID_EVENT_TYPES.has(eventType)) {
     sendJson(res, 400, {
       success: false,
@@ -1711,39 +1403,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   const isTestMode = body.testMode === true;
-  const isAdminEvent =
-    isTestMode ||
-    eventType === 'registration_confirmation' ||
-    eventType === 'abstract_acceptance' ||
-    body.isAdminRetry === true;
-
-  const authHeader =
-    typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined;
-  let adminBearerToken: string | undefined;
-  let verifiedAdminEmail: string | undefined;
-
-  if (isAdminEvent) {
-    try {
-      const verified = await verifyFirebaseAdminBearerToken(authHeader);
-      adminBearerToken = authHeader!.slice('Bearer '.length).trim();
-      verifiedAdminEmail = verified.email;
-    } catch (err) {
-      sendJson(res, 401, {
-        success: false,
-        eventId,
-        error: sanitizeErrorMessage(err, 'Unauthorized administrative email request.'),
-      });
-      return;
-    }
-  } else if (authHeader && authHeader.startsWith('Bearer ')) {
-    try {
-      const verified = await verifyFirebaseAdminBearerToken(authHeader);
-      adminBearerToken = authHeader.slice('Bearer '.length).trim();
-      verifiedAdminEmail = verified.email;
-    } catch {
-      adminBearerToken = undefined;
-    }
-  }
 
   let validatedAttachment: PdfAttachmentPayload | null = null;
   try {
@@ -1766,7 +1425,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const attachmentLabels: Record<Exclude<EmailEventType, 'registration_received'>, string> = {
       registration_confirmation: 'official Registration Confirmation PDF',
       abstract_confirmation: 'Abstract Submission Acknowledgement PDF',
-      abstract_acceptance: 'official Abstract Acceptance Letter PDF',
+      abstract_acceptance:
+        'official consolidated Abstract Acceptance & Presentation Allocation Confirmation PDF',
     };
     sendJson(res, 400, {
       success: false,
@@ -1860,10 +1520,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         registrationId: 'AICONDD-TEST',
         title: 'SRMCON 2027 Email Pipeline Diagnostic Verification',
         trackId: 'track-03',
+        presentationAllocationId: 'AICONDD-OR-2027-TEST',
+        officialAllocationCategory: 'Oral Presentation',
         allottedPresentationFormat: 'Oral Presentation',
+        reviewedAt: new Date().toISOString(),
         presentingAuthor: {
           fullName: 'SRMCON Secretariat Diagnostic Test',
           email: candidateRecipient,
+          affiliation: 'SRM College of Pharmacy, SRMIST',
         },
       });
     }
@@ -2024,6 +1688,22 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             success: false,
             eventId,
             error: 'Abstract acceptance email can only be sent when abstract status is Accepted.',
+          });
+          return;
+        }
+        const committedPresentationId = String(absDoc.presentationAllocationId || '').trim();
+        const committedCategory = String(
+          absDoc.officialAllocationCategory ||
+            absDoc.allottedPresentationFormat ||
+            absDoc.finalPresentationFormat ||
+            ''
+        ).trim();
+        if (!committedPresentationId || !committedCategory) {
+          sendJson(res, 409, {
+            success: false,
+            eventId,
+            error:
+              'Consolidated acceptance email requires an allocated Presentation ID and Presentation Category.',
           });
           return;
         }

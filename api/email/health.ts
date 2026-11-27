@@ -1,61 +1,26 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import process from 'node:process';
+import {
+  applyRestrictedCors,
+  getAppsScriptConfig,
+  sendJson,
+} from '../_lib/emailConfig.ts';
 
-interface HealthResponseBody {
+interface HealthResponseBody extends Record<string, unknown> {
   success: boolean;
   service?: string;
   version?: string;
   attachmentSupported?: boolean;
+  presentationAllocationSupported?: boolean;
+  supportedActions?: string[];
   defaultCcEmail?: string;
   remainingQuota?: number;
+  telemetryComplete?: boolean;
+  telemetryWarnings?: string[];
   error?: string;
 }
 
 const REQUEST_TIMEOUT_MS = 15000;
-
-function getAllowedOrigins(req: IncomingMessage): Set<string> {
-  const allowed = new Set<string>();
-
-  const host = typeof req.headers.host === 'string' ? req.headers.host.trim() : '';
-  if (host) {
-    const isLocalHost =
-      host.startsWith('localhost:') ||
-      host.startsWith('127.0.0.1:') ||
-      host === 'localhost' ||
-      host === '127.0.0.1';
-    allowed.add(`${isLocalHost ? 'http' : 'https'}://${host}`);
-  }
-
-  const envCandidates = [
-    process.env.APP_URL,
-    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
-    process.env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : '',
-    ...(process.env.ALLOWED_ORIGINS || '').split(','),
-  ];
-
-  for (const candidate of envCandidates) {
-    const trimmed = (candidate || '').trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = new URL(trimmed);
-      allowed.add(parsed.origin);
-    } catch {
-      // Ignore malformed optional origin entries
-    }
-  }
-
-  return allowed;
-}
-
-function sendJson(res: ServerResponse, statusCode: number, body: HealthResponseBody): void {
-  res.statusCode = statusCode;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.end(JSON.stringify(body));
-}
+const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function extractQuotaNumber(payload: Record<string, unknown>): number | null {
   const raw =
@@ -86,24 +51,108 @@ function isAppsScriptAuthFailure(payload: Record<string, unknown>, statusCode: n
   );
 }
 
+interface ParsedAppsScriptTelemetry {
+  version?: string;
+  attachmentSupported?: boolean;
+  presentationAllocationSupported?: boolean;
+  supportedActions?: string[];
+  defaultCcEmail?: string;
+  telemetryComplete: boolean;
+  telemetryWarnings: string[];
+}
+
+export function extractValidatedHealthTelemetry(
+  payload: Record<string, unknown>
+): ParsedAppsScriptTelemetry {
+  const telemetryWarnings: string[] = [];
+
+  let version: string | undefined;
+  if (typeof payload.version === 'string' && payload.version.trim().length > 0) {
+    version = payload.version.trim();
+  } else {
+    telemetryWarnings.push(
+      payload.version === undefined
+        ? "Apps Script response omitted 'version' telemetry."
+        : "Apps Script response returned an invalid 'version' value."
+    );
+  }
+
+  let attachmentSupported: boolean | undefined;
+  if (typeof payload.attachmentSupported === 'boolean') {
+    attachmentSupported = payload.attachmentSupported;
+  } else {
+    telemetryWarnings.push(
+      payload.attachmentSupported === undefined
+        ? "Apps Script response omitted 'attachmentSupported' capability flag."
+        : "Apps Script response returned a non-boolean 'attachmentSupported' value."
+    );
+  }
+
+  let presentationAllocationSupported: boolean | undefined;
+  if (typeof payload.presentationAllocationSupported === 'boolean') {
+    presentationAllocationSupported = payload.presentationAllocationSupported;
+  } else {
+    telemetryWarnings.push(
+      payload.presentationAllocationSupported === undefined
+        ? "Apps Script response omitted 'presentationAllocationSupported' capability flag."
+        : "Apps Script response returned a non-boolean 'presentationAllocationSupported' value."
+    );
+  }
+
+  let supportedActions: string[] | undefined;
+  if (
+    Array.isArray(payload.supportedActions) &&
+    payload.supportedActions.length > 0 &&
+    payload.supportedActions.every(
+      (item): item is string => typeof item === 'string' && item.trim().length > 0
+    )
+  ) {
+    supportedActions = Array.from(
+      new Set(payload.supportedActions.map((item) => item.trim()))
+    );
+  } else {
+    telemetryWarnings.push(
+      payload.supportedActions === undefined
+        ? "Apps Script response omitted 'supportedActions' telemetry."
+        : "Apps Script response returned an invalid 'supportedActions' list."
+    );
+  }
+
+  let defaultCcEmail: string | undefined;
+  if (
+    typeof payload.defaultCcEmail === 'string' &&
+    SIMPLE_EMAIL_REGEX.test(payload.defaultCcEmail.trim())
+  ) {
+    defaultCcEmail = payload.defaultCcEmail.trim();
+  } else {
+    telemetryWarnings.push(
+      payload.defaultCcEmail === undefined
+        ? "Apps Script response omitted 'defaultCcEmail' telemetry."
+        : "Apps Script response returned an invalid 'defaultCcEmail' address."
+    );
+  }
+
+  return {
+    ...(version !== undefined ? { version } : {}),
+    ...(attachmentSupported !== undefined ? { attachmentSupported } : {}),
+    ...(presentationAllocationSupported !== undefined
+      ? { presentationAllocationSupported }
+      : {}),
+    ...(supportedActions !== undefined ? { supportedActions } : {}),
+    ...(defaultCcEmail !== undefined ? { defaultCcEmail } : {}),
+    telemetryComplete: telemetryWarnings.length === 0,
+    telemetryWarnings,
+  };
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // Restrict CORS strictly to same-origin / configured deployment origins (no wildcard '*')
-  const requestOriginHeader =
-    typeof req.headers.origin === 'string' ? req.headers.origin.trim() : '';
-
-  if (requestOriginHeader) {
-    const allowedOrigins = getAllowedOrigins(req);
-    if (!allowedOrigins.has(requestOriginHeader)) {
-      sendJson(res, 403, {
-        success: false,
-        error: 'Origin not allowed.',
-      });
-      return;
-    }
-    res.setHeader('Access-Control-Allow-Origin', requestOriginHeader);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'POST');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (!applyRestrictedCors(req, res)) {
+    sendJson(res, 403, {
+      success: false,
+      error: 'Origin not allowed.',
+    });
+    return;
   }
 
   // Handle CORS preflight cleanly
@@ -123,30 +172,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  // Read required server-side environment variables (never expose to client or logs)
-  const appsScriptUrl = (process.env.GOOGLE_APPS_SCRIPT_URL || '').trim();
-  const appsScriptSecret = (process.env.GOOGLE_APPS_SCRIPT_SECRET || '').trim();
-
-  if (!appsScriptUrl || !appsScriptSecret) {
-    console.error('[api/email/health] Missing required server email environment configuration.');
+  const appsScriptConfig = getAppsScriptConfig();
+  if (!appsScriptConfig.ok) {
+    console.error('[api/email/health] Missing or invalid server email environment configuration.');
     sendJson(res, 500, {
       success: false,
-      error: 'Email service configuration is missing on the server.',
-    });
-    return;
-  }
-
-  let validatedUrl: URL;
-  try {
-    validatedUrl = new URL(appsScriptUrl);
-    if (validatedUrl.protocol !== 'https:') {
-      throw new Error('Unsupported protocol');
-    }
-  } catch {
-    console.error('[api/email/health] Invalid email service endpoint URL format.');
-    sendJson(res, 500, {
-      success: false,
-      error: 'Email service endpoint configuration is invalid.',
+      error: appsScriptConfig.error,
     });
     return;
   }
@@ -156,14 +187,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   try {
     // Strictly send only the "health" action — this endpoint must never trigger email delivery
-    const upstreamResponse = await fetch(validatedUrl.toString(), {
+    const upstreamResponse = await fetch(appsScriptConfig.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        token: appsScriptSecret,
+        token: appsScriptConfig.secret,
         action: 'health',
       }),
       redirect: 'follow',
@@ -235,29 +266,32 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         ? parsedPayload.service.trim()
         : 'SRMCOP Conference Email Service';
 
-    const scriptVersion =
-      typeof parsedPayload.version === 'string' && parsedPayload.version.trim()
-        ? parsedPayload.version.trim()
-        : undefined;
+    const telemetry = extractValidatedHealthTelemetry(parsedPayload);
 
-    const attachmentSupported =
-      typeof parsedPayload.attachmentSupported === 'boolean'
-        ? parsedPayload.attachmentSupported
-        : undefined;
-
-    const defaultCcEmail =
-      typeof parsedPayload.defaultCcEmail === 'string' && parsedPayload.defaultCcEmail.trim()
-        ? parsedPayload.defaultCcEmail.trim()
-        : undefined;
-
-    sendJson(res, 200, {
+    const responseBody: HealthResponseBody = {
       success: true,
       service: serviceName,
-      ...(scriptVersion ? { version: scriptVersion } : {}),
-      ...(attachmentSupported !== undefined ? { attachmentSupported } : {}),
-      ...(defaultCcEmail ? { defaultCcEmail } : {}),
+      ...(telemetry.version !== undefined ? { version: telemetry.version } : {}),
+      ...(telemetry.attachmentSupported !== undefined
+        ? { attachmentSupported: telemetry.attachmentSupported }
+        : {}),
+      ...(telemetry.presentationAllocationSupported !== undefined
+        ? { presentationAllocationSupported: telemetry.presentationAllocationSupported }
+        : {}),
+      ...(telemetry.supportedActions !== undefined
+        ? { supportedActions: telemetry.supportedActions }
+        : {}),
+      ...(telemetry.defaultCcEmail !== undefined
+        ? { defaultCcEmail: telemetry.defaultCcEmail }
+        : {}),
       remainingQuota,
-    });
+      telemetryComplete: telemetry.telemetryComplete,
+      ...(telemetry.telemetryWarnings.length > 0
+        ? { telemetryWarnings: telemetry.telemetryWarnings }
+        : {}),
+    };
+
+    sendJson(res, 200, responseBody);
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') {
       console.error('[api/email/health] Request to Google Apps Script timed out.');

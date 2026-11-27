@@ -35,7 +35,13 @@ const getRouteStateFromLocation = (): { tab: string; isAdmin: boolean } => {
   const path = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
   const hash = window.location.hash.toLowerCase();
 
-  if (hash === '#admin' || path === '/admin/login' || path === '/admin') {
+  if (
+    hash === '#admin' ||
+    hash.startsWith('#admin/') ||
+    path === '/admin/login' ||
+    path === '/admin' ||
+    path.startsWith('/admin/')
+  ) {
     return { tab: 'home', isAdmin: true };
   }
 

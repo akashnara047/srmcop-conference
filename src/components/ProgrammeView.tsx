@@ -47,7 +47,7 @@ const DAY_1_MAIN_FORENOON_SESSIONS: ScientificSession[] = [
   {
     sessionNumber: 'Session I',
     speaker: 'Dr. Geetha Subramaniam',
-    title: 'To be confirmed',
+    title: 'From Algorithm to Bedside – How AI is rewiring drug discovery and development',
     format: 'Offline',
   },
   {
@@ -62,7 +62,7 @@ const DAY_1_MINI_HALL_1_AFTERNOON_SESSIONS: ScientificSession[] = [
   {
     sessionNumber: 'Session III',
     speaker: 'Maitri Sanghavi, M.S.',
-    title: 'To be confirmed',
+    title: 'Role of MIDD to accelerate the drug development process and regulatory approvals',
     format: 'Offline',
   },
   {

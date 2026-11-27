@@ -55,7 +55,6 @@ import {
   Presentation,
   Monitor,
   RotateCcw,
-  Building2,
   Database,
   Utensils,
   Columns,
@@ -70,7 +69,6 @@ import {
   type BulkConfirmModalConfig,
   type PageSizeOption,
 } from './DashboardTableControls';
-import { AdminHospitalityManager } from './AdminHospitalityManager';
 import { AdminBackupManager } from './AdminBackupManager';
 import {
   DuplicateComparisonModal,
@@ -187,7 +185,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     | 'abstracts'
     | 'search'
     | 'reports'
-    | 'hospitality'
     | 'backup'
     | 'settings';
 
@@ -426,6 +423,46 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
     return () => {
       active = false;
       unsub();
+    };
+  }, []);
+
+  // Block direct navigation or manual URL routes targeting removed Accommodation Management
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const enforceAllowedDashboardRoute = () => {
+      const path = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+      const hash = window.location.hash.toLowerCase();
+      const searchParams = new URLSearchParams(window.location.search);
+      const tabParam = (searchParams.get('tab') || '').trim().toLowerCase();
+
+      const targetsRemovedAccommodationRoute =
+        path === '/admin/hospitality' ||
+        path === '/admin/accommodation' ||
+        path === '/admin/accommodations' ||
+        hash === '#admin/hospitality' ||
+        hash === '#admin/accommodation' ||
+        hash === '#admin/accommodations' ||
+        tabParam === 'hospitality' ||
+        tabParam === 'accommodation' ||
+        tabParam === 'accommodations';
+
+      if (targetsRemovedAccommodationRoute) {
+        setActiveTab('overview');
+        try {
+          window.history.replaceState(null, '', '/admin');
+        } catch {
+          // Ignore history errors in restricted environments
+        }
+      }
+    };
+
+    enforceAllowedDashboardRoute();
+    window.addEventListener('hashchange', enforceAllowedDashboardRoute);
+    window.addEventListener('popstate', enforceAllowedDashboardRoute);
+    return () => {
+      window.removeEventListener('hashchange', enforceAllowedDashboardRoute);
+      window.removeEventListener('popstate', enforceAllowedDashboardRoute);
     };
   }, []);
 
@@ -2614,7 +2651,6 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
               { id: 'abstracts', label: 'Abstract Management', icon: FileText, badge: underReviewAbs > 0 ? `${underReviewAbs}` : null },
               { id: 'search', label: 'Participant Search', icon: Search },
               { id: 'reports', label: 'Reports & Excel Export', icon: FileSpreadsheet },
-              { id: 'hospitality', label: 'Accommodation', icon: Building2 },
               { id: 'backup', label: 'Database Backup & Recovery', icon: Database },
               { id: 'settings', label: 'Account Settings', icon: Settings },
             ].map((tab) => {
@@ -6263,18 +6299,7 @@ export const AdminPortal: React.FC<{ onExit: () => void }> = ({ onExit }) => {
           )}
 
           {/* ================================================================= */}
-          {/* MODULE 6: ACCOMMODATION MANAGEMENT */}
-          {/* ================================================================= */}
-          {activeTab === 'hospitality' && (
-            <AdminHospitalityManager
-              adminEmail={user?.email || 'org.secy.cp@srmist.edu.in'}
-              onStatusMessage={(msg) => setActionSuccessMsg(msg)}
-              allowPlacesToVisitManagement={false}
-            />
-          )}
-
-          {/* ================================================================= */}
-          {/* MODULE 7: DATABASE BACKUP & RECOVERY */}
+          {/* MODULE 6: DATABASE BACKUP & RECOVERY */}
           {/* ================================================================= */}
           {activeTab === 'backup' && (
             <AdminBackupManager

@@ -56,7 +56,9 @@ const INVITED_SPEAKERS_DATA: InvitedSpeakerProfile[] = [
       'Mushroom Cultivation',
       'ESG in Higher Education',
     ],
-    provisionalTalkTitle: 'AI-Driven Strategies in Pharmaceutical Development',
+    provisionalTalkTitle:
+      'From Algorithm to Bedside – How AI is rewiring drug discovery and development',
+    isTalkConfirmed: true,
     photoUrl: '/assets/aistudio/Prof._Geetha_new_profile_pic_2383af5d.jpg',
     photoPosition: 'object-[50%_24%]',
   },
@@ -82,7 +84,9 @@ const INVITED_SPEAKERS_DATA: InvitedSpeakerProfile[] = [
     designation: 'Research Scientist, Simcyp, Certara',
     biography:
       'Maitri Sanghavi is a Research Scientist with the Simcyp division of Certara, specialising in biopharmaceutics and mechanistic modelling and simulation for drug product development. She holds an M.S. in Pharmaceutical Sciences from the National Institute of Pharmaceutical Education and Research (NIPER), Mohali, and has approximately ten years of pharmaceutical industry experience.\n\nHer expertise includes physiologically based pharmacokinetic (PBPK) modelling, physiologically based biopharmaceutics modelling (PBBM), in vitro–in vivo correlation (IVIVC/IVIVR), virtual bioequivalence, formulation optimisation, food-effect assessment and model-informed drug development. Her work also involves applying modelling approaches to support regulatory submissions and pharmaceutical development decisions.',
-    provisionalTalkTitle: 'Computational Approaches for Drug Discovery and Development',
+    provisionalTalkTitle:
+      'Role of MIDD to accelerate the drug development process and regulatory approvals',
+    isTalkConfirmed: true,
     photoUrl: '/assets/aistudio/image_4c8c2952.png',
     photoPosition: 'object-[50%_26%]',
   },
@@ -170,8 +174,9 @@ const INVITED_SPEAKERS_DATA: InvitedSpeakerProfile[] = [
     ],
     officialProfileUrl: 'https://www.bits-pilani.ac.in/hyderabad/prof-swati-biswas/',
     officialProfileLabel: 'Official Faculty Profile – BITS Pilani',
-    provisionalTalkTitle: 'To be announced',
-    isTalkPending: true,
+    provisionalTalkTitle:
+      'SMART Nanocarriers for Drug Delivery to Treat Cancer and Infectious Diseases',
+    isTalkConfirmed: true,
     photoUrl: '/assets/aistudio/swati_biswas_68b10bbf.jpg',
     photoPosition: 'object-[50%_18%]',
   },

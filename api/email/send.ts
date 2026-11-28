@@ -1219,18 +1219,22 @@ async function dispatchToAppsScript(params: {
     const sentAt =
       typeof parsedPayload.sentAt === 'string' && parsedPayload.sentAt.trim()
         ? parsedPayload.sentAt.trim()
-        : new Date().toISOString();
+        : duplicateReported
+          ? null
+          : new Date().toISOString();
 
     const serviceName =
       typeof parsedPayload.service === 'string' && parsedPayload.service.trim()
         ? parsedPayload.service.trim()
         : 'SRMCOP Conference Email Service';
 
-    completedDispatches.set(params.eventId, {
-      sentAt,
-      recipient: params.recipient,
-      cachedAt: Date.now(),
-    });
+    if (!duplicateReported) {
+      completedDispatches.set(params.eventId, {
+        sentAt,
+        recipient: params.recipient,
+        cachedAt: Date.now(),
+      });
+    }
 
     const resolvedResponseCc =
       typeof parsedPayload.cc === 'string' && parsedPayload.cc.trim()
@@ -1246,7 +1250,7 @@ async function dispatchToAppsScript(params: {
         recipient: params.recipient,
         cc: resolvedResponseCc || null,
         subject: params.builtEmail.subject,
-        status: 'Sent',
+        status: duplicateReported ? 'Already Sent' : 'Sent',
         sentAt,
         duplicatePrevented: duplicateReported,
         alreadySent: duplicateReported,
@@ -1747,8 +1751,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           eventType,
           recipient,
           subject: builtEmail.subject,
-          status: 'Sent',
-          sentAt: existingLog.sentAt || existingLog.lastAttemptedAt || new Date().toISOString(),
+          status: 'Already Sent',
+          sentAt: existingLog.sentAt || null,
           alreadySent: true,
           duplicatePrevented: true,
           service: 'SRMCOP Conference Email Service',
@@ -1769,7 +1773,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       eventType,
       recipient: cachedSent.recipient,
       subject: builtEmail.subject,
-      status: 'Sent',
+      status: 'Already Sent',
       sentAt: cachedSent.sentAt,
       alreadySent: true,
       duplicatePrevented: true,

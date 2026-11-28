@@ -14,7 +14,7 @@ export type EmailEventType =
   | 'abstract_confirmation'
   | 'abstract_acceptance';
 
-export type EmailLogStatus = 'Pending' | 'Sent' | 'Failed';
+export type EmailLogStatus = 'Pending' | 'Sent' | 'Already Sent' | 'Failed';
 
 export interface EmailLogRecord {
   id: string;
@@ -236,6 +236,7 @@ async function postToEmailSendApi(params: {
   bearerToken?: string;
 }): Promise<{
   ok: boolean;
+  status: EmailLogStatus;
   sentAt: string | null;
   cc: string | null;
   duplicatePrevented: boolean;
@@ -301,6 +302,7 @@ async function postToEmailSendApi(params: {
         : `Email API returned HTTP ${response.status}`;
     return {
       ok: false,
+      status: 'Failed',
       sentAt: null,
       cc: null,
       duplicatePrevented: false,
@@ -322,6 +324,7 @@ async function postToEmailSendApi(params: {
   ) {
     return {
       ok: false,
+      status: 'Failed',
       sentAt: null,
       cc: null,
       duplicatePrevented: false,
@@ -336,7 +339,8 @@ async function postToEmailSendApi(params: {
 
   return {
     ok: true,
-    sentAt: typeof data.sentAt === 'string' ? data.sentAt : new Date().toISOString(),
+    status: duplicatePrevented ? 'Already Sent' : 'Sent',
+    sentAt: typeof data.sentAt === 'string' ? data.sentAt : null,
     cc: typeof data.cc === 'string' && data.cc.trim() ? data.cc.trim() : null,
     duplicatePrevented,
     service: typeof data.service === 'string' ? data.service : 'SRMCOP Conference Email Service',
@@ -468,9 +472,9 @@ async function finalizeEmailLogDoc(params: {
   const logRef = doc(db, 'emailLogs', params.eventId);
   try {
     await updateDoc(logRef, {
-      status: params.ok ? 'Sent' : 'Failed',
+      status: params.duplicatePrevented ? 'Already Sent' : params.ok ? 'Sent' : 'Failed',
       lastAttemptedAt: now,
-      sentAt: params.ok ? params.sentAt || now : null,
+      sentAt: params.ok ? params.sentAt : null,
       error: params.ok ? null : params.error || 'Email delivery failed.',
       duplicatePrevented: params.duplicatePrevented,
       providerService: params.service || 'SRMCOP Conference Email Service',
@@ -557,7 +561,7 @@ export async function triggerRegistrationReceivedEmail(
         success: apiResult.ok,
         eventId,
         eventType: 'registration_received',
-        status: apiResult.ok ? 'Sent' : 'Failed',
+        status: apiResult.status,
         cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
@@ -660,7 +664,7 @@ export async function triggerRegistrationConfirmedEmail(
         success: apiResult.ok,
         eventId,
         eventType: 'registration_confirmation',
-        status: apiResult.ok ? 'Sent' : 'Failed',
+        status: apiResult.status,
         cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
@@ -768,7 +772,7 @@ export async function triggerAbstractSubmittedEmail(
         success: apiResult.ok,
         eventId,
         eventType: 'abstract_confirmation',
-        status: apiResult.ok ? 'Sent' : 'Failed',
+        status: apiResult.status,
         cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
@@ -1085,7 +1089,7 @@ export async function triggerAbstractAcceptedEmail(
         success: apiResult.ok,
         eventId,
         eventType: 'abstract_acceptance',
-        status: apiResult.ok ? 'Sent' : 'Failed',
+        status: apiResult.status,
         cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
@@ -1371,7 +1375,7 @@ export async function retryEmailNotification(params: {
         success: apiResult.ok,
         eventId,
         eventType,
-        status: apiResult.ok ? 'Sent' : 'Failed',
+        status: apiResult.status,
         cc: apiResult.cc,
         duplicatePrevented: apiResult.duplicatePrevented,
         sentAt: apiResult.sentAt,
@@ -1497,7 +1501,7 @@ export async function sendAdminTestEmail(params: {
       success: apiResult.ok,
       eventId,
       eventType: params.eventType,
-      status: apiResult.ok ? 'Sent' : 'Failed',
+      status: apiResult.status,
       cc: apiResult.cc,
       duplicatePrevented: apiResult.duplicatePrevented,
       sentAt: apiResult.sentAt,

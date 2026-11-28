@@ -1219,7 +1219,9 @@ async function dispatchToAppsScript(params: {
     const sentAt =
       typeof parsedPayload.sentAt === 'string' && parsedPayload.sentAt.trim()
         ? parsedPayload.sentAt.trim()
-        : new Date().toISOString();
+        : duplicateReported
+          ? null
+          : new Date().toISOString();
 
     const serviceName =
       typeof parsedPayload.service === 'string' && parsedPayload.service.trim()
